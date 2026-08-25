@@ -112,6 +112,21 @@ test('REQ-42 /import 命令注册契约（name/description/input.hint）', () =>
   assert.equal(typeof cmd.handler, 'function')
 })
 
+// REQ-42 所有命令 input.hint 非空：dsh-commands 的 normalizeDefinition 对空
+// hint（hint: ''）会硬抛 TypeError，导致插件 apply 阶段加载失败、被 DSH 启动
+// 校验自动回滚。凡带 input 的命令，hint 必须是含非空白字符的字符串。
+test('REQ-42 全部命令 input.hint 非空（空 hint 会致插件加载失败回滚）', () => {
+  const { getAllCommands } = setup()
+  const commands = getAllCommands()
+  assert.ok(commands.length >= 7, `应注册 7 条命令，实际 ${commands.length}`)
+  for (const c of commands) {
+    if (c.input) {
+      assert.equal(typeof c.input.hint, 'string', `命令 ${c.name} 的 input.hint 应为字符串`)
+      assert.ok(c.input.hint.trim().length > 0, `命令 ${c.name} 的 input.hint 不能为空（''）`)
+    }
+  }
+})
+
 test('REQ-42 /import claude <path>：单文件导入成功并落盘会话', async () => {
   const { cmd, sessions, attached } = setup()
   const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-src-')), 'cmd-sess.jsonl')
