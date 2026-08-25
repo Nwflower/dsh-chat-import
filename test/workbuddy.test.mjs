@@ -185,10 +185,6 @@ test('畸形 JSONL 行 → skipped 计数 + skippedLines 明细（不上报内�
 })
 
 test('事件内无 sessionId → 以文件名 workbuddyId（session-uuid stem）作稳定源 id', () => {
-  const raw = wb([
-    { id: 'u', timestamp: TS, type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_query>问</user_query>' }], cwd: CWD },
-    assistantRec('答'),
-  ].map((r, i) => (i === 0 ? r : { ...r, sessionId: SID })))
   // 首条 user 记录故意不带 sessionId，验证转换器全程兜底
   const out = convertWorkbuddyJsonl(wb([
     { id: 'u', timestamp: TS, type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_query>问</user_query>' }], cwd: CWD },
