@@ -30,6 +30,10 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   footer、与同槽用量/设置按钮重叠。现改 `flex: 0 0 auto` + `width: 100%`：row /
   column / wrap 三种容器下都只占全宽、高度随内容。
 
+- **sidebar.footer.action 按钮 rail（折叠侧边栏）态对齐同列图标按钮（issue #25）** —
+  rail 态与设置/用量等图标按钮同列：固定 36×36、justify-content 居中、圆角 50%
+  圆形、单图标无内边距；照旧使用侧边栏同一 CSS 变量，悬停/明暗主题表现不变。
+
 - **WorkBuddy 中途孤儿 function_call_result 误挂 lastStep（PR #23 审查发现）** —
   孤儿结果（无匹配 `function_call`：转录从中途开始 / 调用被过滤，但存在当前步）
   此前经 `|| lastStep` 误挂到最近一步，产出**无对应 `tool/call` 的孤儿
