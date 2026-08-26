@@ -160,7 +160,7 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl", parseFo
 
 ---
 
-## ⭐ Star History
+## Star History
 
 [![Star History Chart](https://api.star-history.com/svg?repos=Nwflower/dsh-chat-import&type=Date)](https://star-history.com/#Nwflower/dsh-chat-import&Date)
 
