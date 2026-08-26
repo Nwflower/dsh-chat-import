@@ -103,6 +103,7 @@
     "coverage": "node --test --experimental-test-coverage --test-coverage-lines=75 \"test/*.test.mjs\"",
     "lint": "eslint .",
     "check:linux": "node .github/scripts/check-linux-compat.mjs",
+    "check:leaks": "node .github/scripts/check-leaks.mjs",
     "build": "node .github/scripts/build-check.mjs",
     "prepack": "npm run build",
     "prepublishOnly": "npm test && git diff --quiet && git diff --cached --quiet && npm pack --dry-run"

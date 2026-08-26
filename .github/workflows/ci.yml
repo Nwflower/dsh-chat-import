@@ -29,6 +29,10 @@ jobs:
       # 结果不得与写死反斜杠字面量比较——防「本地绿、Linux CI 红」的回归（2026-08-14
       # 曾长期红：测试反斜杠合成路径 + posix join() 混合分隔符，mock 裸查找落空）
       - run: npm run check:linux
+      # 提交泄漏扫描（check-leaks）：凭据模式 + dev/ 误 stage；内部项目名黑名单在 CI 缺失
+      #（黑名单文件 dev/leak-blocklist.txt 是 gitignore 本地文件，绝不入库），自动降级为
+      # 通用规则——本地 pre-commit（dev/hooks/pre-commit）覆盖完整规则。
+      - run: npm run check:leaks
       # 双语 README 结构同步护栏（REQ-06）：README.md 与 README.zh-CN.md 的
       # 标题层级序列与语言无关锚点键必须一致；某一版删/加/改标题即红（翻译差异不误报）
       - run: node .github/scripts/check-readme-sync.mjs
