@@ -9,7 +9,7 @@ Every entry maps to commits in the repository history
 npm publish timestamp (cross-checked with `npm view dsh-chat-import time`).
 Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
-## [Unreleased]
+## [0.8.0] - 2026-08-26
 
 ### Changed
 
@@ -84,6 +84,14 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 - **sidebar.footer.action 按钮 rail（折叠侧边栏）态对齐同列图标按钮（issue #25）** —
   rail 态与设置/用量等图标按钮同列：固定 36×36、justify-content 居中、圆角 50%
   圆形、单图标无内边距；照旧使用侧边栏同一 CSS 变量，悬停/明暗主题表现不变。
+
+- **`/doctor` 等命令的 `input.hint` 补全，修复插件加载失败自动回滚（PR #24）** —
+  `/doctor`、`/mcp-status`、`/settings-suggest`、`/import-reset` 的 `input.hint`
+  为空字符串，被宿主 `dsh-commands` 的 `normalizeDefinition` 硬抛
+  「input hint must not be empty」；该错误发生在插件 apply 阶段，被插件加载器
+  判为 entry 加载失败 → DSH 启动校验失败 → 自动回滚，从 npm / GitHub main
+  安装的版本无法生效。四处 hint 补全为「无需参数」，并新增回归测试断言所有
+  带 input 的命令 hint 非空。
 
 - **WorkBuddy 中途孤儿 function_call_result 误挂 lastStep（PR #23 审查发现）** —
   孤儿结果（无匹配 `function_call`：转录从中途开始 / 调用被过滤，但存在当前步）
