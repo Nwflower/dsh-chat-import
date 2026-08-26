@@ -24,6 +24,12 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Fixed
 
+- **sidebar.footer.action 按钮在 `flex-direction: column` 容器下撑满 footer 高度
+  （issue #25）** — 与 @ychris12138/dsh-usage-stats 0.2.10（把 footer 容器强制改
+  为纵排）同装时，行内分支的 `flex: 0 0 100%` 沿主轴（高度）解析，按钮撑满整个
+  footer、与同槽用量/设置按钮重叠。现改 `flex: 0 0 auto` + `width: 100%`：row /
+  column / wrap 三种容器下都只占全宽、高度随内容。
+
 - **WorkBuddy 中途孤儿 function_call_result 误挂 lastStep（PR #23 审查发现）** —
   孤儿结果（无匹配 `function_call`：转录从中途开始 / 调用被过滤，但存在当前步）
   此前经 `|| lastStep` 误挂到最近一步，产出**无对应 `tool/call` 的孤儿
