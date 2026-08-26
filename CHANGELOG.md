@@ -13,6 +13,20 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Changed
 
+- **审计清理（docs/unnecessary-code-audit.md A 级 + B 级部分）** — 同步元数据漂移：
+  三处过时计数注释（`discovery.mjs`「13 种」→「17 种」、`convert/core.mjs` 源枚举
+  「13」→「18」、`panel.mjs`「15 个」→「18 个」）；`index.d.ts` `ToolSurface` 补
+  `doctor` / `import_mcp` / `import_settings` 三接口（此前声明 10 个、实际注册 13 个）、
+  `ScanFormat` 补 `'mimocode'`（此前 16 项、FORMATS 17 项）；`AGENTS.md` 布局表补
+  tools.mjs / restore.mjs / verify.mjs / agents.mjs / mcp.mjs / settings.mjs /
+  doctor.mjs / cwd-map.mjs / handoff.mjs / resume-command.mjs / markdown.mjs /
+  import-prefs.mjs / mimocode.mjs / dsh.mjs 与 export/ 的 kimi.mjs / bundle.mjs，
+  `files` 白名单描述改 `docs/*.md` + `bin`，质量约定 host 面模块白名单补全
+  （import-prefs 等）；`ROADMAP.md` 来源数「14 源 + 本地 JSONL（15 工具）」→
+  「17 源 + 本地 JSONL（13 工具）」、REQ-09 工具名 → `makeImportChatTool`。
+  删除零消费者死 re-export `tailCodexEvents` / `tailGrokbuildEvents`
+  （lib/export/codex.mjs / grokbuild.mjs + export.mjs shim，审计 §1.5）。
+
 - **`export_claude` / `export_codex` / `export_kimi` 三合一为 `export_chat({ format, ... })`
   （注册工具 15 → 13）** — 三个反向导出工具参数面完全相同（sessionId / path /
   outputDir / dryRun），收敛为单一分发器，`format` 为 3 值 enum（claude / codex / kimi）。

@@ -28,7 +28,6 @@ export {
   serializeCodexJsonl,
   serializeCodexJsonlTail,
   verifyCodexJsonl,
-  tailCodexEvents,
 } from './lib/export/codex.mjs'
 
 export {

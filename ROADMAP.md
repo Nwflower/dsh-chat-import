@@ -13,7 +13,7 @@
 
 | 能力 | dsh-chat-import | 生态内其他 |
 | --- | --- | --- |
-| 来源数 | 14 源 + 本地 JSONL（15 工具） | 单源 ~ 4 源 |
+| 来源数 | 17 源 + 本地 JSONL（13 工具） | 单源 ~ 4 源 |
 | 全保真（tool/result + thinking + sourceEventSeqs） | ✅ | 部分 |
 | 增量续写（append 新轮次） | ✅ | 部分（复制式） |
 | 上下文预算保护 | ✅ | — |
@@ -43,7 +43,7 @@
 | REQ-06 | P1 | CI 检查双语 README 同步 | ✅ |
 | REQ-07 | P1 | peer 版本策略与兼容矩阵 | ✅ |
 | REQ-08 | P2 | `index.mjs` 按职责拆分 | ✅ |
-| REQ-09 | P2 | `makeImportTool` 参数收敛 | ✅ c56a4bf |
+| REQ-09 | P2 | `makeImportChatTool` 参数收敛（18 源 → 单分发器） | ✅ c56a4bf + 2c77b26 |
 | REQ-10 | P2 | 引入 eslint + CI 检查 | ✅ |
 | REQ-11 | P2 | 修正 dev 文档过时信息 | ✅ |
 | REQ-12 | P3 | package.json 元数据补齐 + engines 精确化 | ✅ |

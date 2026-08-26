@@ -39,6 +39,9 @@ export declare function exportClaudeSession(
 export interface ToolSurface {
   import_chat(options: ImportChatOptions): Promise<ImportResult>
   import_agents(options?: AgentsImportOptions): Promise<AgentsImportResult>
+  import_mcp(options?: ImportMcpParams): Promise<ImportMcpResult>
+  import_settings(options?: ImportSettingsParams): Promise<ImportSettingsResult>
+  doctor(): Promise<DoctorResult>
   export_chat(options: ExportChatParams): Promise<ExportChatResult>
   export_bundle(options: ExportBundleParams): Promise<ExportBundleResult>
   restore_bundle(options: RestoreBundleParams): Promise<RestoreBundleResult>
@@ -258,6 +261,50 @@ export interface AgentsImportResult {
     reason?: string
     target?: string
   }>
+}
+
+// ---------- doctor（只读健康检查） ----------
+
+export interface DoctorResult {
+  ok: boolean
+  checks: Array<{ name: string; ok: boolean; detail?: string }>
+  issues: string[]
+  totals: { records: number; sessions: number; missingSessions: number; skills: number }
+}
+
+// ---------- import_mcp（Claude/Codex MCP → DSH MCP client 镜像计划） ----------
+
+export interface ImportMcpParams {
+  /** Claude MCP 配置文件路径（默认 ~/.claude.json；也兼容项目 .mcp.json 内容）。 */
+  claudeMcpPath?: string
+  /** Codex config.toml 路径（默认 ~/.codex/config.toml）。 */
+  codexConfigPath?: string
+  /** true 时写盘生成片段（默认 false = dry-run）。 */
+  apply?: boolean
+  /** apply 时输出路径（默认 $DSH_HOME/dsh-chat-import/mcp-mirror.cordis.yml）。 */
+  outPath?: string
+}
+
+export interface ImportMcpResult {
+  total: number
+  servers: Array<{ source: string; name: string; command: string; args: string[]; env: Record<string, string> }>
+  planText: string
+  writtenTo?: string
+}
+
+// ---------- import_settings（Claude/Codex 配置迁移建议，只读） ----------
+
+export interface ImportSettingsParams {
+  /** Claude settings.json 路径（默认 ~/.claude/settings.json）。 */
+  claudeSettingsPath?: string
+  /** Codex config.toml 路径（默认 ~/.codex/config.toml）。 */
+  codexConfigPath?: string
+}
+
+export interface ImportSettingsResult {
+  total: number
+  suggestions: Array<{ key: string; source: string; value: string; suggestion: string; unmappable: boolean }>
+  sources: string[]
 }
 
 // ---------- export_chat（DSH → Claude/Codex/Kimi 三合一，矩阵化互转） ----------
@@ -485,7 +532,7 @@ export interface RetractResult {
 // ---------- scan_discover ----------
 
 export type ScanFormat =
-  | 'claude' | 'codex' | 'cursor' | 'gemini' | 'reasonix' | 'opencode'
+  | 'claude' | 'codex' | 'cursor' | 'gemini' | 'reasonix' | 'opencode' | 'mimocode'
   | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'hermes' | 'kimi'
   | 'qoder' | 'chatgpt' | 'workbuddy' | 'dsh'
 
