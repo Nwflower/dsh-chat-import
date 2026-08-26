@@ -65,7 +65,7 @@
 | REQ-28 | P2 | memory / skills / CLAUDE.md 上下文桥接（默认关闭） | ✅ |
 | REQ-29 | P2 | /import-all 批量命令（Web 面板 REQ-41、/import REQ-42 已落地） | ✅ c53bc4c |
 | REQ-30 | P2 | 交接摘要续聊（/resume-claude /resume-codex） | ✅ cee6153 |
-| REQ-31 | P3 | 竞品 / 官方能力监控（周期性） | ✅ |
+| REQ-31 | P3 | 同类生态插件 / 官方能力监控（周期性） | ✅ |
 | REQ-32 | P1 | 内部标记：`session/imported` 事件 | ✅ |
 | REQ-33 | P2 | 导入识别 / 撤回（`list_imported_sessions` + 引导手动删） | ✅ |
 | REQ-34 | P2 | UI 分组：host-only Web 面板 | ✅ 由 REQ-41 Browser 面板取代 |

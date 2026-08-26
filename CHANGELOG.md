@@ -40,7 +40,7 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   function-calling 最佳实践）** — 宿主 system prompt 与 20 个内置工具均为英文，
   本插件此前是中文孤岛；现按 [Anthropic tool-use 建议](https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/tool-use-concepts.md)
   为每个工具级描述补充「何时调用」触发条件，并**移除 description 中的开发侧注解**
-  （REQ-NN 编号 / issue 编号 / 竞品对标，见 docs/unnecessary-code-audit.md §1.9）——
+  （REQ-NN 编号 / issue 编号 / 同类生态插件对标）——
   这些对模型与最终用户都是零信息量噪声。修正 `scan_discover` 描述过时计数
   「15 种」→「17 种」并补全枚举（mimocode / workbuddy）。参数与 format enum 描述
   同步英文化；工具描述是产品文案（模型上下文 + 用户可见），内部需求编号只留在

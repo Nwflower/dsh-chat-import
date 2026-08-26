@@ -53,7 +53,7 @@ CHANGELOG.md     变更日志（进 npm 包）
 LICENSE          MIT
 assets/          LOGO（import.svg，README 双语顶部引用，进 npm 包）
 test/            convert 单测 + export 单测 + index mock 集成 + zcode 自包含（进 GitHub，不进 npm 包）
-dev/             ❌ 本地工程面（gitignore，永不提交）：bin/（脚本：session.mjs 多会话认领 CLI、verify-*、totp）、hooks/（pre-push）、research/（竞品/方向调研）、HANDOFF.md、REQUIREMENTS.md、GROWTH.md、RELEASING.md、ORCHESTRATOR-PROMPT.md、TESTER-PROMPT.md、gh-pat.txt（凭据勿提交）；多会话协调靠 dsh-file-claim 插件
+dev/             ❌ 本地工程面（gitignore，永不提交）：bin/（脚本：session.mjs 多会话认领 CLI、verify-*、totp）、hooks/（pre-push）、research/（同类生态插件/方向调研）、HANDOFF.md、REQUIREMENTS.md、GROWTH.md、RELEASING.md、ORCHESTRATOR-PROMPT.md、TESTER-PROMPT.md、gh-pat.txt（凭据勿提交）；多会话协调靠 dsh-file-claim 插件
 ```
 
 - `package.json` 的 `files` 白名单就是 npm 发布面：`index.mjs`、`index.d.ts`、`convert.mjs`、`export.mjs`、`lib/*.mjs`、`lib/*.js`、`lib/convert`、`lib/export`、`cordis.patch.yml`、`bin`（`bin/dsh-chat-import.mjs` CLI）、`README.md`、`README.zh-CN.md`、`docs/*.md`（含 INTERCHANGE / USAGE 双语）、`CONTRIBUTING.md`、`ROADMAP.md`、`CHANGELOG.md`、`assets/import.svg`、`LICENSE`。`lib/*.mjs` 通配自动覆盖 lib/ 下全部新模块（新增文件无需改 `files`，`.github/scripts/build-check.mjs` 按 npm 同款 glob 语义展开校验）。
@@ -136,7 +136,7 @@ description）时，只描述**最终采用的状态**，假设读者没看过�
 - 不要把与本任务无关的改动写进本次 commit、PR 或交付说明；对比、引用、审计和迁移说明只在确实需要时保留。
 - 写完通读全部用户可见内容及其包装（含文件名、元数据、hook 改写），内容变化后重新检查；
   不要另加「已清理」「无残留」这类自我声明。
-- **具体到本仓库**：REQ-NN / GitHub issue 编号 / 竞品对标（「对标 dsh-xxx」）只进代码注释，
+- **具体到本仓库**：REQ-NN / GitHub issue 编号 / 同类生态插件对标（「对标 dsh-xxx」）只进代码注释，
   绝不进 `description:` 或 render 文本——它们是开发侧注解，用户无法解析，属零信息噪声。
 
 来源：[no-negative-echo](https://github.com/LB623/no-negative-echo)（Agent Skills，MIT）。
