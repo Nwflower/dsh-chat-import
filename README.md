@@ -37,7 +37,7 @@
 
 `dsh-chat-import` imports conversation histories from **Claude Code, Codex, ChatGPT, Cursor, Gemini, Reasonix, opencode, MiMo Code, ZCode, Grok Build, OpenClaw, Pi Coding Agent, Hermes, Kimi CLI / Kimi Code, Qoder CLI, WorkBuddy and DSH session logs** — tool calls, reasoning and all — as **full-fidelity, resumable DeepSeek Harness sessions**. Source files are read **read-only** (never rewritten), the DSH engine is never touched, and every import becomes a fresh session grouped into the workspace of its source `cwd`.
 
-The reverse direction is covered too: `export_claude` serializes a DSH session back into a Claude Code JSONL transcript that Claude Code can load with `--resume` (read-only — your DSH log is never modified), `sync_to_claude` incrementally appends a session's new turns back to a Claude Code file — guarded, never silently overwriting — and the same matrix extends to **Codex rollouts** (`export_codex`) and **Kimi wire files** (`export_kimi`), plus a **portable interchange bundle** (`export_bundle` / `restore_bundle`) with SHA-256 fingerprints and cross-machine restore.
+The reverse direction is covered too: `export_chat` serializes a DSH session back into a Claude Code JSONL transcript that Claude Code can load with `--resume`, a **Codex rollout**, or a **Kimi wire file** (read-only — your DSH log is never modified); `sync_to_claude` incrementally appends a session's new turns back to a Claude Code file — guarded, never silently overwriting — and a **portable interchange bundle** (`export_bundle` / `restore_bundle`) carries SHA-256 fingerprints and cross-machine restore.
 
 Requires **Node.js ≥ 22.13**, targets **dsh 0.1.x** (tested on `0.1.0-rc.6` / `0.1.0-rc.7`).
 
@@ -74,7 +74,7 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 | --- | --- | --- |
 | Batch import from 17+ sources | `import_chat` (18 formats) · `scan_discover` · sidebar panel · `/import` | A file, a directory or a whole database — each conversation becomes its own session |
 | Full-fidelity resume | Imported sessions | Tool calls & results, reasoning, titles, models and timestamps carry over; sessions group into the source `cwd` workspace |
-| Matrix export | `export_claude` / `export_codex` / `export_kimi` | Serialize DSH sessions back to Claude / Codex / Kimi formats; every lossy item is reported |
+| Matrix export | `export_chat` (`format: claude` / `codex` / `kimi`) | Serialize DSH sessions back to Claude / Codex / Kimi formats; every lossy item is reported |
 | Portable backup | `export_bundle` / `restore_bundle` | Interchange bundle with dual SHA-256 fingerprints, restorable across machines |
 | Incremental write-back | `sync_to_claude` | Appends new complete turns back to a Claude Code file — guarded, never overwriting |
 | Bidirectional sync | panel "Sync" tab | Incremental inbound/outbound sync across Claude / Codex / Grok; sub-agent conversations filtered by default; per-directory `excludeDirs` deny-list |

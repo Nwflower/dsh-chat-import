@@ -14,14 +14,14 @@ DSH 的哲学是 **everything is a plugin**——本仓库只做插件，不碰�
 
 ```
 index.mjs        插件入口
-index.d.ts       类型面，覆盖 15 个工具的参数/返回；
+index.d.ts       类型面，覆盖 13 个工具的参数/返回；
 tsconfig.json    TS 工具链最小配置（仅 include index.d.ts；零构建、不进 npm 包）
 lib/             导入/同步驱动（按职责拆分，均消费 ctx、非纯函数）：imports.mjs（幂等 registry）、
                  backfill.mjs（sync_to_claude 写回）、discovery.mjs（17 格式统一发现 + 30s TTL / 持久化
                  书签）、budget.mjs（REQ-37 预算解析链）、import-core.mjs（共享导入编排：importTranscript
                  状态机 / importDirectory / runDecision 落盘 / 归组 / 标准预览）、import-variants.mjs
                  （chatgpt / grokbuild / hermes / kimi 编排 + opencode / zcode 等 dry-run 预览）、toolkit.mjs
-                 （import_chat 分发器工厂：18 种格式收敛为单工具 + IMPORT_SPECS 登记）、export-tool.mjs（export_claude 执行体）、
+                 （import_chat 分发器工厂：18 种格式收敛为单工具 + IMPORT_SPECS 登记）、export-tool.mjs（export_chat 三合一执行体：Claude/Codex/Kimi）、
                  retract.mjs（REQ-33 识别/撤回）、discovery-host.mjs（scan_discover host 适配）、
                  panel.mjs（REQ-41 面板路由）、sync-config.mjs / sync-loop.mjs / sync-panel.mjs
                  （双向增量：入站巡检 + DSH→Claude/Codex/Grok 写出 + 控制台路由）、
@@ -60,7 +60,7 @@ npm run check:linux   # 跨平台路径纪律静态检查（.github/scripts/chec
 npm run build   # 零构建包的「build」：发布面自检（files 完整性 + node --check 语法 + lockfile 版本，prepack 自动跑）
 ```
 
-无构建步骤：纯 ESM，`index.mjs` / `convert.mjs` / `export.mjs` / `lib/` 即发布产物（`lib/client.js` 是手写 CJS bundle，亦无构建；`npm run build` 是发布面自检而非编译）。DSH 手工验证：`dsh plugin --profile web add -w link:<本仓库路径>` 后重启 dsh，在会话里调 `import_chat`（`format` 选 18 种来源之一）/ `scan_discover` / `export_claude` / `sync_to_claude` / `list_imported_sessions` / `retract_import`；Browser 侧验证：dsh web 侧边栏底部「导入会话」按钮 → 面板按工作区分组浏览 + 单选/多选导入。
+无构建步骤：纯 ESM，`index.mjs` / `convert.mjs` / `export.mjs` / `lib/` 即发布产物（`lib/client.js` 是手写 CJS bundle，亦无构建；`npm run build` 是发布面自检而非编译）。DSH 手工验证：`dsh plugin --profile web add -w link:<本仓库路径>` 后重启 dsh，在会话里调 `import_chat`（`format` 选 18 种来源之一）/ `scan_discover` / `export_chat`（`format: claude` / `codex` / `kimi`）/ `sync_to_claude` / `list_imported_sessions` / `retract_import`；Browser 侧验证：dsh web 侧边栏底部「导入会话」按钮 → 面板按工作区分组浏览 + 单选/多选导入。
 
 ## 提交纪律（保持仓库干净）
 
@@ -99,7 +99,7 @@ npm run build   # 零构建包的「build」：发布面自检（files 完整性
 
 ## DSH 插件约束
 
-- **只消费 host 公开服务**：`sessionPersistence`（create + append 落盘；list + readFrom 供 `export_claude` / `sync_to_claude` 只读）、`fs`、`tools`、`webServer`（REQ-41 面板 JSON 路由）、`workspaceRegistry`；`agentDefaultModel` / `llm`（REQ-37 预算自适应）可选，经 `ctx.get` 读取、缺失或抛错即回退。opencode / zcode / hermes 用 `node:sqlite`（`DatabaseSync`，host 面）。不发布服务 → 无需 isolate realm。**有 Browser 侧**（REQ-41 已定案选 Browser 入口：`lib/client.js` 手写 CJS bundle 注册到 `sidebar.footer.action` 槽，`package.json` 声明 `dsh.client` + peer `react` / `@deepseek-ai/dsh-client-locale`，`files` 含 `lib/client.js`；面板只消费 host JSON 路由，不 import DSH host 模块）。
+- **只消费 host 公开服务**：`sessionPersistence`（create + append 落盘；list + readFrom 供 `export_chat` / `sync_to_claude` 只读）、`fs`、`tools`、`webServer`（REQ-41 面板 JSON 路由）、`workspaceRegistry`；`agentDefaultModel` / `llm`（REQ-37 预算自适应）可选，经 `ctx.get` 读取、缺失或抛错即回退。opencode / zcode / hermes 用 `node:sqlite`（`DatabaseSync`，host 面）。不发布服务 → 无需 isolate realm。**有 Browser 侧**（REQ-41 已定案选 Browser 入口：`lib/client.js` 手写 CJS bundle 注册到 `sidebar.footer.action` 槽，`package.json` 声明 `dsh.client` + peer `react` / `@deepseek-ai/dsh-client-locale`，`files` 含 `lib/client.js`；面板只消费 host JSON 路由，不 import DSH host 模块）。
 - **插件，不是引擎改动**：新行为走公开扩展点（工具注册）；绝不修改 DSH 引擎 / apiproxy / 官方 UI 包。
 - **会话日志 append-only、deep-frozen**：只 `create` + `append`，绝不改写历史事件。
 - **模型可见 ⟺ 落盘**：进入模型上下文的任何内容必须能从会话日志重建；新模型可见输入必须对应会话事件。

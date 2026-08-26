@@ -80,14 +80,14 @@ retract_import({ sessionId: "import-019f5f27-…" })
 
 > **Ghost sessions after retract (#22)** — the DSH host has no delete/forget API: after `retract_import` and manual artifact deletion, the session id may still occupy the host's in-memory index (it stays visible in the session list until dsh restarts, and re-importing the same source used to fail with `session "…" already exists in this backend`). This is now self-healed: re-import detects the stale entry (still listed but log unreadable, or `create` rejecting the id) and **automatically mints a suffixed new session id** (`import-<id>-1`) with a clear `staleGhost: { previous, current }` report instead of failing; `retract_import`'s `manualDelete` guidance also notes that the ghost only fully disappears after a dsh restart.
 
-### export_claude / export_codex / export_kimi — DSH → target format
+### export_chat — DSH → Claude / Codex / Kimi (matrix export)
 
-`export_claude({ sessionId })` serializes an existing DSH session (imported or native) into a Claude Code JSONL transcript, ready for `--resume`. It is written to `<outputDir>/<slug>/<uuid>.jsonl` (default `~/.claude/projects`), with a fresh UUID v4 file name — an existing file is never overwritten. `export_codex` and `export_kimi` write Codex rollout JSONL and Kimi `wire.jsonl` respectively (default `~/.dsh/exports`) — completing the DSH↔Claude↔Codex↔Kimi matrix (the import edges already exist). Every export lists its **lossy items** in a `degradations` field (orphan tool results, skipped injections, skipped attachments) — nothing is silently dropped:
+`export_chat({ format: "claude", sessionId })` serializes an existing DSH session (imported or native) into a Claude Code JSONL transcript, ready for `--resume`. It is written to `<outputDir>/<slug>/<uuid>.jsonl` (default `~/.claude/projects`), with a fresh UUID v4 file name — an existing file is never overwritten. `format: "codex"` and `format: "kimi"` write Codex rollout JSONL and Kimi `wire.jsonl` respectively (default `~/.dsh/exports`, or `path: …` to pick a target) — completing the DSH↔Claude↔Codex↔Kimi matrix (the import edges already exist). Every export lists its **lossy items** in a `degradations` field (orphan tool results, skipped injections, skipped attachments) — nothing is silently dropped:
 
 ```
-export_claude({ sessionId: "import-019f5f27-…" })
-export_codex({ sessionId: "…", dryRun: true })
-export_kimi({ sessionId: "…", outputDir: "D:\backup\kimi" })
+export_chat({ format: "claude", sessionId: "import-019f5f27-…" })
+export_chat({ format: "codex", sessionId: "…", dryRun: true })
+export_chat({ format: "kimi", sessionId: "…", outputDir: "D:\backup\kimi" })
 ```
 
 ### export_bundle / restore_bundle — portable interchange bundle
@@ -153,7 +153,7 @@ import_settings()                             // list suggestions
 
 ### sync_to_claude — incremental write-back
 
-`sync_to_claude({ sessionId })` appends a session's **new complete turns** back to its Claude Code file — `target: "source"` by default (the import source) or `"copy"` (the last `export_claude` copy). Guards report an externally modified or shrunken file instead of overwriting it; `force: true` re-anchors past external edits (the overridden guard is still reported):
+`sync_to_claude({ sessionId })` appends a session's **new complete turns** back to its Claude Code file — `target: "source"` by default (the import source) or `"copy"` (the last `export_chat` `format: "claude"` copy). Guards report an externally modified or shrunken file instead of overwriting it; `force: true` re-anchors past external edits (the overridden guard is still reported):
 
 ```
 sync_to_claude({ sessionId: "import-019f5f27-…" })

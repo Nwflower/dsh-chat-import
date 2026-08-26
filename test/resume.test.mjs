@@ -132,7 +132,8 @@ test('resume-claude 命令：留空 = 最近会话（时间戳降序）；id: �
   const resumeCodex = commands.find((c) => c.name === 'resume-codex')
   assert.ok(resumeClaude)
   assert.ok(resumeCodex)
-  assert.match(resumeClaude.description, /REQ-30/)
+  // 描述净化（无 REQ-NN / 竞品对标，审计 §1.9）：断言描述不再泄漏开发侧注解
+  assert.doesNotMatch(resumeClaude.description, /REQ-\d+|对标/)
 
   // 留空 → 最近（sess-new，时间戳最新）
   const latest = await resumeClaude.handler({ rawInput: '' })

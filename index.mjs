@@ -14,8 +14,8 @@
 //   lib/import-variants.mjs 特殊形态来源编排：chatgpt / grokbuild / hermes / kimi +
 //                           opencode / zcode / hermes / grokbuild / chatgpt 的 dry-run 预览
 //   lib/toolkit.mjs         import_chat 分发器工厂（REQ-09 分组 spec）+ IMPORT_SPECS
-//   lib/export-tool.mjs     export_claude / export_codex / export_kimi（REQ-23）/
-//                           export_bundle（REQ-56）执行体
+//   lib/export-tool.mjs     export_chat 三合一执行体（exportClaudeSession / exportCodexSession /
+//                           exportKimiSession）+ export_bundle（REQ-56）执行体
 //   lib/restore.mjs         REQ-56/62 restore_bundle（指纹校验 + 跨机器归组回退）
 //   lib/verify.mjs          REQ-23 verify_session（只读结构校验 + repair 提示）
 //   lib/handoff.mjs         REQ-30 交接摘要纯函数（不可信静态历史 → 交接摘要）
@@ -23,13 +23,14 @@
 //   lib/retract.mjs         REQ-33 导入识别 / 撤回（list_imported_sessions / retract_import）
 //   lib/discovery-host.mjs  REQ-25/40 scan_discover 的 host 适配（fs + SQLite 摘要）
 //   lib/panel.mjs           REQ-41 面板路由（POST /api-import/sessions + /api-import/import）
-//   lib/tools.mjs           15 个工具的注册（import_chat 分发器 = 18 个导入源 +
+//   lib/tools.mjs           13 个工具的注册（import_chat 分发器 = 18 个导入源 +
 //                           import_agents + doctor + import_mcp + import_settings +
-//                           export×3 + bundle×2 + sync + 识别/撤回 + 发现 + verify）
+//                           export_chat（claude/codex/kimi 三合一）+ bundle×2 + sync +
+//                           识别/撤回 + 发现 + verify）
 //
 // 本文件只做组装：registerTools 注册工具；webServer 是可选且晚挂载的 host 服务，
 // 面板路由经 ctx.inject(['webServer']) 延迟注册（headless / 无 Web 的 profile 不挂载
-// 路由但照常 apply，16 个导入工具与 CLI 会话不受影响）。
+// 路由但照常 apply，13 个工具与 CLI 会话不受影响）。
 
 import { resolveRegistryDir } from './lib/imports.mjs'
 import { registerTools } from './lib/tools.mjs'

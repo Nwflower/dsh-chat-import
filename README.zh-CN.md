@@ -37,7 +37,7 @@
 
 `dsh-chat-import` 从 **Claude Code、Codex、ChatGPT、Cursor、Gemini、Reasonix、opencode、MiMo Code、ZCode、Grok Build、OpenClaw、Pi Coding Agent、Hermes、Kimi CLI / Kimi Code、Qoder CLI、WorkBuddy 与 DSH 会话日志** 导入聊天历史，将工具调用、思考过程一并导入，成为无缝继续的 DeepSeek Harness 会话。源文件只读读取（绝不改写），不碰 DSH 引擎；每次导入都成为一条全新会话，并按源 `cwd` 归入对应工作区。
 
-同样支持导出和同步：`export_claude` 把 DSH 会话序列化回 Claude Code JSONL，Claude Code 可用 `--resume` 加载续聊；`sync_to_claude` 再把会话新增轮次增量写回 Claude Code 文件——带守卫、绝不静默覆盖；同一矩阵延伸到 **Codex rollout**（`export_codex`）与 **Kimi wire**（`export_kimi`），外加带 SHA-256 指纹与跨机器还原的**便携 interchange bundle**（`export_bundle` / `restore_bundle`）。
+同样支持导出和同步：`export_chat` 把 DSH 会话序列化回 Claude Code JSONL（Claude Code 可用 `--resume` 加载续聊）、**Codex rollout** 或 **Kimi wire**；`sync_to_claude` 再把会话新增轮次增量写回 Claude Code 文件——带守卫、绝不静默覆盖；外加带 SHA-256 指纹与跨机器还原的**便携 interchange bundle**（`export_bundle` / `restore_bundle`）。
 
 需要 **Node.js ≥ 22.13**，面向 **dsh 0.1.x**（实测 `0.1.0-rc.6` / `0.1.0-rc.7`）。
 
@@ -74,7 +74,7 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 | --- | --- | --- |
 | 批量导入 17+ 源 | `import_chat`（18 种格式）· `scan_discover` · 侧边栏面板 · `/import` | 单个文件、目录或整个数据库，每段对话成为独立会话 |
 | 全保真续聊 | 导入即 DSH 会话 | 工具调用/结果、思考、标题、模型、时间戳原样保留，按源 `cwd` 归组工作区 |
-| 矩阵导出 | `export_claude` / `export_codex` / `export_kimi` | DSH 会话序列化回 Claude / Codex / Kimi 格式，有损项逐条报告 |
+| 矩阵导出 | `export_chat`（`format: claude` / `codex` / `kimi`） | DSH 会话序列化回 Claude / Codex / Kimi 格式，有损项逐条报告 |
 | 便携备份 | `export_bundle` / `restore_bundle` | SHA-256 双指纹的 interchange bundle，可跨机器还原 |
 | 增量写回 | `sync_to_claude` | 新增完整轮次追加回 Claude Code 文件，带守卫绝不覆盖 |
 | 双向同步 | 面板「同步」页 | Claude / Codex / Grok 双向增量同步；子代理对话默认过滤；`excludeDirs` 按目录排除 |

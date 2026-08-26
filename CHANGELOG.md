@@ -13,6 +13,25 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Changed
 
+- **`export_claude` / `export_codex` / `export_kimi` 三合一为 `export_chat({ format, ... })`
+  （注册工具 15 → 13）** — 三个反向导出工具参数面完全相同（sessionId / path /
+  outputDir / dryRun），收敛为单一分发器，`format` 为 3 值 enum（claude / codex / kimi）。
+  执行体（exportClaudeSession / exportCodexSession / exportKimiSession）与输出 schema
+  契约不变：claude 分支保留 cwd / mapping / slug / title，codex/kimi 分支保留
+  toolCalls / toolResults；`sync_to_claude` 的 `target:'copy'` 语义不变（写回
+  `export_chat format=claude` 导出的副本）。每请求工具 schema 再降：export 面从
+  3 份重复参数/描述合并为 1 份。
+
+- **全部 13 个工具 description 英文化并重写（对齐宿主 DSH 英文工具面 + 官方
+  function-calling 最佳实践）** — 宿主 system prompt 与 20 个内置工具均为英文，
+  本插件此前是中文孤岛；现按 [Anthropic tool-use 建议](https://github.com/anthropics/skills/blob/main/skills/claude-api/shared/tool-use-concepts.md)
+  为每个工具级描述补充「何时调用」触发条件，并**移除 description 中的开发侧注解**
+  （REQ-NN 编号 / issue 编号 / 竞品对标，见 docs/unnecessary-code-audit.md §1.9）——
+  这些对模型与最终用户都是零信息量噪声。修正 `scan_discover` 描述过时计数
+  「15 种」→「17 种」并补全枚举（mimocode / workbuddy）。参数与 format enum 描述
+  同步英文化；工具描述是产品文案（模型上下文 + 用户可见），内部需求编号只留在
+  代码注释与 CHANGELOG。
+
 - **18 个 `import_*` 聊天导入工具收敛为单一 `import_chat` 分发器（注册工具
   32 → 15）** — 会话工具面从每来源一个工具（`import_claude` / `import_codex` /
   `import_chatgpt` / `import_cursor` / `import_gemini` / `import_reasonix` /

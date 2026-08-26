@@ -1,7 +1,7 @@
 // index.d.ts — dsh-chat-import 类型面（手写维护，随工具 schema 变更同步）
 //
 // 本包是零构建纯 ESM 插件：index.mjs 只导出 Cordis 插件入口（apply/inject/name）
-// 与少量 host 面辅助函数；15 个工具由 apply 动态注册，不在此模块导出。
+// 与少量 host 面辅助函数；13 个工具由 apply 动态注册，不在此模块导出。
 // 因此本文件把「工具调用面」声明为一个类型化接口（ToolSurface），供 TS 调用方
 // 参考参数/返回结构，而不是伪装成真实的模块导出。
 //
@@ -25,21 +25,21 @@ export declare function readOpencodeDb(...args: unknown[]): Promise<unknown>
 export declare function readZcodeDb(...args: unknown[]): Promise<unknown>
 export declare function exportClaudeSession(
   ctx: HostContext,
-  args: ExportClaudeParams,
+  args: ExportChatParams & { cwd?: string },
   options?: { registryDir?: string },
-): Promise<ExportClaudeResult>
+): Promise<ExportChatResult>
 
-// ---------- 工具调用面（ToolSurface：apply 注册的 15 个工具） ----------
+// ---------- 工具调用面（ToolSurface：apply 注册的 13 个工具） ----------
 // import_chat 是 18 个聊天导入源（17 个面板来源 + local-jsonl）的统一分发入口：
 // format 必填（源枚举），专属参数（compacted / branch / sessionIds / fullHistory /
-// lineage / parseFormat）只对相应 format 生效。
+// lineage / parseFormat）只对相应 format 生效。export_chat 是 DSH → Claude/Codex/Kimi
+// 三个出边的统一分发入口：format 必填（claude/codex/kimi），cwd 仅 claude 有效、
+// path 仅 codex/kimi 有效。
 
 export interface ToolSurface {
   import_chat(options: ImportChatOptions): Promise<ImportResult>
   import_agents(options?: AgentsImportOptions): Promise<AgentsImportResult>
-  export_claude(options: ExportClaudeParams): Promise<ExportClaudeResult>
-  export_codex(options: ExportTargetParams): Promise<ExportTargetResult>
-  export_kimi(options: ExportTargetParams): Promise<ExportTargetResult>
+  export_chat(options: ExportChatParams): Promise<ExportChatResult>
   export_bundle(options: ExportBundleParams): Promise<ExportBundleResult>
   restore_bundle(options: RestoreBundleParams): Promise<RestoreBundleResult>
   verify_session(options: { sessionId: string }): Promise<VerifySessionResult>
@@ -260,51 +260,20 @@ export interface AgentsImportResult {
   }>
 }
 
-// ---------- export_codex / export_kimi（REQ-23 矩阵化互转） ----------
+// ---------- export_chat（DSH → Claude/Codex/Kimi 三合一，矩阵化互转） ----------
 
-export interface ExportTargetParams {
+export type ExportFormat = 'claude' | 'codex' | 'kimi'
+
+export interface ExportChatParams {
+  /** 目标格式（必填）：claude=Claude Code JSONL（可 --resume 续聊）；codex=Codex rollout JSONL；kimi=Kimi CLI wire.jsonl。 */
+  format: ExportFormat
   /** 要导出的 DSH 会话 id（必填）。 */
   sessionId: string
-  /** 输出文件路径（缺省 <outputDir>/<sessionId>.rollout.jsonl 或 .wire.jsonl）。 */
-  path?: string
-  /** 输出目录（默认 ~/.dsh/exports）。 */
-  outputDir?: string
-  /** true 时不写盘，只序列化并返回目标路径与统计。 */
-  dryRun?: boolean
-}
-
-export interface ExportTargetResult {
-  mode: 'single'
-  sessionId: string
-  filePath: string
-  recordCount: number
-  toolCalls: number
-  toolResults: number
-  dryRun: boolean
-  degradations?: Array<{ id: string; kind: string; strategy: 'lossless' | 'text-fallback' | 'skip-placeholder'; count: number }>
-}
-
-// ---------- verify_session（REQ-23 只读结构校验 + repair 提示） ----------
-
-export interface VerifySessionResult {
-  mode: 'single'
-  sessionId: string
-  ok: boolean
-  eventCount: number
-  turns: number
-  title?: string
-  problems: Array<{ kind: string; seq: number | null; message: string }>
-  repairHints: Array<{ kind: string; hint: string }>
-}
-
-// ---------- export_claude / sync_to_claude ----------
-
-export interface ExportClaudeParams {
-  /** 要导出的 DSH 会话 id（必填）。 */
-  sessionId: string
-  /** 覆盖导出记录的 cwd（默认取会话 header.cwd；两者皆无则报错）。 */
+  /** 覆盖导出记录的 cwd（仅 claude；默认取会话 header.cwd；两者皆无则报错）。 */
   cwd?: string
-  /** Claude Code projects 根目录（默认 ~/.claude/projects），文件写到 <outputDir>/<slug>/<uuid>.jsonl。 */
+  /** 输出文件路径（仅 codex/kimi；缺省 <outputDir>/<sessionId>.rollout.jsonl 或 .wire.jsonl）。 */
+  path?: string
+  /** 输出目录（claude 默认 ~/.claude/projects，文件写到 <outputDir>/<slug>/<uuid>.jsonl；codex/kimi 默认 ~/.dsh/exports）。 */
   outputDir?: string
   /** true 时不写盘，只序列化并返回目标路径与统计。 */
   dryRun?: boolean
@@ -323,22 +292,40 @@ export interface ExportMapping {
   skippedInjections: number
 }
 
-export interface ExportClaudeResult {
+export interface ExportChatResult {
   mode: 'single'
   sessionId: string
-  sourceSessionId: string
   filePath: string
-  slug: string
-  cwd: string
   recordCount: number
-  title?: string
   dryRun: boolean
-  mapping: ExportMapping
+  /** claude 分支：原会话 id / slug / cwd / 标题（codex/kimi 无）。 */
+  sourceSessionId?: string
+  slug?: string
+  cwd?: string
+  title?: string
+  /** claude 分支：写回副本映射（codex/kimi 无）。 */
+  mapping?: ExportMapping
+  /** codex/kimi 分支：工具调用/结果计数（claude 无顶层计数，见 mapping）。 */
+  toolCalls?: number
+  toolResults?: number
   /** REQ-21 降级清单（有损项逐条报告；仅非空时出现）。 */
   degradations?: Array<{ id: string; kind: string; strategy: 'lossless' | 'text-fallback' | 'skip-placeholder'; count: number }>
 }
 
-// ---------- export_bundle / restore_bundle（REQ-56/62 interchange bundle） ----------
+// ---------- verify_session（REQ-23 只读结构校验 + repair 提示） ----------
+
+export interface VerifySessionResult {
+  mode: 'single'
+  sessionId: string
+  ok: boolean
+  eventCount: number
+  turns: number
+  title?: string
+  problems: Array<{ kind: string; seq: number | null; message: string }>
+  repairHints: Array<{ kind: string; hint: string }>
+}
+
+// ---------- sync_to_claude（反向同步增量写回） ----------
 
 export interface ExportBundleParams {
   /** 要导出的 DSH 会话 id（必填）。 */
@@ -421,7 +408,7 @@ export interface RestoreBundleResult {
 export interface SyncToClaudeParams {
   /** 要写回的 DSH 会话 id（必须是由本插件导入的会话，带 session/imported 标记）。 */
   sessionId: string
-  /** 写回目标 'source'（默认，导入源文件）| 'copy'（export_claude 导出的副本）。 */
+  /** 写回目标 'source'（默认，导入源文件）| 'copy'（export_chat format=claude 导出的副本）。 */
   target?: 'source' | 'copy'
   /** true 时跳过三闸守卫并以当前文件重锚定，可能覆盖外部修改。 */
   force?: boolean

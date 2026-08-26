@@ -260,15 +260,19 @@ function assertImportedMarker(events, { tool, sourceId, sourcePath }) {
   assert.ok(ev.data.importedAt > 0)
 }
 
-test('apply 注册十五个工具（import_chat 分发器 + import_agents + doctor + import_mcp + import_settings + scan_discover + export_claude/codex/kimi + sync_to_claude + REQ-33 识别/撤回 + REQ-56 bundle 导出/还原 + verify_session）', () => {
+test('apply 注册十三个工具（import_chat 分发器 + import_agents + doctor + import_mcp + import_settings + scan_discover + export_chat 三合一 + sync_to_claude + REQ-33 识别/撤回 + REQ-56 bundle 导出/还原 + verify_session）', () => {
   const { ctx, registered } = makeCtx({})
   apply(ctx)
-  assert.equal(registered.length, 15)
+  assert.equal(registered.length, 13)
   const names = registered.map((d) => d.name).sort()
-  assert.deepEqual(names, ['doctor', 'export_bundle', 'export_claude', 'export_codex', 'export_kimi', 'import_agents', 'import_chat', 'import_mcp', 'import_settings', 'list_imported_sessions', 'restore_bundle', 'retract_import', 'scan_discover', 'sync_to_claude', 'verify_session'])
+  assert.deepEqual(names, ['doctor', 'export_bundle', 'export_chat', 'import_agents', 'import_chat', 'import_mcp', 'import_settings', 'list_imported_sessions', 'restore_bundle', 'retract_import', 'scan_discover', 'sync_to_claude', 'verify_session'])
   for (const def of registered) {
-    if (['doctor', 'import_mcp', 'import_settings', 'export_claude', 'export_codex', 'export_kimi', 'export_bundle', 'restore_bundle', 'sync_to_claude', 'scan_discover', 'list_imported_sessions', 'retract_import', 'verify_session'].includes(def.name)) {
-      // doctor / MCP / settings / 导出 / bundle / 写回 / 发现 / 识别 / 撤回 / 校验工具：单对象输出 schema（非 oneOf）
+    if (['doctor', 'import_mcp', 'import_settings', 'export_bundle', 'restore_bundle', 'sync_to_claude', 'scan_discover', 'list_imported_sessions', 'retract_import', 'verify_session'].includes(def.name)) {
+      // doctor / MCP / settings / bundle / 写回 / 发现 / 识别 / 撤回 / 校验工具：单对象输出 schema（非 oneOf）
+      assert.equal(def.output.schema.type, 'object')
+      assert.ok(!Array.isArray(def.output.schema.oneOf))
+    } else if (def.name === 'export_chat') {
+      // export_chat 三合一：单对象输出 schema（三态合并，非 oneOf）
       assert.equal(def.output.schema.type, 'object')
       assert.ok(!Array.isArray(def.output.schema.oneOf))
     } else if (def.name === 'import_agents') {
@@ -2468,7 +2472,7 @@ test('export_claude 落盘：import → export 闭环、路径 <outputDir>/<slug
   await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
   assert.equal(persistence.sessions.size, 1)
 
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-simple-001', outputDir: OUT })
 
   assert.equal(value.mode, 'single')
@@ -2513,7 +2517,7 @@ test('export_claude 带标题会话：ai-title 放首个 user 后、assistant �
   apply(ctx)
   await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-title-001.jsonl' })
 
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-title-001', outputDir: OUT })
   assert.equal(value.recordCount, 5) // mode + permission-mode + user + ai-title + assistant
   assert.equal(typeof value.title, 'string')
@@ -2535,7 +2539,7 @@ test('export_claude 工具会话：tool_use/tool_result 配对、sourceToolAssis
   apply(ctx)
   await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-tool-001.jsonl' })
 
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-tool-001', outputDir: OUT })
   assert.equal(value.recordCount, 6) // mode + permission-mode + user + assistant + tool_result + assistant
   assert.equal(value.mapping.toolCalls, 1)
@@ -2569,7 +2573,7 @@ test('export_claude dryRun：不写盘、返回目标路径与统计', async () 
   apply(ctx)
   await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
 
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-simple-001', outputDir: OUT, dryRun: true })
   assert.equal(value.dryRun, true)
   assert.equal(writes.length, 0) // 不写盘
@@ -2584,7 +2588,7 @@ test('export_claude cwd 覆盖：slug/记录 cwd 用入参而非 header', async 
   apply(ctx)
   await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
 
-  const value = await registeredDef(ctx, 'export_claude').execute({
+  const value = await exportDef(ctx, 'claude').execute({
     sessionId: 'import-sess-simple-001',
     outputDir: OUT,
     cwd: "C:\\Users\\Meier's\\work", // 含非字母数字：验证 slug 替换
@@ -2599,7 +2603,7 @@ test('export_claude cwd 覆盖：slug/记录 cwd 用入参而非 header', async 
 test('export_claude 会话不存在：抛错', async () => {
   const { ctx } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   await assert.rejects(() => def.execute({ sessionId: 'no-such-session' }), /会话不存在/)
 })
 
@@ -2610,7 +2614,7 @@ test('export_claude 无 cwd（header 无且未提供）：抛错', async () => {
     mkEvent('assistant/message', 1, 1786000000000, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'hello' }], source: { kind: 'model', provider: 'dsh' } }, { surfaceOp: 'append' }),
   ])
   apply(ctx)
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   await assert.rejects(() => def.execute({ sessionId: 'sess-nocwd' }), /cwd/)
 })
 
@@ -2638,7 +2642,7 @@ test('export_claude 注入会话：非人类 user/message 跳过并计数', asyn
     mkEvent('assistant/message', 2, 1786000000000, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '回答' }], source: { kind: 'model', provider: 'dsh' } }, { surfaceOp: 'append' }),
   ])
   apply(ctx)
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'sess-inject', outputDir: OUT })
   assert.equal(value.mapping.skippedInjections, 1)
   assert.equal(value.recordCount, 4) // 注入不落记录
@@ -2655,7 +2659,7 @@ test('REQ-21 export_claude 降级报告：附件块跳过 + 注入跳过逐条�
     mkEvent('assistant/message', 1, 1786000000000, { id: 'a1', message: { role: 'assistant', content: [{ type: 'text', text: '这是图' }, { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'aGVsbG8=' } }] }, source: { kind: 'model', provider: 'dsh' } }, { surfaceOp: 'append' }),
   ])
   apply(ctx)
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'sess-degrade', outputDir: OUT })
   // image 块无法表达 → attachment-skipped 1 条；无注入/孤儿结果
   assert.deepEqual(value.degradations, [{ id: 'attachment-skipped', kind: 'attachmentSkipped', strategy: 'skip-placeholder', count: 1 }])
@@ -2673,7 +2677,7 @@ test('export_claude 中断会话：末尾补发空 tool_result，会话日志只
   ]
   await seedSession(persistence, 'sess-interrupted', { version: 0, id: 'sess-interrupted', createdAt: 1786000000000, cwd: 'D:\\demo\\proj' }, events)
   apply(ctx)
-  const def = registeredDef(ctx, 'export_claude')
+  const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'sess-interrupted', outputDir: OUT })
   assert.equal(value.recordCount, 5) // 末尾补发 1 条
   assert.equal(value.mapping.toolResults, 1)
@@ -2834,7 +2838,7 @@ test('REQ-23 export_codex / export_kimi：落盘 + 可再导入 + 降级报告 +
     mkEvent('turn/end', 5, 1786000000000, { turn: 1, reason: { kind: 'completed' } }),
   ])
   apply(ctx)
-  const codexDef = registeredDef(ctx, 'export_codex')
+  const codexDef = exportDef(ctx, 'codex')
   const cwdPath = 'C:\\exports\\x.rollout.jsonl'
   const codexOut = await codexDef.execute({ sessionId: 'sess-matrix-001', path: cwdPath })
   assert.equal(codexOut.recordCount, 5) // session_meta + user + assistant + function_call + function_call_output
@@ -2842,7 +2846,7 @@ test('REQ-23 export_codex / export_kimi：落盘 + 可再导入 + 降级报告 +
   assert.equal(codexOut.toolResults, 1)
   assert.deepEqual(validateJsonSchemaValue(codexDef.output.schema, codexOut), [])
 
-  const kimiDef = registeredDef(ctx, 'export_kimi')
+  const kimiDef = exportDef(ctx, 'kimi')
   const kimiPath = 'C:\\exports\\y.wire.jsonl'
   const kimiOut = await kimiDef.execute({ sessionId: 'sess-matrix-001', path: kimiPath })
   assert.equal(kimiOut.recordCount, 7) // metadata + TurnBegin + StepBegin + TextPart + ToolCall + ToolResult + TurnEnd
@@ -3202,6 +3206,13 @@ function chatDef(ctx, format) {
   return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
 }
 
+// 辅助：export_chat 三合一定义——execute 时注入 format（claude/codex/kimi 收敛为
+// 单工具后的测试形态；等价于旧 export_claude / export_codex / export_kimi 调用）
+function exportDef(ctx, format) {
+  const tool = registeredDef(ctx, 'export_chat')
+  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
+}
+
 // ---- REQ-36 反向同步（增量写回） ----
 
 const LIVE_T = 1786000000000 // 固定毫秒时间戳（续聊事件）
@@ -3503,7 +3514,7 @@ test('REQ-36 copy target：export_claude 落 mapping → sync 写回副本；导
   await chatDef(ctx, 'claude').execute({ path: src })
   // DSH 续聊一轮后再导出（导出副本已含该轮）
   await appendTurn(persistence, 'import-sync-sess-001', 2, '导出前续聊')
-  const exp = await registeredDef(ctx, 'export_claude').execute({ sessionId: 'import-sync-sess-001', outputDir: OUT })
+  const exp = await exportDef(ctx, 'claude').execute({ sessionId: 'import-sync-sess-001', outputDir: OUT })
   const copyPath = exp.filePath
   const copyBefore = tree[copyPath]
   // export 后 registry 记录带 exports 映射（mapping 落库）
@@ -3995,7 +4006,7 @@ test('REQ-17 预览 → 正式导入：去掉 preview 后字段口径一致、�
 
 // ---- REQ-41 被动会话发现（Browser 面板数据源路由） ----
 
-test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-import/import，kind exact），工具计数不变（15 个）', () => {
+test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-import/import，kind exact），工具计数不变（13 个）', () => {
   const { ctx, webRoutes, registered } = makeCtx({})
   apply(ctx)
   const sessions = webRoutes.find((r) => r.path === '/api-import/sessions')
@@ -4008,16 +4019,16 @@ test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-im
   assert.equal(imp.kind, 'exact')
   assert.equal(typeof sessions.handler, 'function')
   assert.equal(typeof imp.handler, 'function')
-  // 只加路由，不加工具：import_chat 分流 18 来源 + import_agents + doctor + import_mcp + import_settings + scan/export×3/sync/list/retract + bundle 导出/还原 + verify = 15，注册数不变
-  assert.equal(registered.length, 15)
+  // 只加路由，不加工具：import_chat 分流 18 来源 + import_agents + doctor + import_mcp + import_settings + scan/export_chat/sync/list/retract + bundle 导出/还原 + verify = 13，注册数不变
+  assert.equal(registered.length, 13)
 })
 
-test('REQ-41 webServer 可选：headless（无 webServer）apply 不抛错、15 工具照常注册、无路由', () => {
+test('REQ-41 webServer 可选：headless（无 webServer）apply 不抛错、13 工具照常注册、无路由', () => {
   const { ctx, webRoutes, registered } = makeCtx({}, { noWebServer: true })
   apply(ctx)
   // 缺 webServer 只是不注册面板路由，导入工具不受影响（CI headless 冒烟场景）
   assert.equal(webRoutes.length, 0)
-  assert.equal(registered.length, 15)
+  assert.equal(registered.length, 13)
 })
 
 test('REQ-41 /api-import/sessions handler：合成夹具经 discoverSessions 返回会话、未知来源 400', async () => {
