@@ -54,19 +54,10 @@ Full tool / command usage (parameters, examples, edge cases) lives in **[docs/US
 
 | Capability | Entry points | Description |
 | --- | --- | --- |
-| Batch import from 17+ sources | `import_chat` (18 formats) · `scan_discover` · sidebar panel · `/import` | A file, a directory or a whole database — each conversation becomes its own session |
-| Full-fidelity resume | Imported sessions | Tool calls & results, reasoning, titles, models and timestamps carry over; sessions group into the source `cwd` workspace |
-| Matrix export | `export_chat` (`format: claude` / `codex` / `kimi`) | Serialize DSH sessions back to Claude / Codex / Kimi formats; every lossy item is reported |
-| Portable backup | `export_bundle` / `restore_bundle` | Interchange bundle with dual SHA-256 fingerprints, restorable across machines |
-| Incremental write-back | `sync_to_claude` | Appends new complete turns back to a Claude Code file — guarded, never overwriting |
-| Bidirectional sync | panel "Sync" tab | Incremental inbound/outbound sync across Claude / Codex / Grok; sub-agent conversations filtered by default; per-directory `excludeDirs` deny-list |
-| Agent asset migration | `import_agents` | Converts pi / opencode / Claude / Codex agents, prompts, skills, instructions into persistent DSH skills |
-| MCP mirror plan | `import_mcp` / `/mcp-status` | Reads Claude / Codex MCP servers and generates a reviewable DSH MCP client YAML snippet |
-| Settings translation | `import_settings` / `/settings-suggest` | Turns Claude settings / Codex config into DSH migration suggestions (read-only) |
-| Handoff summaries | `/resume-claude` / `/resume-codex` | Treats external transcripts as untrusted history and injects a handoff summary into the current session |
-| Read-only audit / checkup | `verify_session` / `doctor` / CLI `dsh-chat-import doctor` | Structural audit and migration health check |
-| Idempotency & protection | `import_chat` (all sources) | `expectedHash` / `restamp` / context-budget protection; unchanged sources skip, grown sources append |
-| Preset mode + system prompt | Settings tab in the Plugins section | Imported sessions record the default preset; optional "import system prompt" as a context injection (off by default) |
+| Batch import | `import_chat` (18 formats) · `scan_discover` · sidebar panel | Import 17+ sources with one tool; each conversation becomes its own session |
+| Full-fidelity resume | Imported sessions | Tool calls & results, reasoning, titles, models and timestamps carry over |
+| Export back | `export_chat` (`format: claude` / `codex` / `kimi`) | Serialize DSH sessions back to Claude / Codex / Kimi |
+| Bidirectional sync | panel "Sync" tab | Incremental sync in both directions (external ↔ DSH), off by default |
 
 ## Docs
 

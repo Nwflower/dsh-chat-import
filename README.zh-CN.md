@@ -56,19 +56,10 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 
 | 能力 | 入口 | 说明 |
 | --- | --- | --- |
-| 批量导入 17+ 源 | `import_chat`（18 种格式）· `scan_discover` · 侧边栏面板 · `/import` | 单个文件、目录或整个数据库，每段对话成为独立会话 |
-| 全保真续聊 | 导入即 DSH 会话 | 工具调用/结果、思考、标题、模型、时间戳原样保留，按源 `cwd` 归组工作区 |
-| 矩阵导出 | `export_chat`（`format: claude` / `codex` / `kimi`） | DSH 会话序列化回 Claude / Codex / Kimi 格式，有损项逐条报告 |
-| 便携备份 | `export_bundle` / `restore_bundle` | SHA-256 双指纹的 interchange bundle，可跨机器还原 |
-| 增量写回 | `sync_to_claude` | 新增完整轮次追加回 Claude Code 文件，带守卫绝不覆盖 |
-| 双向同步 | 面板「同步」页 | Claude / Codex / Grok 双向增量同步；子代理对话默认过滤；`excludeDirs` 按目录排除 |
-| Agent 资产迁移 | `import_agents` | pi / opencode / Claude / Codex 的 agent、prompt、skill、指令转成 DSH skills |
-| MCP 镜像计划 | `import_mcp` / `/mcp-status` | 读取 Claude / Codex MCP server，生成可审阅的 DSH MCP client YAML 片段 |
-| 配置翻译建议 | `import_settings` / `/settings-suggest` | Claude settings / Codex config 转 DSH 迁移建议（只读） |
-| 交接摘要 | `/resume-claude` / `/resume-codex` | 外部 transcript 当不可信历史，生成交接摘要注入当前会话 |
-| 只读审计 / 体检 | `verify_session` / `doctor` / CLI `dsh-chat-import doctor` | 结构审计与迁移健康检查 |
-| 幂等与保护 | `import_chat`（全部来源） | `expectedHash` / `restamp` / 上下文预算保护；未变跳过、增长只追加 |
-| 预设模式 + 系统提示词 | 设置页「插件」分区 TAB | 导入会话补录默认预设模式；可选「导入系统提示词」作为上下文注入（默认关） |
+| 批量导入 | `import_chat`（18 种格式）· `scan_discover` · 侧边栏面板 | 17+ 来源一键导入，每段对话成为独立会话 |
+| 全保真续聊 | 导入即 DSH 会话 | 工具调用/结果、思考、标题、模型、时间戳原样保留 |
+| 反向导出 | `export_chat`（`format: claude` / `codex` / `kimi`） | DSH 会话序列化回 Claude / Codex / Kimi |
+| 双向同步 | 面板「同步」页 | 外部 ↔ DSH 双向增量同步，默认关闭 |
 
 ## 文档
 
