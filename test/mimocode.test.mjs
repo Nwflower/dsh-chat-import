@@ -99,8 +99,14 @@ function makeCtx() {
   return { ctx, persistence, attached, registered }
 }
 
-function registeredDef(ctx, toolName = 'import_mimocode') {
+function registeredDef(ctx, toolName) {
   return ctx.tools.registered(toolName)
+}
+
+// 辅助：import_chat 分发器定义——execute 时注入 format（等价旧 import_mimocode）
+function chatDef(ctx, format = 'mimocode') {
+  const tool = registeredDef(ctx, 'import_chat')
+  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
 }
 
 // REQ-32：导入会话日志首事件为 session/imported 标记（seq 0、ignorable）。
@@ -259,7 +265,7 @@ test('import_mimocode 单库文件：批量形态、逐会话落盘、schema 校
   const dbPath = makeMimocodeDb(mimocodeTestSessions())
   const { ctx, persistence, attached } = makeCtx()
   apply(ctx)
-  const def = registeredDef(ctx)
+  const def = chatDef(ctx)
   const value = await def.execute({ path: dbPath })
 
   assert.equal(value.mode, 'batch')
@@ -284,7 +290,7 @@ test('import_mimocode sessionIds 过滤：只导指定源会话', async () => {
   const dbPath = makeMimocodeDb(mimocodeTestSessions())
   const { ctx, persistence } = makeCtx()
   apply(ctx)
-  const def = registeredDef(ctx)
+  const def = chatDef(ctx)
   const value = await def.execute({ path: dbPath, sessionIds: ['mim-b'] })
 
   assert.equal(value.mode, 'batch')
@@ -300,7 +306,7 @@ test('import_mimocode 幂等：重复导入同一库只落盘一次', async () =
   const dbPath = makeMimocodeDb(mimocodeTestSessions())
   const { ctx, persistence } = makeCtx()
   apply(ctx)
-  const def = registeredDef(ctx)
+  const def = chatDef(ctx)
   const first = await def.execute({ path: dbPath })
   const second = await def.execute({ path: dbPath })
 
@@ -315,7 +321,7 @@ test('import_mimocode 目录模式：自动定位 mimocode.db', async () => {
   const dbPath = makeMimocodeDb(mimocodeTestSessions())
   const { ctx, persistence } = makeCtx()
   apply(ctx)
-  const def = registeredDef(ctx)
+  const def = chatDef(ctx)
   const value = await def.execute({ path: dirname(dbPath) })
 
   assert.equal(value.mode, 'batch')

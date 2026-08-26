@@ -24,6 +24,13 @@ beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
 })
 
+// 辅助：import_chat 分发器定义——execute 时注入 format（收敛后单工具的测试形态，
+// 等价旧 import_claude 的调用方式）
+function chatDef(ctx, format = 'claude') {
+  const tool = ctx.tools.registered('import_chat')
+  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
+}
+
 // ── 自包含 mock ────────────────────────────────────────────────
 
 // REQ-32 标记事件（seq 0、ignorable，data 含 tool/sourceId/sourcePath/importedAt）。
@@ -331,7 +338,7 @@ test('撤回后重导：registry 记录移除后，副本仍在 → backfill 回
   const persistence = makePersistence()
   const { ctx } = makeCtx(persistence, tree)
   apply(ctx)
-  const imp = ctx.tools.registered('import_claude')
+  const imp = chatDef(ctx)
 
   // 首次导入（建 registry 记录）
   const first = await imp.execute({ path: src })
@@ -362,7 +369,7 @@ test('撤回后重导：宿主残留幽灵会话（list 仍暴露、日志不可
   const persistence = makePersistence()
   const { ctx } = makeCtx(persistence, tree)
   apply(ctx)
-  const imp = ctx.tools.registered('import_claude')
+  const imp = chatDef(ctx)
   const first = await imp.execute({ path: src })
   assert.equal(first.sessionId, 'import-sess-ghost-001')
 
@@ -391,7 +398,7 @@ test('撤回后重导：宿主 create 拒绝幽灵 id（list 已不暴露）→ 
   const persistence = makePersistence()
   const { ctx } = makeCtx(persistence, tree)
   apply(ctx)
-  const imp = ctx.tools.registered('import_claude')
+  const imp = chatDef(ctx)
   await imp.execute({ path: src })
   await ctx.tools.registered('retract_import').execute({ sessionId: 'import-sess-ghost2-001' })
   // 宿主病态：list 已不暴露幽灵，但 create 仍对原 id 抛 already exists

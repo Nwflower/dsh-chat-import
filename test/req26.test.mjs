@@ -17,6 +17,13 @@ import {
 } from '../convert.mjs'
 import { detectSecretKinds, parseJsonlLines, SKIPPED_LINES_CAP } from '../lib/convert/core.mjs'
 
+// 辅助：import_chat 分发器定义——execute 时注入 format（收敛后单工具的测试形态，
+// 等价旧 import_claude 的调用方式）
+function chatDef(ctx, format = 'claude') {
+  const tool = ctx.tools.registered('import_chat')
+  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
+}
+
 // index 层用例的 registry 隔离（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
@@ -312,7 +319,7 @@ test('import_claude 单文件：skippedLines/secrets/permissionCount 透传 + sc
   const tree = { 'D:\\demo\\sess-req26.jsonl': claudeReq26Raw() }
   const { ctx } = makeMinCtx(tree)
   apply(ctx)
-  const def = ctx.tools.registered('import_claude')
+  const def = chatDef(ctx)
   const value = await def.execute({ path: 'D:\\demo\\sess-req26.jsonl' })
   assert.equal(value.mode, 'single')
   assert.equal(value.status, 'imported')
@@ -336,7 +343,7 @@ test('import_claude 全畸形文件：skipped 路径也透传行号明细并渲�
   const tree = { 'D:\\demo\\req26-allbad.jsonl': 'bad line 1\nbad line 2\nbad line 3' }
   const { ctx } = makeMinCtx(tree)
   apply(ctx)
-  const def = ctx.tools.registered('import_claude')
+  const def = chatDef(ctx)
   const value = await def.execute({ path: 'D:\\demo\\req26-allbad.jsonl' })
   assert.equal(value.status, 'skipped')
   assert.deepEqual(value.skippedLines.map((s) => s.line), [1, 2, 3])
@@ -354,7 +361,7 @@ test('import_claude 目录批量：batchItem 透传 skippedLines/secrets/permiss
   }
   const { ctx } = makeMinCtx(tree)
   apply(ctx)
-  const def = ctx.tools.registered('import_claude')
+  const def = chatDef(ctx)
   const value = await def.execute({ path: dir })
   assert.equal(value.mode, 'batch')
   const a = value.results.find((r) => r.path.endsWith('a.jsonl'))

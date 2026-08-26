@@ -52,12 +52,12 @@ dsh plugin --profile web add -w link:/path/to/dsh-chat-import   # 本地源码�
 
 安装后：
 
-1. **导入** — 在任意 DSH 会话里调用任一 `import_*` 工具：
+1. **导入** — 在任意 DSH 会话里调用单一 `import_chat` 工具，用 `format` 选择来源：
 
 ```
-import_claude({ path: "~/.claude/projects" })
-import_chatgpt({ path: "~/Downloads/chatgpt-export/conversations.json" })
-import_local_jsonl({ path: "D:\downloads\session.jsonl" })
+import_chat({ format: "claude", path: "~/.claude/projects" })
+import_chat({ format: "chatgpt", path: "~/Downloads/chatgpt-export/conversations.json" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
 2. **续聊** — 刷新会话列表，打开导入的会话，从源记录停下的地方继续对话。
@@ -72,7 +72,7 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 
 | 能力 | 入口 | 说明 |
 | --- | --- | --- |
-| 批量导入 17+ 源 | `import_*`（18 个工具）· `scan_discover` · 侧边栏面板 · `/import` | 单个文件、目录或整个数据库，每段对话成为独立会话 |
+| 批量导入 17+ 源 | `import_chat`（18 种格式）· `scan_discover` · 侧边栏面板 · `/import` | 单个文件、目录或整个数据库，每段对话成为独立会话 |
 | 全保真续聊 | 导入即 DSH 会话 | 工具调用/结果、思考、标题、模型、时间戳原样保留，按源 `cwd` 归组工作区 |
 | 矩阵导出 | `export_claude` / `export_codex` / `export_kimi` | DSH 会话序列化回 Claude / Codex / Kimi 格式，有损项逐条报告 |
 | 便携备份 | `export_bundle` / `restore_bundle` | SHA-256 双指纹的 interchange bundle，可跨机器还原 |
@@ -83,34 +83,36 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 | 配置翻译建议 | `import_settings` / `/settings-suggest` | Claude settings / Codex config 转 DSH 迁移建议（只读） |
 | 交接摘要 | `/resume-claude` / `/resume-codex` | 外部 transcript 当不可信历史，生成交接摘要注入当前会话 |
 | 只读审计 / 体检 | `verify_session` / `doctor` / CLI `dsh-chat-import doctor` | 结构审计与迁移健康检查 |
-| 幂等与保护 | 所有导入工具 | `expectedHash` / `restamp` / 上下文预算保护；未变跳过、增长只追加 |
+| 幂等与保护 | `import_chat`（全部来源） | `expectedHash` / `restamp` / 上下文预算保护；未变跳过、增长只追加 |
 | 预设模式 + 系统提示词 | 设置页「插件」分区 TAB | 导入会话补录默认预设模式；可选「导入系统提示词」作为上下文注入（默认关） |
 
 ---
 
 ## 🗂 支持的来源
 
-| 来源 | 存储位置 | 导入工具 |
+全部 18 种来源走**同一个工具**：把来源名作为 `format` 参数传给 `import_chat`，例如 `import_chat({ format: "codex", path: "…" })`。
+
+| 来源 | 存储位置 | `format` 值 |
 | --- | --- | --- |
-| **Claude Code** | `~/.claude/projects/<slug>/<sessionId>.jsonl` | `import_claude` |
-| **Claude-3p**（新端） | `%LOCALAPPDATA%\Claude-3p\claude-code-sessions`（元数据经 `cliSessionId` 反查 jsonl） | `import_claude` |
-| **Codex / ChatGPT CLI** | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `import_codex` |
-| **ChatGPT**（网页导出） | 导出压缩包（任意路径）——`conversations.json` | `import_chatgpt` |
-| **Cursor** | `~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl` | `import_cursor` |
-| **Gemini CLI** | `~/.gemini/history/<slot>/chats/session-*.json` | `import_gemini` |
-| **Reasonix**（CLI + 桌面版） | `~/.reasonix/sessions/desktop-*.jsonl` · `%APPDATA%\reasonix\projects\<slug>\sessions\*.jsonl` | `import_reasonix` |
-| **opencode** | `~/.local/share/opencode/opencode.db` | `import_opencode` |
-| **MiMo Code**（opencode fork） | `~/.local/share/mimocode/mimocode.db` | `import_mimocode` |
-| **ZCode**（z.ai CLI） | `~/.zcode/cli/db/db.sqlite` | `import_zcode` |
-| **Grok Build** | `~/.grok/sessions/<project>/<session_id>/` | `import_grokbuild` |
-| **OpenClaw** | `~/.openclaw/agents/<agent>/sessions/*.jsonl` | `import_openclaw` |
-| **Pi Coding Agent** | `~/.pi/agent/sessions/--<cwd>--/<timestamp>_<uuid>.jsonl` | `import_pi` |
-| **Hermes** | `~/.hermes/`（Windows `%LOCALAPPDATA%\hermes`） | `import_hermes` |
-| **Kimi CLI / Kimi Code** | `~/.kimi/sessions/<workdir-md5>/<sessionId>/wire.jsonl` · `~/.kimi-code/sessions/<workspaceId>/<sessionId>/agents/main/wire.jsonl` | `import_kimi` |
-| **Qoder CLI** | `~/.qoder/projects/<encoded-project>/<sessionId>.jsonl`（子代理在 `<sessionId>/subagents/*.jsonl`） | `import_qoder` |
-| **WorkBuddy**（腾讯 AI 编码应用） | `~/.workbuddy/projects/<project-hash>/<session-uuid>.jsonl` | `import_workbuddy` |
-| **DSH 会话日志** | `~/.dsh/sessions/<encoded-workspace>/<sessionId>/session.jsonl(.zstd)` | `import_dsh` |
-| **任意本地 JSONL** | 任意 `.jsonl` 文件 / 目录（自动识别格式） | `import_local_jsonl` |
+| **Claude Code** | `~/.claude/projects/<slug>/<sessionId>.jsonl` | `claude` |
+| **Claude-3p**（新端） | `%LOCALAPPDATA%\Claude-3p\claude-code-sessions`（元数据经 `cliSessionId` 反查 jsonl） | `claude` |
+| **Codex / ChatGPT CLI** | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `codex` |
+| **ChatGPT**（网页导出） | 导出压缩包（任意路径）——`conversations.json` | `chatgpt` |
+| **Cursor** | `~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl` | `cursor` |
+| **Gemini CLI** | `~/.gemini/history/<slot>/chats/session-*.json` | `gemini` |
+| **Reasonix**（CLI + 桌面版） | `~/.reasonix/sessions/desktop-*.jsonl` · `%APPDATA%\reasonix\projects\<slug>\sessions\*.jsonl` | `reasonix` |
+| **opencode** | `~/.local/share/opencode/opencode.db` | `opencode` |
+| **MiMo Code**（opencode fork） | `~/.local/share/mimocode/mimocode.db` | `mimocode` |
+| **ZCode**（z.ai CLI） | `~/.zcode/cli/db/db.sqlite` | `zcode` |
+| **Grok Build** | `~/.grok/sessions/<project>/<session_id>/` | `grokbuild` |
+| **OpenClaw** | `~/.openclaw/agents/<agent>/sessions/*.jsonl` | `openclaw` |
+| **Pi Coding Agent** | `~/.pi/agent/sessions/--<cwd>--/<timestamp>_<uuid>.jsonl` | `pi` |
+| **Hermes** | `~/.hermes/`（Windows `%LOCALAPPDATA%\hermes`） | `hermes` |
+| **Kimi CLI / Kimi Code** | `~/.kimi/sessions/<workdir-md5>/<sessionId>/wire.jsonl` · `~/.kimi-code/sessions/<workspaceId>/<sessionId>/agents/main/wire.jsonl` | `kimi` |
+| **Qoder CLI** | `~/.qoder/projects/<encoded-project>/<sessionId>.jsonl`（子代理在 `<sessionId>/subagents/*.jsonl`） | `qoder` |
+| **WorkBuddy**（腾讯 AI 编码应用） | `~/.workbuddy/projects/<project-hash>/<session-uuid>.jsonl` | `workbuddy` |
+| **DSH 会话日志** | `~/.dsh/sessions/<encoded-workspace>/<sessionId>/session.jsonl(.zstd)` | `dsh` |
+| **任意本地 JSONL** | 任意 `.jsonl` 文件 / 目录（自动识别格式） | `local-jsonl` |
 
 每次导入都保留源实际记录的内容；源格式无法保留的部分，会在导入报告里显式标注。各来源的格式细节与边界行为见 [使用详解](docs/USAGE.zh-CN.md)。
 
@@ -118,16 +120,16 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 
 ## 🛠 使用
 
-所有 `import_*` 工具共用同一个 `path` 语义：单文件导单会话，目录递归扫描批量导入。常用参数：`preview`（零副作用预览）、`force`（另存完整新副本）、`sessionId`（覆盖目标 id）、`expectedHash`（SHA-256 强校验）、`restamp`（时间戳平移）、`workspaceMode` / `workspaceDir`（归组控制）。
+所有导入走同一个 **`import_chat`** 工具 —— `format` 选择来源（见上方表格）—— `path` 语义共用：单文件导单会话，目录递归扫描批量导入。常用参数：`preview`（零副作用预览）、`force`（另存完整新副本）、`sessionId`（覆盖目标 id）、`expectedHash`（SHA-256 强校验）、`restamp`（时间戳平移）、`workspaceMode` / `workspaceDir`（归组控制）。来源特有参数（`compacted` / `branch` / `sessionIds` / `fullHistory` / `lineage` / `parseFormat`）只对相应 `format` 生效。
 
 ```
-import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
-import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
-import_workbuddy({ path: "C:\Users\<you>\.workbuddy\projects" })
-import_local_jsonl({ path: "D:\downloads\session.jsonl", format: "claude" })
+import_chat({ format: "claude", path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
+import_chat({ format: "opencode", path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
+import_chat({ format: "workbuddy", path: "C:\Users\<you>\.workbuddy\projects" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl", parseFormat: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_zcode` / `import_hermes` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。
+`format: "chatgpt"` / `"opencode"` / `"zcode"` / `"hermes"` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。
 
 完整工具 / 命令用法（参数、示例、边界行为）见 **[docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)**。
 

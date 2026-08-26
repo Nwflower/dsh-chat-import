@@ -127,8 +127,14 @@ function makeCtx(tree = {}) {
   return { ctx, persistence, attached, registered }
 }
 
-function registeredDef(ctx, toolName = 'import_zcode') {
+function registeredDef(ctx, toolName) {
   return ctx.tools.registered(toolName)
+}
+
+// 辅助：import_chat 分发器定义——execute 时注入 format（等价旧 import_zcode）
+function chatDef(ctx, format = 'zcode') {
+  const tool = registeredDef(ctx, 'import_chat')
+  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
 }
 
 // REQ-32：导入会话日志首事件为 session/imported 标记（seq 0、ignorable）。
@@ -499,7 +505,7 @@ test('import_zcode 单库文件：批量形态、逐会话落盘、schema 校验
   const dbPath = makeZcodeDb(zcodeTestSessions())
   const { ctx, persistence, attached } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   const value = await def.execute({ path: dbPath })
 
   assert.equal(value.mode, 'batch') // 单 .db 也恒批量
@@ -539,7 +545,7 @@ test('import_zcode 目录模式：自动定位 db.sqlite、schema 校验', async
   const dirPath = dirname(dbPath)
   const { ctx, persistence } = makeCtx({ [dirPath]: 'dir' }) // stat 命中 → 目录分支
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   const value = await def.execute({ path: dirPath })
 
   assert.equal(value.mode, 'batch')
@@ -562,7 +568,7 @@ test('import_zcode zcode:// 伪路径：走默认库只导该会话、幂等', a
   try {
     const { ctx, persistence } = makeCtx({})
     apply(ctx)
-    const def = registeredDef(ctx, 'import_zcode')
+    const def = chatDef(ctx, 'zcode')
     const value = await def.execute({ path: 'zcode://zcs-a' })
 
     assert.equal(value.mode, 'batch')
@@ -594,7 +600,7 @@ test('import_zcode compaction：摘要还原为上下文 reasoning、0 skipped',
   const dbPath = makeZcodeDb([zcodeCompactedSession()])
   const { ctx, persistence } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   const value = await def.execute({ path: dbPath })
 
   assert.equal(value.mode, 'batch')
@@ -618,7 +624,7 @@ test('import_zcode sessionIds 过滤：只导指定源会话', async () => {
   const dbPath = makeZcodeDb(zcodeTestSessions())
   const { ctx, persistence } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   const value = await def.execute({ path: dbPath, sessionIds: ['zcs-b'] })
 
   assert.equal(value.mode, 'batch')
@@ -634,7 +640,7 @@ test('import_zcode 幂等：重复导入同一库只落盘一次', async () => {
   const dbPath = makeZcodeDb(zcodeTestSessions())
   const { ctx, persistence } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   const first = await def.execute({ path: dbPath })
   const second = await def.execute({ path: dbPath })
 
@@ -648,7 +654,7 @@ test('import_zcode db 缺失回退 transcript.jsonl：不报错、0 skipped', as
   const { txPath } = writeZcodeTranscript()
   const { ctx, persistence } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   const value = await def.execute({ path: txPath })
 
   assert.equal(value.mode, 'batch')
@@ -678,6 +684,6 @@ test('import_zcode db 缺失回退 transcript.jsonl：不报错、0 skipped', as
 test('import_zcode 读不到 DB：失败大声抛错', async () => {
   const { ctx } = makeCtx({})
   apply(ctx)
-  const def = registeredDef(ctx, 'import_zcode')
+  const def = chatDef(ctx, 'zcode')
   await assert.rejects(() => def.execute({ path: join(tmpdir(), 'no-such-zcode.db') }))
 })

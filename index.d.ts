@@ -1,11 +1,11 @@
 // index.d.ts — dsh-chat-import 类型面（手写维护，随工具 schema 变更同步）
 //
 // 本包是零构建纯 ESM 插件：index.mjs 只导出 Cordis 插件入口（apply/inject/name）
-// 与少量 host 面辅助函数；22 个工具由 apply 动态注册，不在此模块导出。
+// 与少量 host 面辅助函数；15 个工具由 apply 动态注册，不在此模块导出。
 // 因此本文件把「工具调用面」声明为一个类型化接口（ToolSurface），供 TS 调用方
 // 参考参数/返回结构，而不是伪装成真实的模块导出。
 //
-// 结构对齐 lib/tools.mjs 注册的 schema 与 lib/toolkit.mjs 的 makeImportTool
+// 结构对齐 lib/tools.mjs 注册的 schema 与 lib/toolkit.mjs 的 makeImportChatTool
 // 输出 oneOf（单文件/批量 × 预览/实导入）。修改工具 schema 时须同步此处。
 
 // ---------- Cordis 插件入口（index.mjs 的真实导出） ----------
@@ -29,27 +29,13 @@ export declare function exportClaudeSession(
   options?: { registryDir?: string },
 ): Promise<ExportClaudeResult>
 
-// ---------- 工具调用面（ToolSurface：apply 注册的 21 个工具） ----------
+// ---------- 工具调用面（ToolSurface：apply 注册的 15 个工具） ----------
+// import_chat 是 18 个聊天导入源（17 个面板来源 + local-jsonl）的统一分发入口：
+// format 必填（源枚举），专属参数（compacted / branch / sessionIds / fullHistory /
+// lineage / parseFormat）只对相应 format 生效。
 
 export interface ToolSurface {
-  import_claude(options: ImportOptions): Promise<ImportResult>
-  import_codex(options: ImportOptions): Promise<ImportResult>
-  import_chatgpt(options: ImportOptions & { branch?: 'main' | 'all' }): Promise<ImportResult>
-  import_cursor(options: ImportOptions): Promise<ImportResult>
-  import_gemini(options: ImportOptions): Promise<ImportResult>
-  import_reasonix(options: ImportOptions): Promise<ImportResult>
-  import_opencode(options: ImportOptions & OpencodeExtraParams): Promise<ImportResult>
-  import_mimocode(options: ImportOptions & OpencodeExtraParams): Promise<ImportResult>
-  import_zcode(options: ImportOptions & ZcodeExtraParams): Promise<ImportResult>
-  import_grokbuild(options: ImportOptions): Promise<ImportResult>
-  import_openclaw(options: ImportOptions): Promise<ImportResult>
-  import_pi(options: ImportOptions & { fullHistory?: boolean }): Promise<ImportResult>
-  import_hermes(options: ImportOptions): Promise<ImportResult>
-  import_kimi(options: ImportOptions): Promise<ImportResult>
-  import_qoder(options: ImportOptions): Promise<ImportResult>
-  import_workbuddy(options: ImportOptions): Promise<ImportResult>
-  import_dsh(options: ImportOptions): Promise<ImportResult>
-  import_local_jsonl(options: ImportOptions & { format?: LocalJsonlFormat }): Promise<ImportResult>
+  import_chat(options: ImportChatOptions): Promise<ImportResult>
   import_agents(options?: AgentsImportOptions): Promise<AgentsImportResult>
   export_claude(options: ExportClaudeParams): Promise<ExportClaudeResult>
   export_codex(options: ExportTargetParams): Promise<ExportTargetResult>
@@ -76,26 +62,38 @@ export interface ImportOptions {
   preview?: boolean
   /** preview 的兼容别名（语义相同）。 */
   dryRun?: boolean
-  /** 目标 DSH 会话 id（仅单文件导入时生效，默认 import-<源sessionId>；目录模式忽略）。 */
+  /** 目标 DSH 会话 id（仅单文件导入时生效，默认 import-<源sessionId>；目录模式 / SQLite 库源忽略）。 */
   sessionId?: string
-  /** 目录模式是否递归子目录（默认 true；opencode/zcode 无此参数）。 */
+  /** 目录模式是否递归子目录（默认 true；SQLite 库源忽略）。 */
   recursive?: boolean
-}
-
-export interface OpencodeExtraParams {
-  /** 只导入指定源会话 id（缺省导入全部）。 */
-  sessionIds?: string[]
-  /** true 时导入全量历史（忽略 opencode 对话压缩）；默认 false。 */
-  fullHistory?: boolean
-}
-
-export interface ZcodeExtraParams {
-  /** 只导入指定源会话 id（缺省导入全部）。 */
-  sessionIds?: string[]
 }
 
 export type LocalJsonlFormat =
   | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder'
+
+/** import_chat 的源格式枚举（值 = 来源短名，与面板来源 / discovery FORMATS 一致）。 */
+export type ChatFormat =
+  | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'reasonix' | 'opencode'
+  | 'mimocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'kimi'
+  | 'qoder' | 'workbuddy' | 'dsh' | 'local-jsonl'
+
+/** import_chat 参数：公共导入参数（ImportOptions）+ 源格式 + 源专属参数。 */
+export interface ImportChatOptions extends ImportOptions {
+  /** 源格式（必填），决定 path 形态与解析器。 */
+  format: ChatFormat
+  /** 仅 claude：true 时只导最后一次压缩摘要 + 尾部（compacted 摘要导入）；默认 false 全量。 */
+  compacted?: boolean
+  /** 仅 chatgpt：'main'（默认）只重建主线程；'all' 枚举全部分支会话。 */
+  branch?: 'main' | 'all'
+  /** 仅 opencode / mimocode / zcode：只导入指定源会话 id（缺省导入全部）。 */
+  sessionIds?: string[]
+  /** 仅 opencode / mimocode / pi：true 时导入全量历史（忽略对话压缩）；默认 false 尊重压缩。 */
+  fullHistory?: boolean
+  /** 仅 hermes：'tail' 只导 lineage 链尾（叶子会话）。 */
+  lineage?: 'tail'
+  /** 仅 local-jsonl：强制按指定格式解析；缺省自动识别。 */
+  parseFormat?: LocalJsonlFormat
+}
 
 export type ImportStatus = 'imported' | 'already-imported' | 'appended' | 'skipped' | 'failed'
 

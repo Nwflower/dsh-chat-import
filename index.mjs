@@ -13,7 +13,7 @@
 //                           归组（REQ-39 cwdHint 权威映射）/ 投影预热 / 标准 dry-run 预览
 //   lib/import-variants.mjs 特殊形态来源编排：chatgpt / grokbuild / hermes / kimi +
 //                           opencode / zcode / hermes / grokbuild / chatgpt 的 dry-run 预览
-//   lib/toolkit.mjs         makeImportTool 工厂（REQ-09 分组 spec）+ IMPORT_SPECS
+//   lib/toolkit.mjs         import_chat 分发器工厂（REQ-09 分组 spec）+ IMPORT_SPECS
 //   lib/export-tool.mjs     export_claude / export_codex / export_kimi（REQ-23）/
 //                           export_bundle（REQ-56）执行体
 //   lib/restore.mjs         REQ-56/62 restore_bundle（指纹校验 + 跨机器归组回退）
@@ -23,9 +23,9 @@
 //   lib/retract.mjs         REQ-33 导入识别 / 撤回（list_imported_sessions / retract_import）
 //   lib/discovery-host.mjs  REQ-25/40 scan_discover 的 host 适配（fs + SQLite 摘要）
 //   lib/panel.mjs           REQ-41 面板路由（POST /api-import/sessions + /api-import/import）
-//   lib/tools.mjs           30 个工具的注册（16 导入 + import_agents + doctor +
-//                           import_mcp + import_settings + export×3 + bundle×2 +
-//                           sync + 识别/撤回 + 发现 + verify）
+//   lib/tools.mjs           15 个工具的注册（import_chat 分发器 = 18 个导入源 +
+//                           import_agents + doctor + import_mcp + import_settings +
+//                           export×3 + bundle×2 + sync + 识别/撤回 + 发现 + verify）
 //
 // 本文件只做组装：registerTools 注册工具；webServer 是可选且晚挂载的 host 服务，
 // 面板路由经 ctx.inject(['webServer']) 延迟注册（headless / 无 Web 的 profile 不挂载
@@ -79,7 +79,7 @@ function apply(ctx) {
   // memory / CLAUDE.md / skills 桥进 agent 的 scoped systemPrompt / skills 注册。
   registerContextBridge(ctx)
   // 导入偏好设置命名空间（chat-import）：「导入系统提示词作为上下文注入」开关（默认关）。
-  // ctx.settings 可选，缺席时注册空转；读取见 makeImportTool.execute（lib/toolkit.mjs）。
+  // ctx.settings 可选，缺席时注册空转；读取见 buildImportExecutor（lib/toolkit.mjs）。
   registerImportPrefs(ctx)
 }
 

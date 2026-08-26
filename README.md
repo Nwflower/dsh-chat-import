@@ -52,12 +52,12 @@ dsh plugin --profile web add -w link:/path/to/dsh-chat-import   # local checkout
 
 Then:
 
-1. **Import** — call any `import_*` tool in a DSH session:
+1. **Import** — call the single `import_chat` tool, choosing the source via `format`:
 
 ```
-import_claude({ path: "~/.claude/projects" })
-import_chatgpt({ path: "~/Downloads/chatgpt-export/conversations.json" })
-import_local_jsonl({ path: "D:\downloads\session.jsonl" })
+import_chat({ format: "claude", path: "~/.claude/projects" })
+import_chat({ format: "chatgpt", path: "~/Downloads/chatgpt-export/conversations.json" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
 2. **Resume** — refresh the session list, open the imported session, and keep chatting from where the source left off.
@@ -72,7 +72,7 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 
 | Capability | Entry points | Description |
 | --- | --- | --- |
-| Batch import from 17+ sources | `import_*` (18 tools) · `scan_discover` · sidebar panel · `/import` | A file, a directory or a whole database — each conversation becomes its own session |
+| Batch import from 17+ sources | `import_chat` (18 formats) · `scan_discover` · sidebar panel · `/import` | A file, a directory or a whole database — each conversation becomes its own session |
 | Full-fidelity resume | Imported sessions | Tool calls & results, reasoning, titles, models and timestamps carry over; sessions group into the source `cwd` workspace |
 | Matrix export | `export_claude` / `export_codex` / `export_kimi` | Serialize DSH sessions back to Claude / Codex / Kimi formats; every lossy item is reported |
 | Portable backup | `export_bundle` / `restore_bundle` | Interchange bundle with dual SHA-256 fingerprints, restorable across machines |
@@ -83,34 +83,36 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 | Settings translation | `import_settings` / `/settings-suggest` | Turns Claude settings / Codex config into DSH migration suggestions (read-only) |
 | Handoff summaries | `/resume-claude` / `/resume-codex` | Treats external transcripts as untrusted history and injects a handoff summary into the current session |
 | Read-only audit / checkup | `verify_session` / `doctor` / CLI `dsh-chat-import doctor` | Structural audit and migration health check |
-| Idempotency & protection | All import tools | `expectedHash` / `restamp` / context-budget protection; unchanged sources skip, grown sources append |
+| Idempotency & protection | `import_chat` (all sources) | `expectedHash` / `restamp` / context-budget protection; unchanged sources skip, grown sources append |
 | Preset mode + system prompt | Settings tab in the Plugins section | Imported sessions record the default preset; optional "import system prompt" as a context injection (off by default) |
 
 ---
 
 ## 🗂 Supported sources
 
-| Source | Storage location | Import tool |
+All 18 sources go through **one tool**: pass the source name as the `format` argument to `import_chat`, e.g. `import_chat({ format: "codex", path: "…" })`.
+
+| Source | Storage location | `format` value |
 | --- | --- | --- |
-| **Claude Code** | `~/.claude/projects/<slug>/<sessionId>.jsonl` | `import_claude` |
-| **Claude-3p** (new client) | `%LOCALAPPDATA%\Claude-3p\claude-code-sessions` (metadata → JSONL via `cliSessionId`) | `import_claude` |
-| **Codex / ChatGPT CLI** | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `import_codex` |
-| **ChatGPT** (web export) | anywhere you saved the export — `conversations.json` | `import_chatgpt` |
-| **Cursor** | `~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl` | `import_cursor` |
-| **Gemini CLI** | `~/.gemini/history/<slot>/chats/session-*.json` | `import_gemini` |
-| **Reasonix** (CLI + desktop) | `~/.reasonix/sessions/desktop-*.jsonl` · `%APPDATA%\reasonix\projects\<slug>\sessions\*.jsonl` | `import_reasonix` |
-| **opencode** | `~/.local/share/opencode/opencode.db` | `import_opencode` |
-| **MiMo Code** (opencode fork) | `~/.local/share/mimocode/mimocode.db` | `import_mimocode` |
-| **ZCode** (z.ai CLI) | `~/.zcode/cli/db/db.sqlite` | `import_zcode` |
-| **Grok Build** | `~/.grok/sessions/<project>/<session_id>/` | `import_grokbuild` |
-| **OpenClaw** | `~/.openclaw/agents/<agent>/sessions/*.jsonl` | `import_openclaw` |
-| **Pi Coding Agent** | `~/.pi/agent/sessions/--<cwd>--/<timestamp>_<uuid>.jsonl` | `import_pi` |
-| **Hermes** | `~/.hermes/` (Windows `%LOCALAPPDATA%\hermes`) | `import_hermes` |
-| **Kimi CLI / Kimi Code** | `~/.kimi/sessions/<workdir-md5>/<sessionId>/wire.jsonl` · `~/.kimi-code/sessions/<workspaceId>/<sessionId>/agents/main/wire.jsonl` | `import_kimi` |
-| **Qoder CLI** | `~/.qoder/projects/<encoded-project>/<sessionId>.jsonl` (subagents in `<sessionId>/subagents/*.jsonl`) | `import_qoder` |
-| **WorkBuddy** (Tencent AI coding app) | `~/.workbuddy/projects/<project-hash>/<session-uuid>.jsonl` | `import_workbuddy` |
-| **DSH session logs** | `~/.dsh/sessions/<encoded-workspace>/<sessionId>/session.jsonl(.zstd)` | `import_dsh` |
-| **Any local JSONL** | any `.jsonl` file / directory (auto-detected) | `import_local_jsonl` |
+| **Claude Code** | `~/.claude/projects/<slug>/<sessionId>.jsonl` | `claude` |
+| **Claude-3p** (new client) | `%LOCALAPPDATA%\Claude-3p\claude-code-sessions` (metadata → JSONL via `cliSessionId`) | `claude` |
+| **Codex / ChatGPT CLI** | `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` | `codex` |
+| **ChatGPT** (web export) | anywhere you saved the export — `conversations.json` | `chatgpt` |
+| **Cursor** | `~/.cursor/projects/<slug>/agent-transcripts/<id>/<id>.jsonl` | `cursor` |
+| **Gemini CLI** | `~/.gemini/history/<slot>/chats/session-*.json` | `gemini` |
+| **Reasonix** (CLI + desktop) | `~/.reasonix/sessions/desktop-*.jsonl` · `%APPDATA%\reasonix\projects\<slug>\sessions\*.jsonl` | `reasonix` |
+| **opencode** | `~/.local/share/opencode/opencode.db` | `opencode` |
+| **MiMo Code** (opencode fork) | `~/.local/share/mimocode/mimocode.db` | `mimocode` |
+| **ZCode** (z.ai CLI) | `~/.zcode/cli/db/db.sqlite` | `zcode` |
+| **Grok Build** | `~/.grok/sessions/<project>/<session_id>/` | `grokbuild` |
+| **OpenClaw** | `~/.openclaw/agents/<agent>/sessions/*.jsonl` | `openclaw` |
+| **Pi Coding Agent** | `~/.pi/agent/sessions/--<cwd>--/<timestamp>_<uuid>.jsonl` | `pi` |
+| **Hermes** | `~/.hermes/` (Windows `%LOCALAPPDATA%\hermes`) | `hermes` |
+| **Kimi CLI / Kimi Code** | `~/.kimi/sessions/<workdir-md5>/<sessionId>/wire.jsonl` · `~/.kimi-code/sessions/<workspaceId>/<sessionId>/agents/main/wire.jsonl` | `kimi` |
+| **Qoder CLI** | `~/.qoder/projects/<encoded-project>/<sessionId>.jsonl` (subagents in `<sessionId>/subagents/*.jsonl`) | `qoder` |
+| **WorkBuddy** (Tencent AI coding app) | `~/.workbuddy/projects/<project-hash>/<session-uuid>.jsonl` | `workbuddy` |
+| **DSH session logs** | `~/.dsh/sessions/<encoded-workspace>/<sessionId>/session.jsonl(.zstd)` | `dsh` |
+| **Any local JSONL** | any `.jsonl` file / directory (auto-detected) | `local-jsonl` |
 
 Each import preserves what the source actually records; anything a format cannot preserve is explicitly flagged in the import report. Per-format details and edge cases live in [Usage Reference](docs/USAGE.md).
 
@@ -118,16 +120,16 @@ Each import preserves what the source actually records; anything a format cannot
 
 ## 🛠 Usage
 
-All `import_*` tools share the same `path` semantics: a single file becomes one session, a directory is scanned recursively for batch import. Common options: `preview` (zero side effects), `force` (new full copy), `sessionId` (override target id), `expectedHash` (SHA-256 verification), `restamp` (shift timestamps to now), `workspaceMode` / `workspaceDir` (grouping control).
+All imports go through the single **`import_chat`** tool — `format` selects the source (see the table above) — and `path` semantics are shared: a single file becomes one session, a directory is scanned recursively for batch import. Common options: `preview` (zero side effects), `force` (new full copy), `sessionId` (override target id), `expectedHash` (SHA-256 verification), `restamp` (shift timestamps to now), `workspaceMode` / `workspaceDir` (grouping control). Source-specific options (`compacted` / `branch` / `sessionIds` / `fullHistory` / `lineage` / `parseFormat`) only apply to the corresponding `format`.
 
 ```
-import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
-import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
-import_workbuddy({ path: "C:\Users\<you>\.workbuddy\projects" })
-import_local_jsonl({ path: "D:\downloads\session.jsonl", format: "claude" })
+import_chat({ format: "claude", path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
+import_chat({ format: "opencode", path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
+import_chat({ format: "workbuddy", path: "C:\Users\<you>\.workbuddy\projects" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl", parseFormat: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_zcode` / `import_hermes` always return batch results — one file / database contains every session, and each conversation becomes its own session in a single call.
+`format: "chatgpt"` / `"opencode"` / `"zcode"` / `"hermes"` always return batch results — one file / database contains every session, and each conversation becomes its own session in a single call.
 
 Full per-tool / per-command usage lives in **[docs/USAGE.md](docs/USAGE.md)**.
 

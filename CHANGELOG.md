@@ -11,6 +11,24 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ## [Unreleased]
 
+### Changed
+
+- **18 个 `import_*` 聊天导入工具收敛为单一 `import_chat` 分发器（注册工具
+  32 → 15）** — 会话工具面从每来源一个工具（`import_claude` / `import_codex` /
+  `import_chatgpt` / `import_cursor` / `import_gemini` / `import_reasonix` /
+  `import_opencode` / `import_mimocode` / `import_zcode` / `import_grokbuild` /
+  `import_openclaw` / `import_hermes` / `import_pi` / `import_kimi` /
+  `import_qoder` / `import_workbuddy` / `import_dsh` / `import_local_jsonl`）
+  改为一个 `import_chat({ format, path })`，`format` 为 18 值 enum 选择来源。
+  参数/输出 schema/幂等/`session/imported` 标记/归组语义逐源不变；`IMPORT_SPECS`
+  登记由分发器工厂维护，导入面板与 `/import` 命令零影响。每请求工具 schema 中
+  import 部分从 34,059 字符降到 3,996 字符（省 ≈88%），全部工具每请求合计
+   从 44,835 降到 14,796 字符（省 ≈67%，约 20,026 token/请求）——
+  低使用率工具不再逐一占用模型上下文。行为差异：
+  `import_local_jsonl` 的 `format` 参数改名 `parseFormat`（避免与分发器 `format`
+  撞名）；18 份长工具描述合并为 format enum 描述（解析细节不再进模型，属有意的
+  token 权衡）。
+
 ### Added
 
 - **WorkBuddy（腾讯 AI 编码应用）导入支持** — 新增 `import_workbuddy` 工具与
