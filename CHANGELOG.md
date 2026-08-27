@@ -24,6 +24,14 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Fixed
 
+- **侧边栏「导入会话」按钮注册改用 `slots.inject` 等待槽声明就绪** — 裸
+  `ctx.slots.register("sidebar.footer.action", …)` 要求该槽在 apply 期已被 ui-sidebar
+  声明；DSH Desktop 增强模式下桌面 shell 的声明时序不保证先于本插件，注册当场抛错使
+  客户端 fiber 失败、渲染器 boot 判失败（白屏失败页，仅增强模式复现）。改用
+  `slots.inject("sidebar.footer.action", …)` 挂起等待声明就绪（官方 ui-cordis 与
+  dsh-community-market 同款写法），注册不再依赖激活顺序。设置页分区的 settingsScope
+  解析同步挪进 `slots.inject` 回调内（apply 期该可选服务尚未就绪）。
+
 - **`ctx.inject(['settings'])` 注册偏好命名空间不再把 `settings.register` 的 owner scope
   作为回调返回值** — cordis 的 effect 契约只接受函数/可空/thenable/可迭代，普通对象会抛
   `TypeError: Invalid effect` 并使整个插件 apply 失败：桌面宿主中 settings 服务就绪早、
