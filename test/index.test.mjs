@@ -4246,6 +4246,48 @@ test('REQ-41 /api-import/sessions 流式：后台扫描 + after 游标轮询（�
   assert.equal(bad.data.ok, false)
 })
 
+test('REQ-41 /api-import/sessions 流式：超大库按 STREAM_CHUNK 分块交付、游标收敛无重复', async () => {
+  const root = 'D:\\demo\\claude\\projects-big'
+  const N = 2100
+  const tree = { [root]: 'dir', [root + '\\proj-a']: 'dir' }
+  for (let i = 0; i < N; i++) {
+    const p = root + '\\proj-a\\sess-' + i + '.jsonl'
+    tree[p] = '{"sessionId":"sess-' + i + '","type":"user","cwd":"D:\\\\demo\\\\proj-a","message":{"role":"user","content":"问题' + i + '"}}\n' +
+      '{"sessionId":"sess-' + i + '","type":"assistant","message":{"role":"assistant","content":"ok"}}'
+  }
+  const { ctx, webRoutes } = makeCtx(tree)
+  apply(ctx)
+  const route = webRoutes.find((r) => r.path === '/api-import/sessions')
+  const invoke = async (body) => {
+    const req = { async *[Symbol.asyncIterator]() { yield JSON.stringify(body) } }
+    const res = { status: null, headers: null, body: null, writeHead(s, h) { this.status = s; this.headers = h }, end(b) { this.body = b } }
+    await route.handler(req, res)
+    return { res, data: JSON.parse(res.body) }
+  }
+
+  // 轮询收敛：单响应长度有界（≤500）、游标单调、无重复、最终全量交付
+  const all = []
+  let after = 0
+  let guard = 0
+  for (;;) {
+    const r = await invoke({ source: 'claude-code', path: root, epoch: 9, after })
+    assert.equal(r.data.ok, true)
+    assert.ok(r.data.sessions.length <= 500, '单响应超过分块上限: ' + r.data.sessions.length)
+    for (const s of r.data.sessions) {
+      assert.ok(!all.includes(s.sessionId), '游标增量不应重复: ' + s.sessionId)
+      all.push(s.sessionId)
+    }
+    assert.ok(r.data.cursor >= after, '游标不应回退')
+    after = r.data.cursor
+    if (r.data.done === true) break
+    await new Promise((resolve) => setTimeout(resolve, 3))
+    assert.ok(guard++ < 500, '未在 500 次轮询内收敛')
+  }
+  assert.equal(all.length, N)
+  assert.equal(new Set(all).size, N)
+  assert.equal(after, N)
+})
+
 test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写走 fenced 路由（revision 冲突保护）', async () => {
   const invoke = async (route, body) => {
     const req = { async *[Symbol.asyncIterator]() { yield JSON.stringify(body) } }
