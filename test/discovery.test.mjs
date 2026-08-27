@@ -105,6 +105,59 @@ test('claude：注入过滤标题、记录 cwd 项目名、主 transcript 判定
   assert.equal(b.importStatus, 'not-imported')
 })
 
+test('onEntry：逐条产出顺序与返回一致、状态标注与 query 过滤已应用（面板流式底座）', async () => {
+  const root = join(HOME, '.claude', 'projects')
+  const slug = join(root, 'proj-a')
+  const s1 = join(slug, 'sess-001.jsonl')
+  const s2 = join(slug, 'sess-002.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [slug, { type: 'dir' }],
+    [s1, { type: 'file', mtimeMs: 1786000002000, text: [
+      j({ sessionId: 'sess-001', type: 'user', cwd: 'D:\\demo\\claude-proj', message: { role: 'user', content: '请帮我修复构建' } }),
+      j({ sessionId: 'sess-001', type: 'assistant', message: { role: 'assistant', content: '好的' } }),
+    ].join('\n') }],
+    [s2, { type: 'file', text: [
+      j({ sessionId: 'sess-002', type: 'user', message: { role: 'user', content: '真实提问' } }),
+    ].join('\n') }],
+  ])
+  const host = mockHost(files)
+  const imports = { [s1]: { kind: 'single', dshId: 'import-sess-001', turns: 1, events: 3 } }
+
+  const emitted = []
+  const { sessions, total } = await discoverSessions({
+    path: root, format: 'claude', host, imports,
+    onEntry: (e) => emitted.push(e),
+  })
+  // 逐条产出顺序 = 返回顺序（目录遍历序），会话数一致
+  assert.equal(total, 2)
+  assert.equal(emitted.length, sessions.length)
+  assert.deepEqual(emitted.map((e) => e.sessionId), sessions.map((s) => s.sessionId))
+  // 产出条目已带状态标注与标题提取（与返回结果同口径）
+  const a = emitted.find((e) => e.sessionId === 'sess-001')
+  assert.equal(a.importStatus, 'imported')
+  assert.equal(a.title, '请帮我修复构建')
+  assert.equal(emitted.find((e) => e.sessionId === 'sess-002').importStatus, 'not-imported')
+
+  // query 过滤作用于产出路径：不匹配的会话不出现在 emitted（TTL 缓存命中 → 整批补齐）
+  const qEmitted = []
+  await discoverSessions({
+    path: root, format: 'claude', host, imports, query: '构建',
+    onEntry: (e) => qEmitted.push(e),
+  })
+  assert.deepEqual(qEmitted.map((e) => e.sessionId), ['sess-001'])
+
+  // 缓存命中路径：不重读（读计数不涨）、产出不重复、顺序不变
+  const before = host.counters.reads
+  const cEmitted = []
+  await discoverSessions({
+    path: root, format: 'claude', host, imports,
+    onEntry: (e) => cEmitted.push(e),
+  })
+  assert.equal(host.counters.reads, before)
+  assert.deepEqual(cEmitted.map((e) => e.sessionId), sessions.map((s) => s.sessionId))
+})
+
 test('codex：session_meta 签名、注入过滤标题、项目名（cwd basename / YYYY-MM 回退）', async () => {
   const root = join(HOME, '.codex', 'sessions')
   const withCwd = join(root, '2026', '03', '10', 'rollout-20260310T120000-019e3b3f-636d-7cb3-aaab-0255eb45ad4f.jsonl')
