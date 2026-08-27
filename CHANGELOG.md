@@ -22,6 +22,10 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   offset/limit 分页路由保留兼容）。jsonl 型来源（claude/codex/cursor/gemini/…）逐会话
   产出；SQLite 型来源（opencode/mimocode/zcode/hermes/chatgpt）仍整库一批。
 
+- **导入会话面板工作区分组改按活跃度排序** — 分组从「工作区名首字母升序」改为「组内
+  最新会话的最后编辑时间降序」：最近活跃的工作区置顶（时间并列按工作区名升序稳定），
+  组内会话保持最后编辑时间降序，未分组桶仍钉在最后。
+
 ### Fixed
 
 - **侧边栏「导入会话」按钮注册改用 `slots.inject` 等待槽声明就绪** — 裸
