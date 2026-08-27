@@ -227,13 +227,21 @@ function makeCtx(tree, opts = {}) {
       if (services[service] !== undefined) return services[service]
       return undefined
     },
-    // 模拟 Cordis ctx.inject：依赖可用（webServer 在场 / 服务在 ctx 上存在）才同步
-    // 执行回调；缺依赖（noWebServer / commands 缺席）时不执行——对齐真实 Cordis
-    // 「依赖可用再启动回调」语义。
+    // 模拟 Cordis ctx.inject：依赖可用（webServer 在场 / ctx.get 有服务）才同步执行
+    // 回调；缺依赖不执行。回调返回值按 Cordis effect 契约校验（函数/可空/thenable/
+    // 可迭代之外抛 TypeError: Invalid effect）——真实宿主据此拒绝非法 effect（曾令
+    // 桌面端启动崩溃：settings 就绪早、回调同步执行即命中），mock 对齐该校验可让
+    // 同类回归在单测里直接暴露。
     inject(serviceList, cb) {
       const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => (s === 'webServer' ? !opts.noWebServer : ctx[s] !== undefined))) return cb(ctx)
-      return undefined
+      if (!list.every((s) => (s === 'webServer' ? !opts.noWebServer : ctx.get(s) !== undefined))) return undefined
+      const effect = cb(ctx)
+      if (effect !== undefined && effect !== null && typeof effect !== 'function') {
+        const invalid = typeof effect !== 'object' ||
+          (!('then' in effect) && !(Symbol.iterator in effect) && !(Symbol.asyncIterator in effect))
+        if (invalid) throw new TypeError('Invalid effect')
+      }
+      return effect
     },
     tools: {
       register(def) { registered.push(def); return () => {} },

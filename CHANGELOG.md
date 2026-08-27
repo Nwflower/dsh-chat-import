@@ -24,6 +24,14 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Fixed
 
+- **`ctx.inject(['settings'])` 注册偏好命名空间不再把 `settings.register` 的 owner scope
+  作为回调返回值** — cordis 的 effect 契约只接受函数/可空/thenable/可迭代，普通对象会抛
+  `TypeError: Invalid effect` 并使整个插件 apply 失败：桌面宿主中 settings 服务就绪早、
+  回调同步执行即触发，表现为 DSH Desktop 启动崩溃（web/headless 下 settings 缺席或晚到、
+  回调不执行所以不受影响）。register 内部已自行把命名空间生命周期挂到插件 fiber，回调
+  空返回即可；`test/index.test.mjs` 的 `makeCtx.inject` 同步补上同款 effect 校验，同类
+  回归会在单测中直接暴露。
+
 - **设置页「导入系统提示词」开关改走插件自有 fenced 路由（`/api-import/prefs`）** —
   DSH 配置客户端（settingsScope）只能读写 api-proxy 暴露白名单内的命名空间，插件自有
   `chat-import` 不在其列：此前开关读不到值、写入被拒（点不动、不持久化）。现客户端
