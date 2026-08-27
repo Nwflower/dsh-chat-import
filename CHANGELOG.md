@@ -24,6 +24,20 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Fixed
 
+- **设置页「导入系统提示词」开关改走插件自有 fenced 路由（`/api-import/prefs`）** —
+  DSH 配置客户端（settingsScope）只能读写 api-proxy 暴露白名单内的命名空间，插件自有
+  `chat-import` 不在其列：此前开关读不到值、写入被拒（点不动、不持久化）。现客户端
+  经面板 fenced 路由进程内读写设置 seam（`describe` / `update`，`expectedRevision`
+  冲突保护），settings 服务缺席时回退默认、开关照常渲染；宿主侧命名空间注册改
+  `ctx.inject(['settings'])` 惰性挂载（对齐 dsh-better-sidebar 的 `settingsGet` /
+  `settingsUpdate` 模式）。
+
+- **设置页「会话导入」分区迁移到正确的宿主 Hook（`settings.section` 左导航页）** —
+  此前注册在 `settings.plugins.tab`（「插件」分区内部的子 TAB），不符合该插槽语义
+  （它是分区内页面，不是插件设置入口），部分宿主版本下点不开。现改为注册
+  `settings.section`（设置页左侧导航的「每功能一页」，`agent-presets` 等官方插件
+  同款做法），「导入系统提示词」开关作为独立的「会话导入」设置页呈现。
+
 - **面板后台扫描不再阻塞宿主 Web 服务事件循环** — 后台扫描跑在宿主进程上，此前
   `gitStatusOf`（`statSync` / `readFileSync` 逐目录上探 .git）与 `scanDsh` 的 zstd
   `readFileSync` 会在扫描期间同步占住事件循环，周期性冻住面板轮询与其它 UI 请求

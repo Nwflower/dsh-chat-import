@@ -4238,6 +4238,68 @@ test('REQ-41 /api-import/sessions 流式：后台扫描 + after 游标轮询（�
   assert.equal(bad.data.ok, false)
 })
 
+test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写走 fenced 路由（revision 冲突保护）', async () => {
+  const invoke = async (route, body) => {
+    const req = { async *[Symbol.asyncIterator]() { yield JSON.stringify(body) } }
+    const res = { status: null, headers: null, body: null, writeHead(s, h) { this.status = s; this.headers = h }, end(b) { this.body = b } }
+    await route.handler(req, res)
+    return { res, data: JSON.parse(res.body) }
+  }
+
+  // settings 服务缺席（默认 makeCtx）：读回默认 + available:false；写原样返回不抛
+  const { ctx, webRoutes } = makeCtx({})
+  apply(ctx)
+  const route = webRoutes.find((r) => r.path === '/api-import/prefs')
+  assert.ok(route, '面板注册了 /api-import/prefs 路由')
+  const r0 = await invoke(route, {})
+  assert.equal(r0.res.status, 200)
+  assert.equal(r0.data.ok, true)
+  assert.equal(r0.data.available, false)
+  assert.deepEqual(r0.data.value, { importSystemPrompt: false })
+  const w0 = await invoke(route, { importSystemPrompt: true })
+  assert.equal(w0.data.ok, true)
+  assert.equal(w0.data.available, false)
+
+  // settings 在场：describe 读 value+revision，update 携带 expectedRevision
+  const calls = []
+  const settingsStub = {
+    register(ns, schema) { return { ns, schema } },
+    describe(opts) {
+      assert.equal(opts.redactSecrets, true)
+      return [{ ns: 'chat-import', value: { importSystemPrompt: false }, revision: 7 }]
+    },
+    async update(ns, patch, expectedRevision) { calls.push({ ns, patch, expectedRevision }) },
+    get(ns) { return { importSystemPrompt: false } },
+  }
+  const { ctx: ctx2, webRoutes: routes2 } = makeCtx({}, { services: { settings: settingsStub } })
+  apply(ctx2)
+  const route2 = routes2.find((r) => r.path === '/api-import/prefs')
+  const r = await invoke(route2, {})
+  assert.equal(r.data.ok, true)
+  assert.equal(r.data.available, true)
+  assert.equal(r.data.revision, 7)
+  assert.deepEqual(r.data.value, { importSystemPrompt: false })
+  const w = await invoke(route2, { importSystemPrompt: true, revision: 7 })
+  assert.equal(w.data.ok, true)
+  assert.deepEqual(calls, [{ ns: 'chat-import', patch: { importSystemPrompt: true }, expectedRevision: 7 }])
+
+  // update 抛冲突 → ok:false + code: settings-conflict（客户端据此重读）
+  const conflictStub = {
+    ...settingsStub,
+    async update() {
+      const e = new Error('settings namespace "chat-import" changed since it was read (expected 7, now 8)')
+      e.name = 'SettingsConflictError'
+      throw e
+    },
+  }
+  const { ctx: ctx3, webRoutes: routes3 } = makeCtx({}, { services: { settings: conflictStub } })
+  apply(ctx3)
+  const route3 = routes3.find((r) => r.path === '/api-import/prefs')
+  const wc = await invoke(route3, { importSystemPrompt: true, revision: 7 })
+  assert.equal(wc.data.ok, false)
+  assert.equal(wc.data.code, 'settings-conflict')
+})
+
 test('REQ-55 面板发现 + scan_discover：归档目标 importStatus=archived（可重导），未归档导入仍 imported', async () => {
   const root = 'D:\\demo\\claude\\projects'
   const file = root + '\\proj-a\\sess-aaa.jsonl'
