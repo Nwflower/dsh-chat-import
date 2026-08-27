@@ -9,6 +9,19 @@ Every entry maps to commits in the repository history
 npm publish timestamp (cross-checked with `npm view dsh-chat-import time`).
 Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
+## [Unreleased]
+
+### Changed
+
+- **导入会话面板改为后台扫描 + 逐条流式加载** — 面板数据源 `POST /api-import/sessions`
+  新增流式模式（body 带 `after` 游标）：发现按「来源|关键词|路径|epoch」键后台
+  singleflight 扫描（epoch 由客户端每次刷新 / 导入后自增 → 新扫描键强制重扫），
+  `discoverSessions` 新增可选 `onEntry` 逐条产出钩子（importStatus / git 状态标注与
+  查询过滤移到产出路径，缺省行为零变化）；客户端按 ~250ms 轮询游标增量，会话按发现
+  顺序**逐条插入列表**——首屏不再被全量扫描阻塞，换页 / 翻页不再触发重扫（旧契约
+  offset/limit 分页路由保留兼容）。jsonl 型来源（claude/codex/cursor/gemini/…）逐会话
+  产出；SQLite 型来源（opencode/mimocode/zcode/hermes/chatgpt）仍整库一批。
+
 ## [0.8.0] - 2026-08-26
 
 ### Changed
