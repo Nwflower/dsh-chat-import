@@ -4319,7 +4319,7 @@ test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写�
       return [{ ns: 'chat-import', value: { importSystemPrompt: false }, revision: 7 }]
     },
     async update(ns, patch, expectedRevision) { calls.push({ ns, patch, expectedRevision }) },
-    get(ns) { return { importSystemPrompt: false } },
+    get(_ns) { return { importSystemPrompt: false } },
   }
   const { ctx: ctx2, webRoutes: routes2 } = makeCtx({}, { services: { settings: settingsStub } })
   apply(ctx2)

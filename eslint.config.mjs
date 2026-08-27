@@ -20,6 +20,7 @@ export default [
         console: 'readonly',
         process: 'readonly',
         URL: 'readonly', // 脚本（.github/scripts/*）用 new URL(..., import.meta.url) 定位路径
+        setTimeout: 'readonly', // node 计时器（index.test.mjs 轮询让出事件循环）
       },
     },
     rules: {
