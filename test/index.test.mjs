@@ -4169,6 +4169,75 @@ test('REQ-41 /api-import/sessions handler：分页（offset/limit + total）+ �
   assert.equal(all.data.limit, 3)
 })
 
+test('REQ-41 /api-import/sessions 流式：后台扫描 + after 游标轮询（增量去重、epoch 换键）', async () => {
+  const root = 'D:\\demo\\claude\\projects'
+  const tree = {
+    [root]: 'dir',
+    [root + '\\proj-a']: 'dir',
+    [root + '\\proj-a\\sess-aaa.jsonl']: '{"sessionId":"sess-aaa","type":"user","cwd":"D:\\\\demo\\\\proj-a","message":{"role":"user","content":"第一个问题"}}\n{"sessionId":"sess-aaa","type":"assistant","message":{"role":"assistant","content":"ok"}}',
+    [root + '\\proj-b']: 'dir',
+    [root + '\\proj-b\\sess-bbb.jsonl']: '{"sessionId":"sess-bbb","type":"user","cwd":"D:\\\\demo\\\\proj-b","message":{"role":"user","content":"第二个问题"}}\n{"sessionId":"sess-bbb","type":"assistant","message":{"role":"assistant","content":"ok"}}',
+  }
+  const { ctx, webRoutes } = makeCtx(tree)
+  apply(ctx)
+  const route = webRoutes.find((r) => r.path === '/api-import/sessions')
+  const invoke = async (body) => {
+    const req = { async *[Symbol.asyncIterator]() { yield JSON.stringify(body) } }
+    const res = { status: null, headers: null, body: null, writeHead(s, h) { this.status = s; this.headers = h }, end(b) { this.body = b } }
+    await route.handler(req, res)
+    return { res, data: JSON.parse(res.body) }
+  }
+
+  // 首请求创建后台扫描并立即返回当前增量（done 前按 cursor 轮询）
+  const p0 = await invoke({ source: 'claude-code', path: root, epoch: 1, after: 0 })
+  assert.equal(p0.res.status, 200)
+  assert.equal(p0.data.ok, true)
+  assert.equal(typeof p0.data.cursor, 'number')
+  assert.equal(p0.data.offset, undefined) // 流式响应不带旧契约分页字段
+
+  // 客户端按 cursor 轮询直至 done：增量按 seq 去重，最终集合 = 全量发现
+  const all = []
+  let after = 0
+  let guard = 0
+  for (;;) {
+    const r = await invoke({ source: 'claude-code', path: root, epoch: 1, after })
+    assert.equal(r.data.ok, true)
+    for (const s of r.data.sessions) {
+      assert.ok(!all.includes(s.sessionId), '游标增量不应重复: ' + s.sessionId)
+      all.push(s.sessionId)
+    }
+    after = r.data.cursor
+    if (r.data.done === true) {
+      assert.equal(r.data.total, 2)
+      break
+    }
+    // 后台扫描在事件循环里异步推进：轮询需让出（生产端客户端按 ~250ms 轮询）
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    assert.ok(guard++ < 200, '扫描未在 200 次轮询内完成')
+  }
+  assert.deepEqual([...all].sort(), ['sess-aaa', 'sess-bbb'])
+
+  // epoch 变化 → 新扫描键（刷新语义）：重新产出同一集合
+  const again = await invoke({ source: 'claude-code', path: root, epoch: 2, after: 0 })
+  assert.equal(again.data.ok, true)
+  if (again.data.done === true) {
+    assert.deepEqual(again.data.sessions.map((s) => s.sessionId).sort(), ['sess-aaa', 'sess-bbb'])
+  }
+
+  // query 过滤透传（流式模式同样作用于产出路径）
+  const q = await invoke({ source: 'claude-code', path: root, query: '第二个', epoch: 3, after: 0 })
+  assert.equal(q.data.ok, true)
+  if (q.data.done === true) {
+    assert.deepEqual(q.data.sessions.map((s) => s.sessionId), ['sess-bbb'])
+    assert.equal(q.data.total, 1)
+  }
+
+  // 未知来源 → 400（流式模式同样先校验）
+  const bad = await invoke({ source: 'nope', epoch: 1, after: 0 })
+  assert.equal(bad.res.status, 400)
+  assert.equal(bad.data.ok, false)
+})
+
 test('REQ-55 面板发现 + scan_discover：归档目标 importStatus=archived（可重导），未归档导入仍 imported', async () => {
   const root = 'D:\\demo\\claude\\projects'
   const file = root + '\\proj-a\\sess-aaa.jsonl'
