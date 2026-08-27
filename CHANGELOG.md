@@ -22,6 +22,16 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   offset/limit 分页路由保留兼容）。jsonl 型来源（claude/codex/cursor/gemini/…）逐会话
   产出；SQLite 型来源（opencode/mimocode/zcode/hermes/chatgpt）仍整库一批。
 
+### Fixed
+
+- **面板后台扫描不再阻塞宿主 Web 服务事件循环** — 后台扫描跑在宿主进程上，此前
+  `gitStatusOf`（`statSync` / `readFileSync` 逐目录上探 .git）与 `scanDsh` 的 zstd
+  `readFileSync` 会在扫描期间同步占住事件循环，周期性冻住面板轮询与其它 UI 请求
+  （表现为整个界面卡顿）。现全部改为 `fs/promises` 异步（含逐条产出 await 让出）：
+  扫描期间事件循环持续可用。客户端轮询同步加渲染守卫——空轮询不再触发 setStream
+  重渲染。SQLite 型整库读取器（opencode/mimocode/zcode/hermes/chatgpt）仍为同步
+  实现，属已知局限。
+
 ## [0.8.0] - 2026-08-26
 
 ### Changed
