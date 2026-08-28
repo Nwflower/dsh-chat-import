@@ -11,6 +11,13 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ## [Unreleased]
 
+### Added
+
+- **导入面板分页大小可选 50 / 100 / 500** — 底部分页条新增「每页」下拉，翻页仍为零重扫客户端切片。
+- **导入面板「搬空全部」** — 扫描完成后一键导入当前结果中全部未导入会话（跨页，非仅当前页）。
+- **导入面板「历史」页** — 读取 `~/.dsh/dsh-chat-import/imports.json` 展平展示来源路径、会话 ID、导入时间与轮次/事件计数。
+- **导入历史一键删除** — 支持单条或全部撤回：删除本插件创建的 DSH 会话工件、解挂工作区、清理空壳工作区（`agent-transcripts/<uuid>` / dedicated 专用目录），并从 registry 移除记录；操作前需确认。
+
 ### Changed
 
 - **导入会话面板改为后台扫描 + 逐条流式加载** — 面板数据源 `POST /api-import/sessions`
