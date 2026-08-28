@@ -13,6 +13,7 @@ import { mkdtempSync, writeFileSync, readFileSync, readdirSync, rmSync } from 'n
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoverSessions, createScanCache, SCAN_CACHE_FILE } from '../lib/discovery.mjs'
+import { clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 
 const j = (o) => JSON.stringify(o)
 
@@ -197,6 +198,120 @@ test('书签文件缺失按空书签处理，扫描后重建', async (t) => {
   assert.equal(r.total, 2)
   assert.ok(host.counters.reads > 0) // 缺失 → 全量重扫
   assert.ok(JSON.parse(readFileSync(bmPath, 'utf8')).bookmarks.claude[s1]) // 书签已重建
+})
+
+test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project，不重读 jsonl', async (t) => {
+  clearWorkspacePathCache()
+  const slug = 'e-RPA-260721-New-Funion-Client-develop'
+  const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const cwdDots = 'E:\\RPA-260721-New\\Funion.Client-develop'
+  const root = join('C:', 'Users', 'tester', '.cursor', 'projects')
+  const dirA = join(root, slug, 'agent-transcripts', uuid)
+  const file = join(dirA, uuid + '.jsonl')
+  const staleTitle = '<timestamp>Friday, Aug 7, 2026, 3:44 PM (UTC+8)</timestamp>\n<user_query>点号提问</user_query>'
+  const fileBody = 'SHOULD-NOT-BE-READ-ON-CACHE-HIT'
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [join(root, slug), { type: 'dir' }],
+    [join(root, slug, 'agent-transcripts'), { type: 'dir' }],
+    [dirA, { type: 'dir' }],
+    [file, { type: 'file', mtimeMs: 1786000002000, text: fileBody }],
+    ['E:\\RPA-260721-New', { type: 'dir' }],
+    [cwdDots, { type: 'dir' }],
+  ])
+  const cacheDir = mkdtempSync(join(tmpdir(), 'req40-cursor-patch-'))
+  t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
+  const bmPath = join(cacheDir, SCAN_CACHE_FILE)
+  writeFileSync(bmPath, JSON.stringify({
+    version: 1,
+    bookmarks: {
+      cursor: {
+        [file]: {
+          mtimeMs: 1786000002000,
+          sizeBytes: fileBody.length,
+          entries: [{
+            format: 'cursor',
+            sessionId: uuid,
+            title: staleTitle,
+            project: slug,
+            createdAt: null,
+            lastActiveAt: null,
+            messageCount: null,
+            sourcePath: file,
+            cwd: null,
+          }],
+        },
+      },
+    },
+  }) + '\n', 'utf8')
+
+  const host = mockHost(files)
+  host.resolveCursorSlug = async (s) => (s === slug ? cwdDots : null)
+
+  const r = await scan({ path: root, format: 'cursor', host, imports: {}, cacheDir })
+  assert.equal(r.total, 1)
+  assert.equal(host.counters.reads, 0, '书签命中不应重读 jsonl')
+  assert.equal(r.sessions[0].cwd, cwdDots)
+  assert.equal(r.sessions[0].project, 'Funion.Client-develop')
+  assert.equal(r.sessions[0].title, '点号提问')
+  assert.ok(typeof r.sessions[0].createdAt === 'number' && r.sessions[0].createdAt > 0)
+  assert.equal(r.sessions[0].lastActiveAt, 1786000002000)
+
+  const disk = JSON.parse(readFileSync(bmPath, 'utf8'))
+  const saved = disk.bookmarks.cursor[file].entries[0]
+  assert.equal(saved.cwd, cwdDots)
+  assert.equal(saved.project, 'Funion.Client-develop')
+  assert.equal(saved.title, '点号提问')
+  assert.ok(typeof saved.createdAt === 'number' && saved.createdAt > 0)
+})
+
+test('cursor 书签命中：纯数字 slug 读时补丁清空 project，不误建异类工作区', async (t) => {
+  const slug = '1784784551097'
+  const uuid = 'cccccccc-cccc-cccc-cccc-cccccccccccc'
+  const root = join('C:', 'Users', 'tester', '.cursor', 'projects')
+  const dirNum = join(root, slug, 'agent-transcripts', uuid)
+  const file = join(dirNum, uuid + '.jsonl')
+  const fileBody = 'stale-cache-body'
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [join(root, slug), { type: 'dir' }],
+    [join(root, slug, 'agent-transcripts'), { type: 'dir' }],
+    [dirNum, { type: 'dir' }],
+    [file, { type: 'file', mtimeMs: 1786000004000, text: fileBody }],
+  ])
+  const cacheDir = mkdtempSync(join(tmpdir(), 'req40-cursor-numeric-'))
+  t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
+  writeFileSync(join(cacheDir, SCAN_CACHE_FILE), JSON.stringify({
+    version: 1,
+    bookmarks: {
+      cursor: {
+        [file]: {
+          mtimeMs: 1786000004000,
+          sizeBytes: fileBody.length,
+          entries: [{
+            format: 'cursor',
+            sessionId: uuid,
+            title: '纯数字 slug',
+            project: slug,
+            createdAt: null,
+            lastActiveAt: null,
+            messageCount: null,
+            sourcePath: file,
+            cwd: null,
+          }],
+        },
+      },
+    },
+  }) + '\n', 'utf8')
+
+  const host = mockHost(files)
+  host.resolveCursorSlug = async () => null
+
+  const r = await scan({ path: root, format: 'cursor', host, imports: {}, cacheDir })
+  assert.equal(r.total, 1)
+  assert.equal(host.counters.reads, 0)
+  assert.equal(r.sessions[0].cwd, null)
+  assert.equal(r.sessions[0].project, null)
 })
 
 test('跨进程模拟：重新 import 模块实例 + 复用书签文件 → 未变文件不重读', async (t) => {
