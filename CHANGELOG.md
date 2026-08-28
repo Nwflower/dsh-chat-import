@@ -9,7 +9,7 @@ Every entry maps to commits in the repository history
 npm publish timestamp (cross-checked with `npm view dsh-chat-import time`).
 Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
-## [Unreleased]
+## [0.8.1] - 2026-08-28
 
 ### Changed
 
@@ -25,6 +25,10 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 - **导入会话面板工作区分组改按活跃度排序** — 分组从「工作区名首字母升序」改为「组内
   最新会话的最后编辑时间降序」：最近活跃的工作区置顶（时间并列按工作区名升序稳定），
   组内会话保持最后编辑时间降序，未分组桶仍钉在最后。
+
+- **双向同步控制台迁入设置页「会话导入」分区** — 同步状态与启停并入「会话导入」设置
+  分区（横线分隔，控件风格对齐设置页），导入面板移除独立同步页签；`/api-import/sync`
+  路由与巡检行为不变。
 
 ### Fixed
 
