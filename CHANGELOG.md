@@ -11,7 +11,25 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ## [0.8.1] - 2026-08-28
 
+### Added
+
+- **导入面板「刷新已导入」** — 按当前来源 + 工作区 + 搜索条件，对已导入会话重新转换并覆盖（`replace:true`，同 session id，不新建副本）；确认框显示条数。
+- **统一导入标题「来源 · 话题」** — 全源导入后钉住 `session/title`（如 `Cursor · 首问`）；话题未知时为 `来源 · 未命名 · 日期`，不再回退为工作区目录名。
+- **导入面板工作区下拉筛选** — 来源旁新增「工作区」下拉，选项来自当前扫描结果的真实目录名（含「无工作区」桶）；与搜索 AND 组合，全选/搬空计数随筛选变化。
+- **导入面板「搬空当前筛选」** — 仅导入当前来源 + 工作区 + 搜索条件下的未导入会话（确认框提示条数）；全局「搬空全部」保留。
+- **导入面板扫描提示** — 刷新/首扫显示耗时预期与进度（缓存命中几秒、首次全量可能较慢）；主要控件补充 title 说明。
+- **导入面板分页大小可选 50 / 100 / 500** — 底部分页条新增「每页」下拉，翻页仍为零重扫客户端切片。
+- **导入面板「搬空全部」** — 扫描完成后一键导入当前结果中全部未导入会话（跨页，非仅当前页）。
+- **导入面板「历史」页** — 读取 `~/.dsh/dsh-chat-import/imports.json` 展平展示来源路径、会话 ID、导入时间与轮次/事件计数。
+- **导入历史一键删除** — 支持单条或全部撤回：删除本插件创建的 DSH 会话工件、解挂工作区、清理空壳工作区（`agent-transcripts/<uuid>` / dedicated 专用目录），并从 registry 移除记录；操作前需确认。
+
 ### Changed
+
+- **导入面板无 cwd 分组显示为「无工作区」** — 替代原「(未分组)」，对齐 Cursor empty-window / 数字 id 等场景。
+
+### Fixed
+
+- **Cursor 导入会话无法打开** — 同一步多个 `tool_use` 不再生成重复 `callId`（如 `cursor-1-1`），避免 DSH 历史加载报 `more than one start Match`；用户正文剥离 `<timestamp>` / `<user_query>` 扫描包裹。
 
 - **导入会话面板改为后台扫描 + 逐条流式加载** — 面板数据源 `POST /api-import/sessions`
   新增流式模式（body 带 `after` 游标）：发现按「来源|关键词|路径|epoch」键后台
@@ -31,6 +49,15 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   路由与巡检行为不变。
 
 ### Fixed
+
+- **Cursor 导入面板按真实工作区分组** — Cursor `projects/<slug>` 将路径分隔符与 `.` 均编码为
+  `-`（如 `Funion.Client-develop` → `Funion-Client-develop`）。扫描与导入现经
+  `workspace.json` / `workspaceRegistry` 正向匹配 + 磁盘贪心解码还原真实 `cwd`，面板分组
+  显示人类可读目录名（保留点号）；`empty-window`、纯数字项目 id 等无仓库 slug 不再误建
+  异类工作区。导入 `agent-transcripts/<uuid>` 布局时 `meta.cwd` 指向解码后的项目根，而非
+  UUID 父目录。首条 user 文本中的 `<timestamp>…</timestamp>` 解析为 `createdAt` /
+  `lastActiveAt`（无则回退文件 mtime），修复面板「时间未知」。**scan-cache 书签命中时**
+  对旧 cursor 条目做读时补丁（slug 解码 + 时间戳补全）并写回，无需 bump 版本或重读 jsonl。
 
 - **侧边栏「导入会话」按钮注册改用 `slots.inject` 等待槽声明就绪** — 裸
   `ctx.slots.register("sidebar.footer.action", …)` 要求该槽在 apply 期已被 ui-sidebar
