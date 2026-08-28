@@ -186,5 +186,5 @@ test('REQ-45 import_reasonix 桌面版：标题走 .titles.json、cwd 走 slug �
   const saved = persistence.sessions.get(value.sessionId)
   assert.equal(saved.meta.cwd, 'C:\\users\\alice\\work') // slug 贪心解码（磁盘存在）
   const titleEv = saved.events.find((e) => e.type === 'session/title')
-  assert.equal(titleEv.data.title, '桌面版会话标题') // .titles.json 权威
+  assert.equal(titleEv.data.title, 'Reasonix · 桌面版会话标题') // .titles.json 权威 + 来源前缀
 })

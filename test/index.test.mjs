@@ -103,6 +103,9 @@ function makePersistence() {
       if (!s) throw new Error('unknown session ' + id)
       return { meta: s.meta, events: s.events.slice(fromSeq) }
     },
+    async remove(id) {
+      sessions.delete(id)
+    },
   }
 }
 
@@ -403,7 +406,8 @@ test('单文件导入：落盘、归组、返回值符合 schema', async () => {
   const saved = persistence.sessions.get('import-sess-simple-001')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'D:\\demo\\proj')
-  assert.equal(saved.events.at(-1).type, 'turn/end')
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^Claude · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'claude-code', sourceId: 'sess-simple-001', sourcePath: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
 
@@ -619,7 +623,8 @@ test('import_codex 单文件导入：落盘、归组、返回值符合 schema', 
   const saved = persistence.sessions.get('import-019e3b3f-636d-7cb3-aaab-0255eb45ad4f')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'D:\\demo\\codex-proj')
-  assert.equal(saved.events.at(-1).type, 'turn/end')
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^Codex · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'codex', sourceId: '019e3b3f-636d-7cb3-aaab-0255eb45ad4f', sourcePath: 'D:\\demo\\codex\\simple.jsonl' })
   assert.equal(attached.length, 1)
@@ -721,7 +726,8 @@ test('import_workbuddy 单文件导入：落盘、归组、返回值符合 schem
   assert.ok(saved)
   assert.equal(saved.meta.cwd, WB_CWD)
   assert.equal(saved.meta.sourceId, WB_SID)
-  assert.equal(saved.events.at(-1).type, 'turn/end')
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^WorkBuddy · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'workbuddy', sourceId: WB_SID, sourcePath: src })
   assert.equal(attached.length, 1)
@@ -924,9 +930,40 @@ test('import_cursor 单文件：composer id 从文件名派生、落盘、schema
 
   const saved = persistence.sessions.get('import-composer-abc')
   assert.ok(saved)
-  assert.equal(saved.events.at(-1).type, 'turn/end') // Cursor 无 title，事件以 turn/end 收尾
+  const titleEv = saved.events.find((e) => e.type === 'session/title')
+  assert.ok(titleEv, '应有 session/title 事件')
+  assert.match(titleEv.data.title, /^Cursor · /)
+  assert.equal(saved.events.at(-1).type, 'session/title')
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'cursor', sourceId: 'composer-abc', sourcePath: 'D:\\demo\\cursor\\composer-abc.jsonl' })
+})
+
+test('import_cursor replace:true：同 id 覆盖重导，标题与正文更新', async () => {
+  const path = 'D:\\demo\\cursor\\composer-abc.jsonl'
+  const tree = { [path]: load('cursor-simple.jsonl') }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'cursor')
+  const first = await def.execute({ path })
+  assert.equal(first.alreadyImported, false)
+  assert.equal(persistence.sessions.size, 1)
+
+  tree[path] = load('cursor-dual-tool-same-step.jsonl')
+  const replaced = await def.execute({ path, replace: true })
+  assert.equal(replaced.status, 'replaced')
+  assert.equal(replaced.sessionId, 'import-composer-abc')
+  assert.equal(persistence.sessions.size, 1)
+  const saved = persistence.sessions.get('import-composer-abc')
+  assert.ok(saved)
+  const titleEv = saved.events.find((e) => e.type === 'session/title')
+  assert.ok(titleEv)
+  assert.match(titleEv.data.title, /^Cursor · /)
+  const calls = saved.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 2)
+  const ids = calls.map((e) => e.data.callId)
+  assert.equal(new Set(ids).size, 2)
+  const user = saved.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user').data
+  assert.ok(!user.content[0].text.includes('<timestamp>'))
 })
 
 test('import_cursor 幂等：同名 composer 文件不重复落盘', async () => {
@@ -1005,7 +1042,8 @@ test('import_gemini 单文件：落盘、归组、schema 校验', async () => {
   const saved = persistence.sessions.get('import-b26d7f99-0116-4d1d-b125-98c228a4b933')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'D:\\demo\\gemini-proj')
-  assert.equal(saved.events.at(-1).type, 'turn/end')
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^Gemini · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'gemini', sourceId: 'b26d7f99-0116-4d1d-b125-98c228a4b933', sourcePath: 'D:\\demo\\gemini\\session-abc.json' })
   // Gemini 有 cwd → 归组
@@ -1142,7 +1180,8 @@ test('import_pi 单文件：头行 cwd/id 落盘、归组、返回值符合 sche
   const saved = persistence.sessions.get('import-019f0a11-2222-7333-8444-555566667777')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'D:\\demo\\pi-proj')
-  assert.equal(saved.events.at(-1).type, 'turn/end')
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^Pi · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'pi-coding-agent', sourceId: '019f0a11-2222-7333-8444-555566667777', sourcePath: 'D:\\demo\\pi\\2025-06-01_pi-simple.jsonl' })
   // cwd → 归组
@@ -1497,7 +1536,7 @@ test('import_grokbuild 单会话目录：双文件转换、落盘、归组、sch
   assert.equal(saved.meta.sourceId, 'grok-sess-001')
   // 显式标题（generated_title）钉 session/title 事件
   assert.equal(saved.events.at(-1).type, 'session/title')
-  assert.equal(saved.events.at(-1).data.title, 'Grok 会话标题')
+  assert.equal(saved.events.at(-1).data.title, 'Grok · Grok 会话标题')
   assert.ok(saved.events.every((e, i) => e.seq === i))
   // 幂等键 = 会话目录路径
   assertImportedMarker(saved.events, { tool: 'grokbuild', sourceId: 'grok-sess-001', sourcePath: dir })
@@ -1590,7 +1629,7 @@ test('import_openclaw 单文件：displayName 从同目录 sessions.json 派生�
   assert.equal(saved.meta.sourceId, 'sess-openclaw-001')
   // displayName（sessions.json 索引）→ 标题钉 session/title 事件
   assert.equal(saved.events.at(-1).type, 'session/title')
-  assert.equal(saved.events.at(-1).data.title, '重构登录模块')
+  assert.equal(saved.events.at(-1).data.title, 'OpenClaw · 重构登录模块')
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assertImportedMarker(saved.events, { tool: 'openclaw', sourceId: 'sess-openclaw-001', sourcePath: 'D:\\demo\\openclaw\\sess-openclaw-001.jsonl' })
   assert.equal(attached.length, 1)
@@ -1693,7 +1732,7 @@ test('import_hermes SQLite：state.db 恒批量、逐会话落盘、归组、sch
   assert.ok(savedA)
   assert.equal(savedA.meta.cwd, 'E:/demo/hermes')
   assert.equal(savedA.events.at(-1).type, 'session/title')
-  assert.equal(savedA.events.at(-1).data.title, 'Fix hermes build')
+  assert.equal(savedA.events.at(-1).data.title, 'Hermes · Fix hermes build')
   assert.ok(savedA.events.every((e, i) => e.seq === i))
   assertImportedMarker(savedA.events, { tool: 'hermes', sourceId: 'hm-a', sourcePath: dbPath })
   const ids = [...persistence.sessions.keys()].sort()
@@ -1868,7 +1907,7 @@ test('import_kimi 单会话目录：wire.jsonl + state.json + kimi.json 映射�
   assert.equal(saved.meta.sourceId, 'sess-001')
   // 显式标题（state.json custom_title）钉 session/title 事件
   assert.equal(saved.events.at(-1).type, 'session/title')
-  assert.equal(saved.events.at(-1).data.title, 'Kimi 会话标题')
+  assert.equal(saved.events.at(-1).data.title, 'Kimi · Kimi 会话标题')
   assert.ok(saved.events.every((e, i) => e.seq === i))
   // 幂等键 = 会话目录路径
   assertImportedMarker(saved.events, { tool: 'kimi', sourceId: 'sess-001', sourcePath: sess })
@@ -1951,7 +1990,7 @@ test('import_kimi 增量续写：wire.jsonl 增长 → appended 同一会话（R
   assert.ok(saved.events.every((e, i) => e.seq === i))
   assert.equal(saved.events.length, before + second.appendedEvents)
   assert.equal(saved.events.filter((e) => e.type === 'turn/start').length, 2)
-  assert.equal(saved.events.filter((e) => e.type === 'session/title').length, 0)
+  assert.equal(saved.events.filter((e) => e.type === 'session/title').length, 1)
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, second), [])
 })
 
@@ -2058,7 +2097,7 @@ test('import_kimi 新 Kimi Code 单会话目录：agents/main/wire.jsonl + state
   assert.equal(saved.meta.cwd, 'C:/Users/u/proj') // state.json.cwd
   assert.equal(saved.meta.sourceId, 'session-001')
   assert.equal(saved.events.at(-1).type, 'session/title')
-  assert.equal(saved.events.at(-1).data.title, '新 Kimi Code 标题') // isCustomTitle:true 钉标题
+  assert.equal(saved.events.at(-1).data.title, 'Kimi · 新 Kimi Code 标题') // isCustomTitle:true 钉标题
   assertImportedMarker(saved.events, { tool: 'kimi', sourceId: 'session-001', sourcePath: sess })
   assert.equal(attached.length, 1)
 })
@@ -2135,7 +2174,7 @@ test('REQ-24 增长 append：同一会话 seq 连续、只新增轮次、无重�
   assert.equal(saved2.events.at(-1).data.turn, 3)
   // 不重复写 session/imported 标记与 session/title
   assert.equal(saved2.events.filter((e) => e.type === 'session/imported').length, 1)
-  assert.equal(saved2.events.filter((e) => e.type === 'session/title').length, 0)
+  assert.equal(saved2.events.filter((e) => e.type === 'session/title').length, 1)
   // 已导入前缀事件未被改写
   assert.deepEqual(saved2.events.slice(0, before), firstEvents)
 })
@@ -2517,7 +2556,7 @@ test('export_claude 落盘：import → export 闭环、路径 <outputDir>/<slug
   assert.equal(value.slug, 'D--demo-proj') // D:\demo\proj → ':'、'\'、'\' 各一个 '-'
   assert.equal(value.cwd, 'D:\\demo\\proj')
   assert.match(value.sessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-  assert.equal(value.recordCount, 4) // mode + permission-mode + user + assistant（环境变更声明被跳过）
+  assert.equal(value.recordCount, 5) // mode + permission-mode + user + ai-title + assistant（环境变更声明被跳过）
   assert.equal(value.mapping.turns, 1)
   assert.equal(value.mapping.messages, 3) // 环境变更声明 + user + assistant（原样计数，导出时跳过）
   assert.equal(value.mapping.toolCalls, 0)
@@ -2533,7 +2572,7 @@ test('export_claude 落盘：import → export 闭环、路径 <outputDir>/<slug
   const body = writes[0].content.slice(0, -1)
   assert.equal(writes[0].content.endsWith('\n'), true)
   const lines = body.split('\n').map((l) => JSON.parse(l))
-  assert.equal(lines.length, 4)
+  assert.equal(lines.length, 5)
   assert.equal(lines[0].type, 'mode')
   const pm = lines[1]
   assert.deepEqual(Object.keys(pm).sort(), ['permissionMode', 'sessionId', 'type'])
@@ -2542,7 +2581,9 @@ test('export_claude 落盘：import → export 闭环、路径 <outputDir>/<slug
   assert.equal(user.parentUuid, null)
   assert.equal(typeof user.message.content, 'string')
   assert.equal(user.cwd, 'D:\\demo\\proj')
-  const asst = lines[3]
+  const title = lines[3]
+  assert.equal(title.type, 'ai-title')
+  const asst = lines[4]
   assert.equal(asst.type, 'assistant')
   assert.equal(asst.parentUuid, user.uuid)
   assert.equal(asst.message.stop_reason, 'end_turn')
@@ -2578,13 +2619,13 @@ test('export_claude 工具会话：tool_use/tool_result 配对、sourceToolAssis
 
   const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-tool-001', outputDir: OUT })
-  assert.equal(value.recordCount, 6) // mode + permission-mode + user + assistant + tool_result + assistant
+  assert.equal(value.recordCount, 7) // mode + permission-mode + user + ai-title + assistant + tool_result + assistant
   assert.equal(value.mapping.toolCalls, 1)
   assert.equal(value.mapping.toolResults, 1)
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
 
   const lines = writes[0].content.slice(0, -1).split('\n').map((l) => JSON.parse(l))
-  const asst1 = lines[3]
+  const asst1 = lines[4]
   const thinking = asst1.message.content.find((b) => b.type === 'thinking')
   assert.deepEqual(thinking, { type: 'thinking', thinking: thinking.thinking, signature: '' })
   const toolUse = asst1.message.content.find((b) => b.type === 'tool_use')
@@ -2593,7 +2634,7 @@ test('export_claude 工具会话：tool_use/tool_result 配对、sourceToolAssis
   assert.deepEqual(toolUse.input, { command: 'ls -la' })
   assert.equal(asst1.message.stop_reason, 'tool_use')
 
-  const tr = lines[4]
+  const tr = lines[5]
   assert.equal(tr.type, 'user')
   assert.equal(tr.parentUuid, asst1.uuid)
   assert.equal(tr.sourceToolAssistantUUID, asst1.uuid)
@@ -2601,7 +2642,7 @@ test('export_claude 工具会话：tool_use/tool_result 配对、sourceToolAssis
   assert.equal(tr.message.content[0].tool_use_id, 'toolu_01')
   assert.equal(tr.message.content[0].content, 'README.md\nsrc\n')
   assert.equal(Object.hasOwn(tr.message.content[0], 'is_error'), false) // fixture is_error:false → 不写
-  assert.equal(lines[5].message.stop_reason, 'end_turn')
+  assert.equal(lines[6].message.stop_reason, 'end_turn')
 })
 
 test('export_claude dryRun：不写盘、返回目标路径与统计', async () => {
@@ -2615,7 +2656,7 @@ test('export_claude dryRun：不写盘、返回目标路径与统计', async () 
   assert.equal(value.dryRun, true)
   assert.equal(writes.length, 0) // 不写盘
   assert.equal(typeof value.filePath, 'string')
-  assert.equal(value.recordCount, 4)
+  assert.equal(value.recordCount, 5)
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
 })
 
@@ -2771,7 +2812,6 @@ test('REQ-56 bundle 闭环：export_bundle 落盘 → restore_bundle 还原 0 sk
   const saved = p2.sessions.get(restored.sessionId)
   assert.ok(saved)
   assert.equal(saved.events.at(-1).type, 'turn/end')
-  // 幂等：重复还原 already-imported
   const again = await rst.execute({ path: bundlePath })
   assert.equal(again.status, 'already-imported')
   assert.equal(p2.sessions.size, 1)
@@ -3409,7 +3449,7 @@ test('REQ-36 守卫：源文件被外部修改（size/version 变化）→ skipp
   const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
   assert.equal(v.status, 'skipped')
   assert.equal(v.conflictDetected, 'source-modified-externally')
-  assert.equal(v.writeback.lastWrittenSeq, 8) // 环境变更声明 + 1 轮（session/imported + 6 回合事件）
+  assert.equal(v.writeback.lastWrittenSeq, 9) // 导入记录事件数（含 session/title）
 })
 
 test('REQ-36 守卫：源文件缩小 → skipped + sourceShrunk', async () => {
@@ -3480,7 +3520,7 @@ test('REQ-36 CAS 竞态：写入瞬间版本失配 → write-version-mismatch，
   assert.equal(v.conflictDetected, 'write-version-mismatch')
   assert.ok(!tree[src].includes('竞态提问')) // 尾行未写入
   const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 8) // 水印未推进（环境变更声明 + 1 轮）
+  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 9) // 水印未推进（导入记录事件数）
 })
 
 test('REQ-36 预检失败回滚：目标文件不符合严格布局（无 mode 头）→ 写后回滚，水印不推进', async () => {
@@ -3503,7 +3543,7 @@ test('REQ-36 预检失败回滚：目标文件不符合严格布局（无 mode �
   assert.equal(tree[src], before) // 回滚：文件恢复为写前内容
   assert.equal(writes.length, wCount + 2) // 前向写 + 回滚写
   const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 8) // 水印未推进（环境变更声明 + 1 轮）
+  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 9) // 水印未推进（导入记录事件数）
 })
 
 test('REQ-36 写回后重导幂等：sync 后 import_claude → already-imported 无重复 append', async () => {
@@ -3591,7 +3631,7 @@ test('REQ-36 dryRun：完整计算 + 预检但不写盘、不更新 registry', a
   assert.equal(v.status, 'synced')
   assert.equal(v.dryRun, true)
   assert.equal(v.appendedTurns, 1)
-  assert.equal(v.writeback.lastWrittenSeq, 14) // 将写入的水印（未持久化；环境变更声明 + 2 轮）
+  assert.equal(v.writeback.lastWrittenSeq, 15) // 将写入的水印（未持久化；含 session/title）
   assert.equal(tree[src], before) // 不写盘
   const reg = await loadImports(resolveRegistryDir())
   assert.equal(reg.imports[src].writeback, undefined) // 不更新 registry

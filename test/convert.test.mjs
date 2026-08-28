@@ -5,6 +5,7 @@ import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, reasonixStemTime, mintSessionId, parseTime, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents } from '../convert.mjs'
+import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const load = (name) => readFileSync(join(fixtures, name), 'utf8')
@@ -1018,6 +1019,7 @@ test('convertCursorJsonl: tool_use → tool/call + 合成空 tool/result，input
   assert.equal(out.toolCalls, 2)
   const calls = out.events.filter((e) => e.type === 'tool/call')
   assert.equal(calls.length, 2)
+  assert.notEqual(calls[0].data.callId, calls[1].data.callId)
   assert.equal(calls[0].data.name, 'Glob')
   assert.equal(calls[0].data.arguments, '{"target_directory":".","glob_pattern":"**/*.rs"}')
   assert.equal(calls[1].data.name, 'Read')
@@ -1031,6 +1033,27 @@ test('convertCursorJsonl: tool_use → tool/call + 合成空 tool/result，input
   const types = out.events.map((e) => e.type)
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
   assertMessageOrderLegal(out.events)
+})
+
+test('convertCursorJsonl: 同一步多个 tool_use 不重复 callId（避免 DSH 历史加载失败）', () => {
+  const out = convertCursorJsonl(load('cursor-dual-tool-same-step.jsonl'))
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 2)
+  const ids = calls.map((e) => e.data.callId)
+  assert.equal(new Set(ids).size, 2, 'callId 必须唯一：' + ids.join(', '))
+  const user = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user').data
+  assert.ok(!user.content[0].text.includes('<timestamp>'), '用户正文应剥离 timestamp')
+  assert.ok(!user.content[0].text.includes('<user_query>'), '用户正文应剥离 user_query')
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertCursorJsonl: pinSourcedSessionTitle 后标题为 Cursor · 话题', () => {
+  const out = convertCursorJsonl(load('cursor-dual-tool-same-step.jsonl'))
+  pinSourcedSessionTitle(out, 'Cursor')
+  assert.match(out.title, /^Cursor · /)
+  const titleEv = out.events.find((e) => e.type === 'session/title')
+  assert.ok(titleEv)
+  assert.match(titleEv.data.title, /^Cursor · /)
 })
 
 test('convertCursorJsonl: [REDACTED] 哨兵过滤', () => {

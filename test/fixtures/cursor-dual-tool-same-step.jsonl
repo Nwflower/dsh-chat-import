@@ -1,0 +1,2 @@
+{"role":"user","message":{"content":[{"type":"text","text":"<timestamp>Thursday, Aug 27, 2026, 3:11 PM (UTC+8)</timestamp>\n<user_query>\nRead rules and list markdown files.\n</user_query>"}]}}
+{"role":"assistant","message":{"content":[{"type":"tool_use","name":"Read","input":{"path":"E:\\AI\\.cursor\\rules\\user-agent-md.mdc"}},{"type":"tool_use","name":"Glob","input":{"glob_pattern":"**/*.md"}}]}}
