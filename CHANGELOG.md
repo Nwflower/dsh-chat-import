@@ -35,6 +35,14 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 ### Fixed
 
+- **Cursor 导入面板按真实工作区分组** — Cursor `projects/<slug>` 将路径分隔符与 `.` 均编码为
+  `-`（如 `Funion.Client-develop` → `Funion-Client-develop`）。扫描与导入现经
+  `workspace.json` / `workspaceRegistry` 正向匹配 + 磁盘贪心解码还原真实 `cwd`，面板分组
+  显示人类可读目录名（保留点号）；`empty-window`、纯数字项目 id 等无仓库 slug 不再误建
+  异类工作区。导入 `agent-transcripts/<uuid>` 布局时 `meta.cwd` 指向解码后的项目根，而非
+  UUID 父目录。首条 user 文本中的 `<timestamp>…</timestamp>` 解析为 `createdAt` /
+  `lastActiveAt`（无则回退文件 mtime），修复面板「时间未知」。
+
 - **侧边栏「导入会话」按钮注册改用 `slots.inject` 等待槽声明就绪** — 裸
   `ctx.slots.register("sidebar.footer.action", …)` 要求该槽在 apply 期已被 ui-sidebar
   声明；DSH Desktop 增强模式下桌面 shell 的声明时序不保证先于本插件，注册当场抛错使

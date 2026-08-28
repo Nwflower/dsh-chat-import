@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
-import { slugifyClaudeCwd, decodeClaudeSlug, isHomePath, resolveClaudeCwd, greedyDecodeSlugPath } from '../lib/cwd-map.mjs'
+import { slugifyClaudeCwd, decodeClaudeSlug, isHomePath, resolveClaudeCwd, greedyDecodeSlugPath, encodeCursorSlug, resolveCursorSlugPath, greedyDecodeCursorSlugPath, parseCursorEmbeddedTimestamp, stripCursorTitleDecorations, isCursorNonRepoSlug, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 
 test('slugifyClaudeCwd / decodeClaudeSlug: 编码往返 + 中文路径 + 盘符边界', () => {
   const cwd = 'C:\\Users\\千川白浪\\my-proj'
@@ -96,4 +96,72 @@ test('greedyDecodeSlugPath: 全程不命中 → null；无盘符 slug 也支持'
   const noDrive = makeFsTree({ 'users\\alice': 'dir' })
   assert.equal(await greedyDecodeSlugPath(noDrive, 'users--alice'), 'users\\alice')
   assert.equal(await greedyDecodeSlugPath(ctx, ''), null)
+})
+
+test('encodeCursorSlug: 盘符 + 路径分隔符与 . 均编码为 -', () => {
+  assert.equal(
+    encodeCursorSlug('E:\\RPA-260721-New\\Funion.Client-develop'),
+    'e-RPA-260721-New-Funion-Client-develop',
+  )
+  assert.equal(
+    encodeCursorSlug('E:\\RPA-260721-New\\RpaScheduledTasks\\publish-fail-monitor'),
+    'e-RPA-260721-New-RpaScheduledTasks-publish-fail-monitor',
+  )
+  assert.equal(encodeCursorSlug('C:\\Users\\Administrator\\Desktop'), 'c-Users-Administrator-Desktop')
+})
+
+test('resolveCursorSlugPath: workspace.json/registry 正向匹配 + 点号目录贪心解码', async () => {
+  clearWorkspacePathCache()
+  const tree = {
+    'E:\\RPA-260721-New': 'dir',
+    'E:\\RPA-260721-New\\Funion.Client-develop': 'dir',
+    'E:\\RPA-260721-New\\RpaScheduledTasks': 'dir',
+    'E:\\RPA-260721-New\\RpaScheduledTasks\\publish-fail-monitor': 'dir',
+  }
+  const ctx = {
+    ...makeFsTree(tree),
+    get(service) {
+      if (service === 'workspaceRegistry') {
+        return {
+          list: () => [
+            { path: 'E:\\RPA-260721-New\\Funion.Client-develop' },
+            { path: 'E:\\RPA-260721-New\\RpaScheduledTasks\\publish-fail-monitor' },
+          ],
+        }
+      }
+      return undefined
+    },
+  }
+  assert.equal(
+    await resolveCursorSlugPath(ctx, 'e-RPA-260721-New-Funion-Client-develop'),
+    'E:\\RPA-260721-New\\Funion.Client-develop',
+  )
+  assert.equal(
+    await resolveCursorSlugPath(ctx, 'e-RPA-260721-New-RpaScheduledTasks-publish-fail-monitor'),
+    'E:\\RPA-260721-New\\RpaScheduledTasks\\publish-fail-monitor',
+  )
+  assert.equal(await resolveCursorSlugPath(ctx, 'empty-window'), null)
+  assert.equal(await resolveCursorSlugPath(ctx, '1784784551097'), null)
+})
+
+test('greedyDecodeCursorSlugPath: 无 registry 时靠磁盘 . 还原（Funion.Client-develop）', async () => {
+  const tree = {
+    'E:\\RPA-260721-New': 'dir',
+    'E:\\RPA-260721-New\\Funion.Client-develop': 'dir',
+  }
+  const ctx = makeFsTree(tree)
+  assert.equal(
+    await greedyDecodeCursorSlugPath(ctx, 'e-RPA-260721-New-Funion-Client-develop'),
+    'E:\\RPA-260721-New\\Funion.Client-develop',
+  )
+})
+
+test('parseCursorEmbeddedTimestamp / stripCursorTitleDecorations', () => {
+  const raw = '<timestamp>Friday, Aug 7, 2026, 3:44 PM (UTC+8)</timestamp>\n<user_query>hello</user_query>'
+  const ts = parseCursorEmbeddedTimestamp(raw)
+  assert.ok(typeof ts === 'number' && ts > 0)
+  assert.equal(stripCursorTitleDecorations(raw), 'hello')
+  assert.equal(isCursorNonRepoSlug('empty-window'), true)
+  assert.equal(isCursorNonRepoSlug('1784784551097'), true)
+  assert.equal(isCursorNonRepoSlug('e-RPA-260721-New-Funion-Client-develop'), false)
 })

@@ -13,6 +13,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { resolveRegistryDir, loadImports, rememberImport } from '../lib/imports.mjs'
 import { syncClaudeSession, evaluateWritebackGuards, readFileTailUuid } from '../lib/backfill.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
+import { clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 import { restampSession } from '../lib/import-core.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -957,6 +958,34 @@ test('import_cursor 目录模式：递归扫描 .jsonl、逐文件独立会话',
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
   const ids = [...persistence.sessions.keys()].sort()
   assert.deepEqual(ids, ['import-composer-a', 'import-composer-b'])
+})
+
+test('import_cursor agent-transcripts：slug 解码 meta.cwd 为真实项目路径', async () => {
+  clearWorkspacePathCache()
+  const slug = 'e-RPA-260721-New-Funion-Client-develop'
+  const uuid = 'composer-abc'
+  const path = `C:\\Users\\Administrator\\.cursor\\projects\\${slug}\\agent-transcripts\\${uuid}\\${uuid}.jsonl`
+  const realCwd = 'E:\\RPA-260721-New\\Funion.Client-develop'
+  const storages = join(process.env.DSH_HOME, 'profiles', 'web', 'storages')
+  mkdirSync(storages, { recursive: true })
+  writeFileSync(join(storages, 'workspace.json'), JSON.stringify([{ path: realCwd }]))
+  const tree = {
+    [path]: load('cursor-simple.jsonl'),
+    'E:\\RPA-260721-New': 'dir',
+    [realCwd]: 'dir',
+  }
+  const { ctx, persistence, attached } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'cursor')
+  const value = await def.execute({ path })
+
+  assert.equal(value.mode, 'single')
+  assert.equal(value.alreadyImported, false)
+  const saved = persistence.sessions.get('import-composer-abc')
+  assert.ok(saved)
+  assert.equal(saved.meta.cwd, realCwd)
+  assert.equal(attached.length, 1)
+  assert.equal(attached[0].ws, realCwd)
 })
 
 // ---- import_gemini 集成 ----

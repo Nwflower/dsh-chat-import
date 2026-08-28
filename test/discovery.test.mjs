@@ -13,6 +13,7 @@ import {
   FORMATS, TITLE_MAX_LEN,
   isInjectedTitle, normalizeTitle, layoutProject, resolveImportStatus,
 } from '../lib/discovery.mjs'
+import { resolveCursorSlugPath, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 
 beforeEach(() => {
   clearScanCache()
@@ -731,6 +732,82 @@ test('isInjectedTitle / normalizeTitle / layoutProject 纯函数', () => {
   assert.equal(layoutProject('/home/u/.gemini/history/slot-a/chats/session-1.json', 'gemini'), 'slot-a')
   assert.equal(layoutProject('/home/u/.cursor/projects/slug-c/agent-transcripts/abc/abc.jsonl', 'cursor'), 'slug-c')
   assert.equal(layoutProject('/home/u/.workbuddy/projects/project-hash-1/wb-sess-0001.jsonl', 'workbuddy'), 'project-hash-1')
+})
+
+test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间，非仓库 slug 不归组', async () => {
+  clearWorkspacePathCache()
+  const slugDots = 'e-RPA-260721-New-Funion-Client-develop'
+  const slugHyphen = 'e-RPA-260721-New-RpaScheduledTasks-publish-fail-monitor'
+  const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
+  const cwdDots = 'E:\\RPA-260721-New\\Funion.Client-develop'
+  const cwdHyphen = 'E:\\RPA-260721-New\\RpaScheduledTasks\\publish-fail-monitor'
+  const root = join(HOME, '.cursor', 'projects')
+  const tsRaw = '<timestamp>Friday, Aug 7, 2026, 3:44 PM (UTC+8)</timestamp>\n<user_query>点号目录提问</user_query>'
+  const dirA = join(root, slugDots, 'agent-transcripts', uuid)
+  const fileA = join(dirA, uuid + '.jsonl')
+  const dirB = join(root, slugHyphen, 'agent-transcripts', 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+  const fileB = join(dirB, 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb.jsonl')
+  const dirNum = join(root, '1784784551097', 'agent-transcripts', 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+  const fileNum = join(dirNum, 'cccccccc-cccc-cccc-cccc-cccccccccccc.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [join(root, slugDots), { type: 'dir' }],
+    [join(root, slugHyphen), { type: 'dir' }],
+    [join(root, '1784784551097'), { type: 'dir' }],
+    [join(root, slugDots, 'agent-transcripts'), { type: 'dir' }],
+    [join(root, slugHyphen, 'agent-transcripts'), { type: 'dir' }],
+    [join(root, '1784784551097', 'agent-transcripts'), { type: 'dir' }],
+    [dirA, { type: 'dir' }],
+    [dirB, { type: 'dir' }],
+    [dirNum, { type: 'dir' }],
+    [fileA, { type: 'file', mtimeMs: 1786000002000, text: [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: tsRaw }] } }),
+    ].join('\n') }],
+    [fileB, { type: 'file', mtimeMs: 1786000003000, text: [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>连字符目录</user_query>' }] } }),
+    ].join('\n') }],
+    [fileNum, { type: 'file', mtimeMs: 1786000004000, text: [
+      JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>纯数字 slug</user_query>' }] } }),
+    ].join('\n') }],
+    ['E:\\RPA-260721-New', { type: 'dir' }],
+    [cwdDots, { type: 'dir' }],
+    ['E:\\RPA-260721-New\\RpaScheduledTasks', { type: 'dir' }],
+    [cwdHyphen, { type: 'dir' }],
+  ])
+  const host = mockHost(files)
+  host.resolveCursorSlug = async (s) => {
+    const ctx = {
+      get(service) {
+        if (service === 'workspaceRegistry') {
+          return { list: () => [{ path: cwdDots }, { path: cwdHyphen }] }
+        }
+        return undefined
+      },
+      fs: {
+        async resolve(p) { return { targetKey: p } },
+        async stat(t) {
+          const v = files.get(t.targetKey)
+          if (!v) return null
+          return v.type === 'dir' ? { type: 'directory' } : { type: 'file', size: (v.text || '').length, mtimeMs: v.mtimeMs }
+        },
+      },
+    }
+    return resolveCursorSlugPath(ctx, s)
+  }
+  const { sessions, total } = await discoverSessions({ path: root, format: 'cursor', host, imports: {} })
+  assert.equal(total, 3)
+  const dots = sessions.find((s) => s.sessionId === uuid)
+  assert.equal(dots.project, 'Funion.Client-develop')
+  assert.equal(dots.cwd, cwdDots)
+  assert.equal(dots.title, '点号目录提问')
+  assert.ok(typeof dots.createdAt === 'number' && dots.createdAt > 0)
+  assert.equal(dots.lastActiveAt, 1786000002000)
+  const hyphen = sessions.find((s) => s.sessionId === 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb')
+  assert.equal(hyphen.project, 'publish-fail-monitor')
+  assert.equal(hyphen.cwd, cwdHyphen)
+  const numeric = sessions.find((s) => s.sessionId === 'cccccccc-cccc-cccc-cccc-cccccccccccc')
+  assert.equal(numeric.project, null)
+  assert.equal(numeric.cwd, null)
 })
 
 test('FORMATS 与工具 schema enum 一致（17 种）', () => {
