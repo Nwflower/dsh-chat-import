@@ -511,6 +511,52 @@ test('workbuddy：~/.workbuddy/projects 发现、user_query 标题、cwd 项目�
   assert.equal(other.total, 0)
 })
 
+test('qwen：~/.qwenworkcn/projects 发现、humanInput 首问、workspace-directories 项目、双 slug 去重、路径自拒', async () => {
+  const root = join(HOME, '.qwenworkcn', 'projects')
+  const slugA = join(root, '-sessions-abc123-mnt')
+  const slugB = join(root, 'C--Users-Administrator--qwenworkcn-workspace-chat1')
+  const sid = '5543d6df-ec9e-4ce9-842d-aaa9cc74867f'
+  // 双 slug 副本：同一会话落在两个 slug 下，mtime 新者胜
+  const f1 = join(slugA, sid + '.jsonl')
+  const f2 = join(slugB, sid + '.jsonl')
+  const rec = (over = {}) => j({
+    type: 'user', sessionId: sid, timestamp: '2026-08-28T08:09:41.457Z',
+    uuid: 'u1', parentUuid: null, isSidechain: false,
+    cwd: 'C:\\Users\\Administrator\\.qwenworkcn\\workspace\\mtco7zxwdyf68dl9',
+    humanInput: { text: '出个html介绍一下ai领域的思路', mode: 'prompt' },
+    message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>环境注入</system-reminder>' }] },
+    ...over,
+  })
+  const head = [
+    j({ type: 'workspace-directories', sessionId: sid, directories: ['C:\\Users\\Administrator\\.qwenworkcn\\workspace\\mtco7zxwdyf68dl9', 'E:\\RPA-260721-New\\Funion.Client-develop'] }),
+    rec(),
+    j({ type: 'assistant', sessionId: sid, timestamp: '2026-08-28T08:09:50.000Z', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '思考' }, { type: 'text', text: '好的' }] } }),
+  ].join('\n')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [slugA, { type: 'dir' }],
+    [slugB, { type: 'dir' }],
+    [f1, { type: 'file', mtimeMs: 1786000001000, text: head }],
+    [f2, { type: 'file', mtimeMs: 1786000002000, text: head }],
+  ])
+  const host = mockHost(files)
+
+  const { sessions, total } = await discoverSessions({ path: root, format: 'qwen', host, imports: {} })
+  assert.equal(total, 1) // 双 slug 副本按 sessionId 去重
+  const s = sessions[0]
+  assert.equal(s.format, 'qwen')
+  assert.equal(s.sessionId, sid)
+  assert.equal(s.title, '出个html介绍一下ai领域的思路') // humanInput.text 首问
+  assert.equal(s.project, 'Funion.Client-develop') // workspace-directories 非 .qwenworkcn 目录
+  assert.equal(s.cwd, 'E:\\RPA-260721-New\\Funion.Client-develop')
+  assert.equal(s.sourcePath, f2) // 留 mtime 最新的副本
+  assert.equal(s.lastActiveAt, 1786000002000)
+
+  // 路径自拒：非 ~/.qwenworkcn/projects/ 布局返回空
+  const elsewhere = await discoverSessions({ path: join(HOME, 'elsewhere'), format: 'qwen', host, imports: {} })
+  assert.equal(elsewhere.total, 0)
+})
+
 // ── 30s TTL 缓存（REQ-25/REQ-40：命中不重读，可观测计数断言）──────────────
 
 test('30s TTL 缓存：命中不重读、过期重扫（注入时钟）', async () => {
@@ -810,9 +856,9 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
   assert.equal(numeric.cwd, null)
 })
 
-test('FORMATS 与工具 schema enum 一致（17 种）', () => {
-  assert.equal(FORMATS.length, 17)
-  assert.deepEqual([...FORMATS].sort(), ['chatgpt', 'claude', 'codex', 'cursor', 'dsh', 'gemini', 'grokbuild', 'hermes', 'kimi', 'mimocode', 'openclaw', 'opencode', 'pi', 'qoder', 'reasonix', 'workbuddy', 'zcode'])
+test('FORMATS 与工具 schema enum 一致（18 种）', () => {
+  assert.equal(FORMATS.length, 18)
+  assert.deepEqual([...FORMATS].sort(), ['chatgpt', 'claude', 'codex', 'cursor', 'dsh', 'gemini', 'grokbuild', 'hermes', 'kimi', 'mimocode', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'workbuddy', 'zcode'])
 })
 
 // ── git 状态（REQ-58）──────────────────────────────────────────────────────

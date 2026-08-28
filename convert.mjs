@@ -104,6 +104,11 @@ export {
 } from './lib/convert/workbuddy.mjs'
 
 export {
+  convertQwenJsonl,
+  realWorkspaceDir,
+} from './lib/convert/qwen.mjs'
+
+export {
   convertDshJsonl,
 } from './lib/convert/dsh.mjs'
 
