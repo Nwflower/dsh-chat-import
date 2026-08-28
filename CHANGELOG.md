@@ -59,6 +59,11 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   `lastActiveAt`（无则回退文件 mtime），修复面板「时间未知」。**scan-cache 书签命中时**
   对旧 cursor 条目做读时补丁（slug 解码 + 时间戳补全）并写回，无需 bump 版本或重读 jsonl。
 
+- **导入撤回 / 刷新已导入在会话工件被占用时中止并保留 registry** — `rm` 后目录仍存在
+  （文件被占用 / 权限拒绝）视为删除失败并抛错：撤回中止后不清 registry、刷新中止后不重导，
+  防止留下插件再也管不到的幽灵会话。`locate` 定位缺失时改为走扫描兜底，防陈旧定位漏删
+  真实工件。
+
 - **侧边栏「导入会话」按钮注册改用 `slots.inject` 等待槽声明就绪** — 裸
   `ctx.slots.register("sidebar.footer.action", …)` 要求该槽在 apply 期已被 ui-sidebar
   声明；DSH Desktop 增强模式下桌面 shell 的声明时序不保证先于本插件，注册当场抛错使

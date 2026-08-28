@@ -1,7 +1,9 @@
 // purge.test.mjs — 导入历史列表 + 批量撤回（删除本插件创建的会话）
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, accessSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, accessSync, mkdirSync, chmodSync } from 'node:fs'
+import { spawn } from 'node:child_process'
+import { once } from 'node:events'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerPanelRoutes } from '../lib/panel.mjs'
@@ -121,6 +123,40 @@ test('deleteImportedSession：删除工件 + 清 registry（仅本插件标记�
   let exists = true
   try { accessSync(artDir); } catch { exists = false }
   assert.equal(exists, false, '工件目录应已删除')
+})
+
+test('deleteImportedSession：工件被占用（rm 后仍存在）→ 中止且 registry 保留', async () => {
+  const dir = resolveRegistryDir()
+  const sourcePath = 'D:\\demo\\locked.jsonl'
+  const sessionId = 'import-locked-001'
+  await rememberImport(dir, sourcePath, {
+    kind: 'single', dshId: sessionId, turns: 1, events: 6, importedAt: T0,
+  })
+  const persistence = makePersistence()
+  const artDir = join(process.env.DSH_HOME, 'sessions', '_proj', sessionId)
+  mkdirSync(artDir, { recursive: true })
+  const artFile = join(artDir, 'session.jsonl')
+  writeFileSync(artFile, '{"type":"x"}\n')
+  // 跨平台真实锁：Windows 靠子进程占用 cwd（使用中的目录不可删，rimraf 的 chmod
+  // 重试也解不开），Linux 靠只读目录（unlink 需要目录写权限）
+  chmodSync(artDir, 0o555)
+  chmodSync(artFile, 0o444)
+  const child = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 3000)'], { cwd: artDir, stdio: 'ignore' })
+  persistence.sessions.set(sessionId, {
+    meta: { id: sessionId },
+    events: [markerEvent(sourcePath)],
+  })
+  const ctx = makeCtx(persistence)
+  try {
+    await assert.rejects(() => deleteImportedSession(ctx, dir, sessionId), /工件删除失败/)
+    const reg = await loadImports(dir)
+    assert.ok(reg.imports[sourcePath], 'registry 必须保留，防幽灵会话')
+  } finally {
+    child.kill()
+    await once(child, 'exit')
+    chmodSync(artDir, 0o755)
+    chmodSync(artFile, 0o644)
+  }
 })
 
 test('deleteImportedSession：无 session/imported 标记拒绝删除', async () => {
