@@ -24,7 +24,7 @@
 
 `DSH Chat Import` 从其他Agents导入含完整上下文的聊天历史，成为无缝继续的 DeepSeek Harness 会话。
 
-现已覆盖18种Agents的导入：Claude Code、Codex、ChatGPT、Cursor、Gemini、Reasonix、opencode、MiMo Code、ZCode、Grok Build、OpenClaw、Pi Coding Agent、Hermes、Kimi CLI / Kimi Code、Qoder CLI、WorkBuddy 与 DSH 会话日志；
+现已覆盖19种Agents的导入：Claude Code、Codex、ChatGPT、Cursor、Gemini、Reasonix、opencode、MiMo Code、ZCode、Grok Build、OpenClaw、Pi Coding Agent、Hermes、Kimi CLI / Kimi Code、Qoder CLI、WorkBuddy、千问办公（Qwen Work CN）与 DSH 会话日志；
 
 下述工具的反向导入：Claude Code、Codex、Kimi Code。
 
@@ -56,7 +56,7 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 
 | 能力 | 入口 | 说明 |
 | --- | --- | --- |
-| 批量导入 | `import_chat`（18 种格式）· `scan_discover` · 侧边栏面板 | 17+ 来源一键导入，每段对话成为独立会话 |
+| 批量导入 | `import_chat`（19 种格式）· `scan_discover` · 侧边栏面板 | 18+ 来源一键导入，每段对话成为独立会话 |
 | 导入历史与撤回 | 侧边栏面板「历史」页 | 展示 `imports.json` 记录；一键删除本插件创建的会话（需确认） |
 | 全保真续聊 | 导入即 DSH 会话 | 工具调用/结果、思考、标题、模型、时间戳原样保留 |
 | 反向导出 | `export_chat`（`format: claude` / `codex` / `kimi`） | DSH 会话序列化回 Claude / Codex / Kimi |

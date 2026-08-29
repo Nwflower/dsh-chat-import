@@ -105,7 +105,6 @@ export {
 
 export {
   convertQwenJsonl,
-  realWorkspaceDir,
 } from './lib/convert/qwen.mjs'
 
 export {
