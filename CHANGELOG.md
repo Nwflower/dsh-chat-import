@@ -9,6 +9,17 @@ Every entry maps to commits in the repository history
 npm publish timestamp (cross-checked with `npm view dsh-chat-import time`).
 Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
+## [Unreleased]
+
+### Fixed
+
+- **侧栏底部「导入会话」按钮在 wide 模式独占整行，把同槽其它插件入口挤出侧栏被裁（#31）** — 非浮动
+  行内样式按槽容器 flex 布局三分派：row 容器（默认 footer 行）改 `flex: 1 1 auto + width: auto +
+  min-width: 0`，与同槽其它入口（如 dsh-web-all 的「检查更新 / 远程访问」）共享一行，仅本插件一个
+  入口时 `flex-grow` 仍撑满整行、视觉不变；column 容器（usage-stats 强制纵排，#25）与 wrap 容器
+  （tokenledger 注入 flex-wrap）保持 `flex: 0 0 auto + width: 100%` 不回归；rail 态恒为 36×36 圆
+  钮。探测函数 `footerWraps` 扩为 `footerLayout`（一次读取 `flex-wrap` + `flex-direction`）。
+
 ## [0.8.1] - 2026-08-28
 
 ### Added
