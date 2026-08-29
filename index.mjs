@@ -1,7 +1,7 @@
 // index.mjs — dsh-chat-import 插件入口（薄组合层）
 //
 // 外部聊天记录（Claude Code / Codex-ChatGPT / ChatGPT / Cursor / Gemini / Reasonix /
-// Pi Coding Agent / opencode / zcode / grokbuild / openclaw / hermes / kimi / qoder / workbuddy）→ DSH 会话
+// Pi Coding Agent / opencode / zcode / grokbuild / openclaw / hermes / kimi / qoder / workbuddy / qwen）→ DSH 会话
 // 导入器 + DSH → Claude Code JSONL 反向导出。消费 host 的 sessionPersistence / fs /
 // tools / workspaceRegistry 服务（webServer 可选，经 ctx.inject 延迟挂载）。
 //
