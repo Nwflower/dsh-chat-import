@@ -52,6 +52,14 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 
 完整工具 / 命令用法（参数、示例、边界行为）见 **[docs/USAGE.zh-CN.md](docs/USAGE.zh-CN.md)**。
 
+## 配套工具：配置迁移
+
+只想迁移**配置**（技能、hooks、全局设置等）而不需要会话历史？[dsh-movein](https://github.com/sjh9714/dsh-movein) 负责配置迁移，与本插件分工互补--本插件只管会话历史，两边可按需单独使用。其[首次迁移指南](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md)提供「先预演、后应用、逐步验证」的分步流程。
+
+> 两个工具的组合流程尚未联合验证，互链不构成互相背书；请分别检查来源、目标、重复导入与撤回边界。
+
+本插件的 `import_agents` 是轻量的资产搬移（把 pi/opencode/Claude/Codex 的 agent、prompt、skill 落盘为 DSH skills）；需要 hooks、权限规则、settings 等完整配置迁移时，请使用 dsh-movein。
+
 ## 功能一览
 
 | 能力 | 入口 | 说明 |

@@ -29,7 +29,7 @@
 | 会话开始迁移提示 + 上下文桥接 | ✅ | 部分 |
 | cwd 权威映射（`.claude.json` / slug 贪心解码）+ 沙箱防护 | ✅ | 部分 |
 
-生态内同类工具：[dsh-claude-move](https://github.com/PerryLink/dsh-claude-move)（Claude 会话+资产 copy，REQ-61 跟进点）· [dsh-plugin-cc](https://github.com/cpj-dev/dsh-plugin-cc)（DSH↔Claude 控制面桥）· [dsh-movein](https://github.com/sjh9714/dsh-movein)（Claude 配置迁移，README 指向我们补会话——互补）· [dsh-plugin-session-import](https://github.com/huguangyu666/dsh-plugin-session-import) · [dsh-import-agents](https://github.com/Chang-Tong/dsh-import-agents) · [opencode-dsh-importer](https://github.com/wang-xudong/opencode-dsh-importer) · [dsh-resume-plugin](https://github.com/Demogorgon314/dsh-resume-plugin) · [dsh-session-import](https://github.com/kinyokun/dsh-session-import) · [dsh-plugin-codex-import](https://github.com/Gordonynh/dsh-plugin-codex-import)。
+生态内同类工具：[dsh-claude-move](https://github.com/PerryLink/dsh-claude-move)（Claude 会话+资产 copy，REQ-61 跟进点）· [dsh-plugin-cc](https://github.com/cpj-dev/dsh-plugin-cc)（DSH↔Claude 控制面桥）· [dsh-movein](https://github.com/sjh9714/dsh-movein)（Claude 配置迁移，README 指向我们补会话，[首次迁移指南](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md)已互链——互补）· [dsh-plugin-session-import](https://github.com/huguangyu666/dsh-plugin-session-import) · [dsh-import-agents](https://github.com/Chang-Tong/dsh-import-agents) · [opencode-dsh-importer](https://github.com/wang-xudong/opencode-dsh-importer) · [dsh-resume-plugin](https://github.com/Demogorgon314/dsh-resume-plugin) · [dsh-session-import](https://github.com/kinyokun/dsh-session-import) · [dsh-plugin-codex-import](https://github.com/Gordonynh/dsh-plugin-codex-import)。
 
 ## 需求总览
 

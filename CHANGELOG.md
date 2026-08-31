@@ -9,6 +9,17 @@ Every entry maps to commits in the repository history
 npm publish timestamp (cross-checked with `npm view dsh-chat-import time`).
 Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
+## [Unreleased]
+
+### Added
+
+- **docs: 与 dsh-movein 首次迁移指南互链（discussion #32）** - README（双语）新增「配套工具：配置迁移」
+  一节：明确分工（本插件管会话历史、dsh-movein 管配置，可按需单独使用），声明组合流程尚未联合验证、
+  互链不构成互相背书。`import_agents` 定位为轻量资产搬移（USAGE 双语补 scope note，完整配置迁移指向
+  dsh-movein）。USAGE 顶部新增「首次迁移分步流程」：预览（`scan_discover` / 面板 / `preview: true`）->
+  导入（核对逐会话 `status`）-> 体检与撤回（`doctor` / `retract_import` / 历史）。ROADMAP 生态条目
+  升级为指南链接。
+
 ## [0.8.2] - 2026-08-29
 
 ### Added

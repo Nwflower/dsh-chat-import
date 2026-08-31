@@ -50,6 +50,14 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 
 Full tool / command usage (parameters, examples, edge cases) lives in **[docs/USAGE.md](docs/USAGE.md)**.
 
+## Companion tool: config migration
+
+Only need to migrate **configuration** (skills, hooks, global settings) rather than conversation history? [dsh-movein](https://github.com/sjh9714/dsh-movein) handles config migration and complements this plugin -- DSH Chat Import only handles conversation history, and each tool works standalone. Its first-migration guide ([中文](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md)) walks through a preview-first, apply-second, verify-each-step flow.
+
+> The combined flow of the two tools has not been jointly validated, and cross-linking is not a mutual endorsement; check sources, targets, duplicate-import and retraction boundaries for each tool separately.
+
+This plugin's `import_agents` is a lightweight asset mover (it persists pi/opencode/Claude/Codex agents, prompts and skills as DSH skills); for full config migration (hooks, permission rules, settings), use dsh-movein.
+
 ## Features
 
 | Capability | Entry points | Description |

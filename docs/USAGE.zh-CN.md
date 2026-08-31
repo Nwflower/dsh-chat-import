@@ -4,6 +4,11 @@
 
 ## 🛠 使用
 
+> **首次迁移分步流程**（与 [dsh-movein 首次迁移指南](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md) 的叙事对齐；其管配置，本插件管会话历史，可按需只用其一）：
+> ① **预览** - `scan_discover()` 或侧边栏面板查看可导入会话与导入状态徽标；或任一 `import_*` 传 `preview: true` 零副作用试跑。
+> ② **导入** - 去掉 `preview` 正式导入，按来源 / 工作区核对逐会话 `status`（重复导入行为见下文「增量续写」）。
+> ③ **体检与撤回** - `doctor()` 只读体检；`retract_import` 撤回 registry 记录，或面板「历史」页删除本插件创建的会话（需确认）。
+
 > **注意**：导入会即时落盘，但 DSH 的会话列表不会自动刷新——导入后请刷新页面（或会话列表）才能看到新会话。
 
 **导入——单个文件或目录。** 每个 `import_*` 工具都接受 `path`；目录递归扫描，每个文件 / 每段对话成为独立会话：
@@ -59,6 +64,8 @@ import_agents({ codexRoot: "~/.codex", apply: true })  // 显式包含 Codex 资
 ```
 
 语义：跨源同名冲突加 `-<source>` 后缀消歧（如 `-pi` / `-opencode` / `-codex`）；内容相同幂等跳过；已带 `kind: dsh`/`kind: skill` frontmatter 的源不重复导入；bundle 目录缺 `SKILL.md` 时原地补全（保留既有 `scripts/` 等）；嵌套 YAML（如 `permission:`）原样保留。
+
+定位说明：`import_agents` 只做轻量资产落盘，不覆盖 hooks、权限规则或 settings 等完整配置迁移--后者见 [dsh-movein](https://github.com/sjh9714/dsh-movein)（与本插件分工互补，组合流程未联合验证）。
 
 ### scan_discover — 只读会话发现
 

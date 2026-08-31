@@ -4,6 +4,11 @@
 
 ## 🛠 Usage
 
+> **First-migration step flow** (aligned with the [dsh-movein first-migration guide](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md), Chinese; that tool handles config, this plugin handles conversation history - use either standalone as needed):
+> ① **Preview** - `scan_discover()` or the sidebar panel to inspect importable sessions and status badges; or pass `preview: true` to any `import_*` for a zero-side-effect dry run.
+> ② **Import** - drop `preview` and import for real; verify the per-session `status` by source / workspace (duplicate-import behavior under "Incremental re-import" below).
+> ③ **Health check & retract** - `doctor()` read-only check; `retract_import` to remove the registry record, or the panel History tab to delete plugin-created sessions (with confirmation).
+
 > **Note:** imports persist to disk immediately, but the DSH session list does not auto-refresh — refresh the page (or the session list) after importing to see the new sessions.
 
 **Import — a single file or a directory.** Every `import_*` tool takes a `path`; directories are scanned recursively and each file / conversation becomes its own session:
@@ -59,6 +64,8 @@ import_agents({ codexRoot: "~/.codex", apply: true })  // include Codex assets e
 ```
 
 Semantics: same-name conflicts across sources get a `-<source>` suffix (e.g. `-pi` / `-opencode` / `-codex`); identical content is skipped (idempotent); sources already carrying `kind: dsh`/`kind: skill` frontmatter are not re-imported; a bundle directory that lacks `SKILL.md` is completed in place (preserving existing `scripts/` etc.); nested YAML (e.g. `permission:`) is preserved.
+
+Scope note: `import_agents` is a lightweight asset mover only - it does not cover hooks, permission rules or settings; for full config migration see [dsh-movein](https://github.com/sjh9714/dsh-movein) (complementary to this plugin; the combined flow is not jointly validated).
 
 ### scan_discover — read-only session discovery
 
