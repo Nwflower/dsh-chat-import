@@ -44,6 +44,8 @@ import_chat({ format: "chatgpt", path: "~/Downloads/chatgpt-export/conversations
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
+Reasonix directory imports conservatively collapse only recovery ancestors proven by both a strict semantic prefix and an explicit `parent_id` lineage. Ambiguous or divergent files remain separate; use `lineageMode: "physical"` for one session per JSONL.
+
 2. **Resume** — refresh the session list, open the imported session, and keep chatting from where the source left off.
 
 3. **Sync (optional)** — the panel's "Sync" tab offers bidirectional incremental sync, off by default. Sub-agent conversations are filtered out by default in both directions.

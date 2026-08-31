@@ -1149,6 +1149,87 @@ test('import_reasonix 目录模式：递归扫描、排除 WAL 伴生文件、�
   assert.deepEqual(ids, ['import-desktop-a', 'import-desktop-b'])
 })
 
+test('import_reasonix 目录 canonical：只折叠严格前缀且有明确 parent_id 的恢复祖先', async () => {
+  const lines = (items) => items.map(([role, content]) => JSON.stringify({ role, content })).join('\n')
+  const base = lines([['user', 'A'], ['assistant', 'X']])
+  const left = lines([['user', 'A'], ['assistant', 'X'], ['user', 'B'], ['assistant', 'Y']])
+  const right = lines([['user', 'A'], ['assistant', 'X'], ['user', 'C'], ['assistant', 'Z']])
+  const meta = (id, parentId, updatedAt) => JSON.stringify({
+    id,
+    parent_id: parentId,
+    logical_topic_id: 'logical-topic',
+    topic_id: 'storage-topic',
+    topic_title: 'Synthetic research',
+    workspace_root: 'D:\\Synthetic',
+    updated_at: updatedAt,
+  })
+  const tree = {
+    'D:\\demo\\reasonix': 'dir',
+    'D:\\demo\\reasonix\\base.jsonl': base,
+    'D:\\demo\\reasonix\\base.jsonl.meta': meta('root', null, '1'),
+    'D:\\demo\\reasonix\\left.jsonl': left,
+    'D:\\demo\\reasonix\\left.jsonl.meta': meta('left', 'root', '3'),
+    'D:\\demo\\reasonix\\right.jsonl': right,
+    'D:\\demo\\reasonix\\right.jsonl.meta': meta('right', 'root', '2'),
+  }
+  const { ctx, persistence, attached } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'reasonix')
+  assert.deepEqual(def.parameters.properties.lineageMode.enum, ['canonical', 'physical'])
+
+  const preview = await def.execute({ path: 'D:\\demo\\reasonix', preview: true })
+  assert.equal(preview.mode, 'batch')
+  assert.equal(preview.total, 2)
+  assert.ok(preview.results.every((item) => /Synthetic research（分支 [12]\/2）/.test(item.title)))
+  assert.deepEqual(preview.results.map((item) => item.cwd), ['D:\\Synthetic', 'D:\\Synthetic'])
+  assert.equal(persistence.sessions.size, 0)
+  assert.equal(attached.length, 0)
+
+  const imported = await def.execute({ path: 'D:\\demo\\reasonix' })
+  assert.equal(imported.total, 2)
+  assert.equal(imported.imported, 2)
+  assert.deepEqual(new Set(persistence.sessions.keys()), new Set(['import-left', 'import-right']))
+  assert.equal(attached.length, 2)
+})
+
+test('import_reasonix 目录 canonical：同 topic 但缺少明确谱系时保留全部文件', async () => {
+  const line = (content) => JSON.stringify({ role: 'user', content })
+  const meta = (id) => JSON.stringify({ id, topic_id: 'shared-topic', topic_title: 'Ambiguous' })
+  const tree = {
+    'D:\\demo\\reasonix': 'dir',
+    'D:\\demo\\reasonix\\base.jsonl': line('A'),
+    'D:\\demo\\reasonix\\base.jsonl.meta': meta('base'),
+    'D:\\demo\\reasonix\\extended.jsonl': line('A') + '\n' + line('B'),
+    'D:\\demo\\reasonix\\extended.jsonl.meta': meta('extended'),
+  }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'reasonix')
+  const value = await def.execute({ path: 'D:\\demo\\reasonix' })
+  assert.equal(value.total, 2)
+  assert.equal(value.imported, 2)
+  assert.deepEqual(new Set(persistence.sessions.keys()), new Set(['import-base', 'import-extended']))
+})
+
+test('import_reasonix 目录 physical：显式恢复每个 JSONL 独立导入', async () => {
+  const line = (content) => JSON.stringify({ role: 'user', content })
+  const meta = (id, parentId) => JSON.stringify({ id, parent_id: parentId, topic_id: 'shared-topic' })
+  const tree = {
+    'D:\\demo\\reasonix': 'dir',
+    'D:\\demo\\reasonix\\base.jsonl': line('A'),
+    'D:\\demo\\reasonix\\base.jsonl.meta': meta('base', null),
+    'D:\\demo\\reasonix\\extended.jsonl': line('A') + '\n' + line('B'),
+    'D:\\demo\\reasonix\\extended.jsonl.meta': meta('extended', 'base'),
+  }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'reasonix')
+  const value = await def.execute({ path: 'D:\\demo\\reasonix', lineageMode: 'physical' })
+  assert.equal(value.total, 2)
+  assert.equal(value.imported, 2)
+  assert.deepEqual(new Set(persistence.sessions.keys()), new Set(['import-base', 'import-extended']))
+})
+
 test('import_reasonix 幂等：同名 stem 不重复落盘', async () => {
   const { ctx, persistence } = makeCtx({ 'D:\\demo\\reasonix\\desktop-a.jsonl': load('reasonix-v1.jsonl') })
   apply(ctx)

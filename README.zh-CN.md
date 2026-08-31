@@ -46,6 +46,8 @@ import_chat({ format: "chatgpt", path: "~/Downloads/chatgpt-export/conversations
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
+Reasonix 目录导入只会折叠同时满足“严格语义前缀”和明确 `parent_id` 谱系证明的恢复祖先。无法证明或真实分叉的文件继续独立保留；`lineageMode: "physical"` 可恢复每个 JSONL 一条会话。
+
 2. **续聊** — 刷新会话列表，打开导入的会话，从源记录停下的地方继续对话。
 
 3. **同步（可选）** — 面板「同步」页提供双向增量同步，默认关闭。子代理对话默认双向过滤。
