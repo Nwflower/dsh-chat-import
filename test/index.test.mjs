@@ -258,18 +258,19 @@ function makeCtx(tree, opts = {}) {
   return { ctx, persistence, attached, registered, reads, writes, webRoutes }
 }
 
-// REQ-32：导入会话日志首事件为 session/imported 标记（seq 0、ignorable），
-// sourcePath 来自工具入参（fs 服务归一化路径）。
-function assertImportedMarker(events, { tool, sourceId, sourcePath }) {
-  const ev = events[0]
-  assert.equal(ev.type, 'session/imported')
-  assert.equal(ev.seq, 0)
-  assert.equal(ev.ignorable, true)
-  assert.equal(ev.data.tool, tool)
-  assert.equal(ev.data.sourceId, sourceId)
-  assert.equal(ev.data.sourcePath, sourcePath)
-  assert.equal(typeof ev.data.importedAt, 'number')
-  assert.ok(ev.data.importedAt > 0)
+// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
+// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
+function assertEnvelopeHygiene(events) {
+  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
+  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
+  for (const e of events) {
+    for (const key of Object.keys(e)) {
+      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
+    }
+    assert.equal(typeof e.seq, 'number')
+    assert.equal(typeof e.time, 'number')
+    assert.notEqual(e.data, undefined)
+  }
 }
 
 test('apply 注册十三个工具（import_chat 分发器 + import_agents + doctor + import_mcp + import_settings + scan_discover + export_chat 三合一 + sync_to_claude + REQ-33 识别/撤回 + REQ-56 bundle 导出/还原 + verify_session）', () => {
@@ -402,14 +403,14 @@ test('单文件导入：落盘、归组、返回值符合 schema', async () => {
   const violations = validateJsonSchemaValue(def.output.schema, value)
   assert.deepEqual(violations, [])
 
-  // 落盘：meta + 平衡事件；首事件为 session/imported 标记（sourcePath = 工具入参）
+  // 落盘：meta + 平衡事件（归属外置 registry，日志无标记——issue #34）
   const saved = persistence.sessions.get('import-sess-simple-001')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'D:\\demo\\proj')
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.match(saved.events.at(-1).data.title, /^Claude · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'claude-code', sourceId: 'sess-simple-001', sourcePath: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
+  assertEnvelopeHygiene(saved.events)
 
   // 归组
   assert.equal(attached.length, 1)
@@ -498,10 +499,10 @@ test('目录批量导入：扫描 .jsonl、逐文件独立会话、跳过非 tra
   assert.equal(persistence.sessions.size, 3)
   assert.equal(attached.length, 3)
 
-  // 逐文件的 sourcePath 是各自 transcript 路径（目录模式每个文件一个源路径）
-  assertImportedMarker(persistence.sessions.get('import-sess-simple-001').events, { tool: 'claude-code', sourceId: 'sess-simple-001', sourcePath: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
-  assertImportedMarker(persistence.sessions.get('import-sess-tool-001').events, { tool: 'claude-code', sourceId: 'sess-tool-001', sourcePath: 'D:\\demo\\proj\\sess-tool-001.jsonl' })
-  assertImportedMarker(persistence.sessions.get('import-sess-title-001').events, { tool: 'claude-code', sourceId: 'sess-title-001', sourcePath: 'D:\\demo\\proj\\sub\\sess-title-001.jsonl' })
+  // 逐文件的归属在 imports registry（目录模式每个文件一个源路径）；日志无标记（issue #34）
+  assertEnvelopeHygiene(persistence.sessions.get('import-sess-simple-001').events)
+  assertEnvelopeHygiene(persistence.sessions.get('import-sess-tool-001').events)
+  assertEnvelopeHygiene(persistence.sessions.get('import-sess-title-001').events)
 
   // 输出 schema 校验
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
@@ -626,7 +627,7 @@ test('import_codex 单文件导入：落盘、归组、返回值符合 schema', 
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.match(saved.events.at(-1).data.title, /^Codex · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'codex', sourceId: '019e3b3f-636d-7cb3-aaab-0255eb45ad4f', sourcePath: 'D:\\demo\\codex\\simple.jsonl' })
+  assertEnvelopeHygiene(saved.events)
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-019e3b3f-636d-7cb3-aaab-0255eb45ad4f')
 })
@@ -729,7 +730,7 @@ test('import_workbuddy 单文件导入：落盘、归组、返回值符合 schem
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.match(saved.events.at(-1).data.title, /^WorkBuddy · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'workbuddy', sourceId: WB_SID, sourcePath: src })
+  assertEnvelopeHygiene(saved.events)
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-' + WB_SID)
 })
@@ -795,8 +796,8 @@ test('import_chatgpt 单文件：一文件多会话、恒返回 batch、schema �
   assert.equal(saved1.events.at(-1).type, 'session/title')
   assert.ok(saved1.events.every((e, i) => e.seq === i))
   // 同一文件里的每个会话都带标记，sourcePath 都是 conversations.json（REQ-32）
-  assertImportedMarker(saved1.events, { tool: 'chatgpt', sourceId: 'conv-001', sourcePath: 'D:\\demo\\chatgpt\\conversations.json' })
-  assertImportedMarker(saved2.events, { tool: 'chatgpt', sourceId: 'conv-002', sourcePath: 'D:\\demo\\chatgpt\\conversations.json' })
+  assertEnvelopeHygiene(saved1.events)
+  assertEnvelopeHygiene(saved2.events)
   // ChatGPT 无 cwd → REQ-39-lite 回退归到导出文件所在目录（否则堆进「未分组」找不到）
   assert.equal(attached.length, 2)
   assert.ok(attached.every((a) => a.ws === dirname('D:\\demo\\chatgpt\\conversations.json')))
@@ -935,7 +936,7 @@ test('import_cursor 单文件：composer id 从文件名派生、落盘、schema
   assert.match(titleEv.data.title, /^Cursor · /)
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'cursor', sourceId: 'composer-abc', sourcePath: 'D:\\demo\\cursor\\composer-abc.jsonl' })
+  assertEnvelopeHygiene(saved.events)
 })
 
 test('import_cursor replace:true：同 id 覆盖重导，标题与正文更新', async () => {
@@ -1045,7 +1046,7 @@ test('import_gemini 单文件：落盘、归组、schema 校验', async () => {
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.match(saved.events.at(-1).data.title, /^Gemini · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'gemini', sourceId: 'b26d7f99-0116-4d1d-b125-98c228a4b933', sourcePath: 'D:\\demo\\gemini\\session-abc.json' })
+  assertEnvelopeHygiene(saved.events)
   // Gemini 有 cwd → 归组
   assert.equal(attached.length, 1)
 })
@@ -1118,7 +1119,7 @@ test('import_reasonix 单文件：meta 派生 cwd/标题、落盘、schema 校�
   assert.equal(saved.meta.cwd, 'D:\\Reasonix') // meta.workspace → cwd
   assert.equal(saved.events.at(-1).type, 'session/title') // meta.summary → 标题
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'reasonix', sourceId: 'desktop-v2', sourcePath: 'D:\\demo\\reasonix\\desktop-v2.jsonl' })
+  assertEnvelopeHygiene(saved.events)
   // cwd → 归组
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-desktop-v2')
@@ -1281,7 +1282,7 @@ test('import_pi 单文件：头行 cwd/id 落盘、归组、返回值符合 sche
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.match(saved.events.at(-1).data.title, /^Pi · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'pi-coding-agent', sourceId: '019f0a11-2222-7333-8444-555566667777', sourcePath: 'D:\\demo\\pi\\2025-06-01_pi-simple.jsonl' })
+  assertEnvelopeHygiene(saved.events)
   // cwd → 归组
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-019f0a11-2222-7333-8444-555566667777')
@@ -1474,7 +1475,7 @@ test('import_opencode 单库文件：批量形态、逐会话落盘、schema 校
   assert.equal(savedA.events.at(-1).type, 'session/title')
   assert.ok(savedA.events.every((e, i) => e.seq === i))
   // 标记：tool=opencode、sourceId=源会话 id、sourcePath=opencode.db 路径（工具入参）
-  assertImportedMarker(savedA.events, { tool: 'opencode', sourceId: 'ses-a', sourcePath: dbPath })
+  assertEnvelopeHygiene(savedA.events)
   // tool/call + tool/result 关联落盘
   const call = savedA.events.find((e) => e.type === 'tool/call')
   const result = savedA.events.find((e) => e.type === 'tool/result')
@@ -1637,7 +1638,7 @@ test('import_grokbuild 单会话目录：双文件转换、落盘、归组、sch
   assert.equal(saved.events.at(-1).data.title, 'Grok · Grok 会话标题')
   assert.ok(saved.events.every((e, i) => e.seq === i))
   // 幂等键 = 会话目录路径
-  assertImportedMarker(saved.events, { tool: 'grokbuild', sourceId: 'grok-sess-001', sourcePath: dir })
+  assertEnvelopeHygiene(saved.events)
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-grok-sess-001')
 })
@@ -1729,7 +1730,7 @@ test('import_openclaw 单文件：displayName 从同目录 sessions.json 派生�
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.equal(saved.events.at(-1).data.title, 'OpenClaw · 重构登录模块')
   assert.ok(saved.events.every((e, i) => e.seq === i))
-  assertImportedMarker(saved.events, { tool: 'openclaw', sourceId: 'sess-openclaw-001', sourcePath: 'D:\\demo\\openclaw\\sess-openclaw-001.jsonl' })
+  assertEnvelopeHygiene(saved.events)
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-sess-openclaw-001')
 })
@@ -1832,7 +1833,7 @@ test('import_hermes SQLite：state.db 恒批量、逐会话落盘、归组、sch
   assert.equal(savedA.events.at(-1).type, 'session/title')
   assert.equal(savedA.events.at(-1).data.title, 'Hermes · Fix hermes build')
   assert.ok(savedA.events.every((e, i) => e.seq === i))
-  assertImportedMarker(savedA.events, { tool: 'hermes', sourceId: 'hm-a', sourcePath: dbPath })
+  assertEnvelopeHygiene(savedA.events)
   const ids = [...persistence.sessions.keys()].sort()
   assert.deepEqual(ids, ['import-hm-a', 'import-hm-b'])
   assert.equal(attached.length, 2) // 两个会话都有 cwd → 归组
@@ -2008,7 +2009,7 @@ test('import_kimi 单会话目录：wire.jsonl + state.json + kimi.json 映射�
   assert.equal(saved.events.at(-1).data.title, 'Kimi · Kimi 会话标题')
   assert.ok(saved.events.every((e, i) => e.seq === i))
   // 幂等键 = 会话目录路径
-  assertImportedMarker(saved.events, { tool: 'kimi', sourceId: 'sess-001', sourcePath: sess })
+  assertEnvelopeHygiene(saved.events)
   assert.equal(attached.length, 1)
   assert.equal(attached[0].id, 'import-sess-001')
 })
@@ -2196,7 +2197,7 @@ test('import_kimi 新 Kimi Code 单会话目录：agents/main/wire.jsonl + state
   assert.equal(saved.meta.sourceId, 'session-001')
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.equal(saved.events.at(-1).data.title, 'Kimi · 新 Kimi Code 标题') // isCustomTitle:true 钉标题
-  assertImportedMarker(saved.events, { tool: 'kimi', sourceId: 'session-001', sourcePath: sess })
+  assertEnvelopeHygiene(saved.events)
   assert.equal(attached.length, 1)
 })
 
@@ -2270,8 +2271,7 @@ test('REQ-24 增长 append：同一会话 seq 连续、只新增轮次、无重�
   // 续写轮次：turn 续号用源编号（3），末尾 turn/end 平衡
   assert.equal(saved2.events.at(-1).type, 'turn/end')
   assert.equal(saved2.events.at(-1).data.turn, 3)
-  // 不重复写 session/imported 标记与 session/title
-  assert.equal(saved2.events.filter((e) => e.type === 'session/imported').length, 1)
+  // 续写不重复钉 session/title（标记自 0.8.3 起不再写入，见 issue #34）
   assert.equal(saved2.events.filter((e) => e.type === 'session/title').length, 1)
   // 已导入前缀事件未被改写
   assert.deepEqual(saved2.events.slice(0, before), firstEvents)
@@ -3547,7 +3547,7 @@ test('REQ-36 守卫：源文件被外部修改（size/version 变化）→ skipp
   const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
   assert.equal(v.status, 'skipped')
   assert.equal(v.conflictDetected, 'source-modified-externally')
-  assert.equal(v.writeback.lastWrittenSeq, 9) // 导入记录事件数（含 session/title）
+  assert.equal(v.writeback.lastWrittenSeq, 8) // 导入记录事件数（含 session/title，无标记）
 })
 
 test('REQ-36 守卫：源文件缩小 → skipped + sourceShrunk', async () => {
@@ -3618,7 +3618,7 @@ test('REQ-36 CAS 竞态：写入瞬间版本失配 → write-version-mismatch，
   assert.equal(v.conflictDetected, 'write-version-mismatch')
   assert.ok(!tree[src].includes('竞态提问')) // 尾行未写入
   const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 9) // 水印未推进（导入记录事件数）
+  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 8) // 水印未推进（导入记录事件数）
 })
 
 test('REQ-36 预检失败回滚：目标文件不符合严格布局（无 mode 头）→ 写后回滚，水印不推进', async () => {
@@ -3641,7 +3641,7 @@ test('REQ-36 预检失败回滚：目标文件不符合严格布局（无 mode �
   assert.equal(tree[src], before) // 回滚：文件恢复为写前内容
   assert.equal(writes.length, wCount + 2) // 前向写 + 回滚写
   const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 9) // 水印未推进（导入记录事件数）
+  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 8) // 水印未推进（导入记录事件数）
 })
 
 test('REQ-36 写回后重导幂等：sync 后 import_claude → already-imported 无重复 append', async () => {
@@ -3729,7 +3729,7 @@ test('REQ-36 dryRun：完整计算 + 预检但不写盘、不更新 registry', a
   assert.equal(v.status, 'synced')
   assert.equal(v.dryRun, true)
   assert.equal(v.appendedTurns, 1)
-  assert.equal(v.writeback.lastWrittenSeq, 15) // 将写入的水印（未持久化；含 session/title）
+  assert.equal(v.writeback.lastWrittenSeq, 14) // 将写入的水印（未持久化；含 session/title）
   assert.equal(tree[src], before) // 不写盘
   const reg = await loadImports(resolveRegistryDir())
   assert.equal(reg.imports[src].writeback, undefined) // 不更新 registry

@@ -39,16 +39,19 @@ function assertMessageOrderLegal(events) {
   assert.equal(open.length, 0, '末尾残留未配对的 tool_calls')
 }
 
-// 内部标记事件契约（REQ-32）：会话日志首事件为 session/imported。
-function assertImportedMarker(events, { tool, sourceId, sourcePath }) {
-  const ev = events[0]
-  assert.equal(ev.type, 'session/imported')
-  assert.equal(ev.seq, 0)
-  assert.equal(ev.ignorable, true)
-  assert.equal(ev.data.tool, tool)
-  assert.equal(ev.data.sourceId, sourceId)
-  assert.equal(ev.data.sourcePath, sourcePath)
-  assert.equal(typeof ev.data.importedAt, 'number')
+// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
+// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
+function assertEnvelopeHygiene(events) {
+  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
+  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
+  for (const e of events) {
+    for (const key of Object.keys(e)) {
+      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
+    }
+    assert.equal(typeof e.seq, 'number')
+    assert.equal(typeof e.time, 'number')
+    assert.notEqual(e.data, undefined)
+  }
 }
 
 test('convertOpenclawJson: session 事件 + 简单问答合成平衡回合（标题取首条 user 文本）', () => {
@@ -69,9 +72,9 @@ test('convertOpenclawJson: session 事件 + 简单问答合成平衡回合（标
   // 标题：无 displayName → 首条 user 文本（message_id 尾缀已剥离），不钉事件
   assert.equal(out.title, '帮我看看构建失败')
   assert.equal(out.events.some((e) => e.type === 'session/title'), false)
-  assertImportedMarker(out.events, { tool: 'openclaw', sourceId: 'sess-openclaw-001', sourcePath: 'D:/demo/openclaw/sessions/sess-openclaw-001.jsonl' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
-  assert.deepEqual(types, ['session/imported', 'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end'])
+  assert.deepEqual(types, ['user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end'])
   out.events.forEach((e, i) => assert.equal(e.seq, i))
   const user = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user')
   assert.equal(user.data.content[0].text, '帮我看看构建失败')
@@ -240,7 +243,7 @@ test('convertOpenclawJson: sessionId 覆盖 + sourcePath 透传（标记内 sour
   const out = convertOpenclawJson(raw, { sessionId: 'custom-openclaw', sourcePath: 'D:/demo/openclaw/sess-ovr-01.jsonl' })
   assert.equal(out.meta.id, 'custom-openclaw')
   assert.equal(out.meta.sourceId, 'sess-ovr-01')
-  assertImportedMarker(out.events, { tool: 'openclaw', sourceId: 'sess-ovr-01', sourcePath: 'D:/demo/openclaw/sess-ovr-01.jsonl' })
+  assertEnvelopeHygiene(out.events)
 })
 
 test('convertOpenclawJson: 孤儿 toolResult（显式 id 无对应调用）丢弃计数', () => {

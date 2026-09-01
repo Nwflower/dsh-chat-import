@@ -29,10 +29,29 @@ test('convertDshJsonl 保留核心事件并重排 seq', () => {
   assert.equal(out.title, 'DSH 导入测试')
   assert.equal(out.messages, 2)
   assert.equal(out.toolCalls, 0)
-  assert.equal(out.events[0].type, 'session/imported')
-  assert.equal(out.events[0].data.tool, 'import_dsh')
+  // 不再写 session/imported 标记（issue #34：宿主 fail-closed 词汇表）
+  assert.ok(out.events.every((e) => e.type !== 'session/imported'))
   assert.ok(out.events.every((e) => Number.isFinite(e.seq)))
-  assert.deepEqual(out.events.slice(1, 3).map((e) => e.type), ['turn/start', 'step/start'])
+  assert.deepEqual(out.events.slice(0, 2).map((e) => e.type), ['turn/start', 'step/start'])
+})
+
+test('convertDshJsonl 净化旧日志：过滤标记事件、剥离词汇表外 envelope 键、密集重排 seq（issue #34）', () => {
+  // 0.8.2 及以前写入的日志：头上有 session/imported（ignorable: true）
+  const legacy = [
+    { type: 'session', id: 'legacy-x', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'session/imported', seq: 0, time: 1700000000000, ignorable: true, data: { tool: 'import_dsh', sourcePath: '/tmp/old.jsonl', importedAt: 1700000000001 } },
+    { type: 'turn/start', seq: 1, time: 1700000000000, data: { turn: 1 } },
+    { type: 'tool/call', seq: 2, time: 1700000000000, data: { callId: 'c1', name: 'read', arguments: '{}' } },
+    { type: 'tool/result', seq: 3, time: 1700000000000, surfaceOp: 'append', sourceEventSeqs: [2], data: { message: { id: 'm1', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }], source: { kind: 'tool', callId: 'c1' } } } },
+    { type: 'turn/end', seq: 4, time: 1700000000000, data: { turn: 1 } },
+  ]
+  const out = convertDshJsonl(legacy.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/legacy-x.jsonl' })
+  assert.ok(out.events.every((e) => e.type !== 'session/imported'))
+  assert.ok(out.events.every((e) => !('ignorable' in e)))
+  assert.deepEqual(out.events.map((e) => e.seq), [0, 1, 2, 3])
+  // sourceEventSeqs 引用重映射到重排后的新 seq
+  const result = out.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.sourceEventSeqs, [1])
 })
 
 test('discoverSessions format=dsh 发现 session.jsonl 会话', async () => {

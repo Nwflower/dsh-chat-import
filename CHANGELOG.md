@@ -24,6 +24,22 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
 
 - **Reasonix recovery lineage aggregation** — Reasonix directory imports now default to a conservative `lineageMode: 'canonical'`: a recovery ancestor is collapsed only when modern sidecar metadata, an explicit `parent_id` chain, and a strict semantic prefix jointly prove coverage. Malformed, WAL-backed, duplicate, ambiguous, and genuinely divergent transcripts remain independent; `lineageMode: 'physical'` preserves the previous one-JSONL-per-session behavior.
 
+### Fixed
+
+- **导入会话在 dsh ≥ 0.1.2-alpha 上无法打开（issue #34）** — dsh 0.1.2-alpha 起读取路径按
+  fail-closed 事件词汇表（生成式类型白名单 + envelope 键白名单）拒绝加载含未知事件的日志；
+  本插件 0.8.2 及以前在日志头写入的自产 `session/imported` 标记（含 `ignorable` 键）恰在
+  词汇表外，导致该引擎上所有导入会话点开即报 unknown event type / invalid envelope。修复：
+  - **日志不再写标记**——导入归属（REQ-32）以 imports registry 为权威：`list_imported_sessions` /
+    `retract_import` / `sync_to_claude` / `export_chat` 与面板历史、撤回全部改为 registry 反查，
+    旧日志标记降级为兜底证据；registry 记录新增 `format` 字段供出站同步判定来源格式。
+  - **dsh 源导入 / bundle 恢复净化旧日志**——过滤历史标记事件、剥离词汇表外 envelope 键、
+    seq 密集重排且 `sourceEventSeqs` 引用同步重映射；顺带修复 dsh 路径此前整段丢弃
+    `sourceEventSeqs` 的既有缺陷（tool/result 与 tool/call 关联在重导后恢复）。
+  - **存量会话修复路径**——0.8.2 导入的会话在导入面板点「刷新已导入」（从源重新转换、
+    同 id 覆盖）即可修复；`doctor` 新增 legacy 标记检测并输出修复指引。
+  - 局限：源文件已删除的存量会话无法重转修复（可 `retract_import` 清理）。
+
 ## [0.8.2] - 2026-08-29
 
 ### Added

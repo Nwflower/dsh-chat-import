@@ -56,24 +56,19 @@ function assertMessageOrderLegal(events) {
   return msgs
 }
 
-// 内部标记事件契约（REQ-32）：导入会话日志首事件（seq 0）为 session/imported。
-function assertImportedMarker(events, { tool, sourceId, sourcePath }) {
-  const ev = events[0]
-  assert.equal(ev.type, 'session/imported')
-  assert.equal(ev.seq, 0)
-  assert.equal(ev.ignorable, true)
-  assert.equal(ev.data.tool, tool)
-  assert.equal(ev.data.sourceId, sourceId)
-  assert.equal(ev.data.sourcePath, sourcePath)
-  assert.equal(typeof ev.data.importedAt, 'number')
-  assert.ok(ev.data.importedAt > 0)
-  // 环境变更声明（总是注入）：标记之后、首个 turn 之前，source.kind='plugin'
-  const env = events[1]
-  assert.equal(env.type, 'user/message')
-  assert.equal(env.data.source.kind, 'plugin')
-  assert.equal(env.data.source.plugin, 'chat-import')
-  assert.ok(env.data.content[0].text.includes('DeepSeek Harness'))
-  assert.equal(events[2].type, 'turn/start')
+// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
+// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
+function assertEnvelopeHygiene(events) {
+  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
+  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
+  for (const e of events) {
+    for (const key of Object.keys(e)) {
+      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
+    }
+    assert.equal(typeof e.seq, 'number')
+    assert.equal(typeof e.time, 'number')
+    assert.notEqual(e.data, undefined)
+  }
 }
 
 // 合成 wire.jsonl：首行 metadata + 记录（timestamp 秒级递增）。
@@ -109,10 +104,10 @@ test('convertKimiWire: 简单问答（TurnBegin/StepBegin/TextPart/TurnEnd）、
   assert.ok(!out.events.some((e) => e.type === 'session/title'))
   const types = out.events.map((e) => e.type)
   assert.deepEqual(types, [
-    'session/imported', 'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end',
+    'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end',
   ])
   out.events.forEach((e, i) => assert.equal(e.seq, i))
-  assertImportedMarker(out.events, { tool: 'kimi', sourceId: 'sess-001', sourcePath: SRC })
+  assertEnvelopeHygiene(out.events)
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message')) {
     assert.equal(e.surfaceOp, 'append')
   }
@@ -131,7 +126,7 @@ test('convertKimiWire: custom_title（state.json）钉 session/title 事件且�
   assert.equal(out.title, '自定义标题')
   assert.equal(out.events.at(-1).type, 'session/title')
   assert.equal(out.events.at(-1).data.title, '自定义标题')
-  assertImportedMarker(out.events, { tool: 'kimi', sourceId: 'sess-001', sourcePath: SRC })
+  assertEnvelopeHygiene(out.events)
 })
 
 test('convertKimiWire: ToolCall → tool/call + ToolResult → tool/result（sourceEventSeqs 关联）', () => {
@@ -347,7 +342,6 @@ test('convertKimiWire: sessionId 覆盖与 budget 裁剪透传（REQ-37）', () 
   assert.equal(out.meta.id, 'custom-kimi')
   // sourceId 显式取自 kimiId，不因 DSH 会话 id 覆盖/前缀解析而改变（REQ-32）
   assert.equal(out.meta.sourceId, 'sess-001')
-  assert.equal(out.events[0].data.sourceId, 'sess-001')
   assert.ok(out.trimmed)
   assert.ok(out.trimmed.droppedTurns > 0)
   assert.ok(out.trimmed.estimatedTokens <= 1000)

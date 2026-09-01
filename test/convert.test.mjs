@@ -66,26 +66,19 @@ function assertMessageOrderLegal(events) {
   return msgs
 }
 
-// 内部标记事件契约（REQ-32）：导入会话日志首事件（seq 0）为 session/imported，
-// 顶层 ignorable: true，data 四字段（tool / sourceId / sourcePath / importedAt）。
-function assertImportedMarker(events, { tool, sourceId, sourcePath }) {
-  const ev = events[0]
-  assert.equal(ev.type, 'session/imported')
-  assert.equal(ev.seq, 0)
-  assert.equal(ev.ignorable, true)
-  assert.equal(ev.data.tool, tool)
-  assert.equal(ev.data.sourceId, sourceId)
-  assert.equal(ev.data.sourcePath, sourcePath)
-  assert.equal(typeof ev.data.importedAt, 'number')
-  assert.ok(ev.data.importedAt > 0)
-  // 环境变更声明（总是注入）：标记之后、首个 turn 之前，source.kind='plugin'
-  const env = events[1]
-  assert.equal(env.type, 'user/message')
-  assert.equal(env.data.source.kind, 'plugin')
-  assert.equal(env.data.source.plugin, 'chat-import')
-  assert.ok(env.data.content[0].text.includes('DeepSeek Harness'))
-  // 环境声明之后才进入回合事件
-  assert.equal(events[2].type, 'turn/start')
+// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
+// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
+function assertEnvelopeHygiene(events) {
+  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
+  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
+  for (const e of events) {
+    for (const key of Object.keys(e)) {
+      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
+    }
+    assert.equal(typeof e.seq, 'number')
+    assert.equal(typeof e.time, 'number')
+    assert.notEqual(e.data, undefined)
+  }
 }
 
 test('convertClaudeJsonl: 简单问答合成平衡回合', () => {
@@ -101,11 +94,11 @@ test('convertClaudeJsonl: 简单问答合成平衡回合', () => {
 
   const types = out.events.map((e) => e.type)
   assert.deepEqual(types, [
-    'session/imported', 'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end',
+    'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end',
   ])
   // seq 连续从 0 开始；首事件是内部标记
   out.events.forEach((e, i) => assert.equal(e.seq, i))
-  assertImportedMarker(out.events, { tool: 'claude-code', sourceId: 'sess-simple-001', sourcePath: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
+  assertEnvelopeHygiene(out.events)
   // surface 事件带 surfaceOp
   const surface = out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message')
   for (const e of surface) assert.equal(e.surfaceOp, 'append')
@@ -184,7 +177,7 @@ test('convertClaudeJsonl: 未回答的提问也成回合', () => {
   assert.equal(out.turns.length, 1)
   assert.equal(out.messages, 1)
   const types = out.events.map((e) => e.type)
-  assert.deepEqual(types, ['session/imported', 'user/message', 'turn/start', 'user/message', 'turn/end'])
+  assert.deepEqual(types, ['user/message', 'turn/start', 'user/message', 'turn/end'])
 })
 
 test('convertClaudeJsonl: 数组格式 user content（纯文本块）开新轮（issue #21 复现）', () => {
@@ -253,7 +246,7 @@ test('convertClaudeJsonl: sessionId 覆盖参数生效', () => {
   assert.equal(out.meta.id, 'custom-id')
   // sourceId 显式取自源记录，不因 DSH 会话 id 覆盖/前缀解析而改变（REQ-32）
   assert.equal(out.meta.sourceId, 'sess-simple-001')
-  assert.equal(out.events[0].data.sourceId, 'sess-simple-001')
+  assertEnvelopeHygiene(out.events)
   const ids = out.events.filter((e) => e.type === 'user/message').map((e) => e.data.id)
   // 首条是环境变更声明（import:custom-id:env），真实提问在其后
   assert.ok(ids.some((id) => id.startsWith('import:custom-id:u1')))
@@ -455,12 +448,12 @@ test('convertCodexJsonl: 简单问答合成平衡回合（元数据来自 sessio
 
   const types = out.events.map((e) => e.type)
   assert.deepEqual(types, [
-    'session/imported', 'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end',
+    'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end',
   ])
   // seq 连续从 0 开始；最后一个事件是 turn/end（平衡）
   out.events.forEach((e, i) => assert.equal(e.seq, i))
   assert.equal(types.at(-1), 'turn/end')
-  assertImportedMarker(out.events, { tool: 'codex', sourceId: '019e3b3f-636d-7cb3-aaab-0255eb45ad4f', sourcePath: 'D:\\demo\\codex\\simple.jsonl' })
+  assertEnvelopeHygiene(out.events)
   // surface 事件带 surfaceOp
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message')) {
     assert.equal(e.surfaceOp, 'append')
@@ -750,7 +743,7 @@ test('convertChatgptJson: 一文件多会话、多轮、mapping 主线程', () =
   assert.equal(c1.turns.length, 2)
   assert.equal(c1.messages, 3)
   assert.equal(c1.toolCalls, 0)
-  assertImportedMarker(c1.events, { tool: 'chatgpt', sourceId: 'conv-001', sourcePath: 'D:\\demo\\chatgpt\\conversations.json' })
+  assertEnvelopeHygiene(c1.events)
   const types1 = c1.events.map((e) => e.type)
   // 事件以 turn/end 平衡收尾（session/title 钉在最后，不破坏回合平衡）
   assert.equal(types1.filter((t) => t === 'turn/end').length, 2)
@@ -766,7 +759,7 @@ test('convertChatgptJson: 一文件多会话、多轮、mapping 主线程', () =
   const c2 = out.conversations.find((c) => c.meta.id === 'import-conv-002')
   assert.ok(c2)
   assert.equal(c2.turns.length, 1)
-  assertImportedMarker(c2.events, { tool: 'chatgpt', sourceId: 'conv-002', sourcePath: 'D:\\demo\\chatgpt\\conversations.json' })
+  assertEnvelopeHygiene(c2.events)
   const asst2 = c2.events.filter((e) => e.type === 'assistant/message').map((e) => e.data.message.content[0].text)
   assert.deepEqual(asst2, ['Here is a simple aglio e olio recipe.', 'Actually, use cacio e pepe instead.'])
 })
@@ -1002,7 +995,7 @@ test('convertCursorJsonl: 简单问答、user_query 剥离、平衡回合', () =
   assert.equal(out.toolCalls, 0)
   assert.equal(out.meta.id, 'import-abc123') // cursorId 传入
   assert.equal(out.meta.sourceId, 'abc123')
-  assertImportedMarker(out.events, { tool: 'cursor', sourceId: 'abc123', sourcePath: 'D:\\demo\\cursor\\composer-abc.jsonl' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal(types.filter((t) => t === 'turn/end').length, 1)
   out.events.forEach((e, i) => assert.equal(e.seq, i))
@@ -1086,7 +1079,7 @@ test('convertGeminiJson: 简单会话、元数据、平衡回合', () => {
   assert.equal(out.meta.sourceId, 'b26d7f99-0116-4d1d-b125-98c228a4b933')
   assert.equal(out.meta.cwd, 'D:\\demo\\gemini-proj') // directories[0] → cwd
   assert.ok(out.meta.createdAt) // startTime ISO → ms
-  assertImportedMarker(out.events, { tool: 'gemini', sourceId: 'b26d7f99-0116-4d1d-b125-98c228a4b933', sourcePath: 'D:\\demo\\gemini\\session-abc.json' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
   out.events.forEach((e, i) => assert.equal(e.seq, i))
@@ -1180,7 +1173,7 @@ test('convertReasonixJsonl: v1 嵌套 tool_calls + tool_call_id 配对 + reasoni
   assert.equal(out.toolCalls, 1)
   assert.equal(out.meta.id, 'import-desktop-202606020721-1')
   assert.equal(out.meta.sourceId, 'desktop-202606020721-1')
-  assertImportedMarker(out.events, { tool: 'reasonix', sourceId: 'desktop-202606020721-1', sourcePath: 'D:\\demo\\reasonix\\desktop-a.jsonl' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
   out.events.forEach((e, i) => assert.equal(e.seq, i))
@@ -1344,7 +1337,7 @@ test('convertPiJsonl: 简单问答、头行元数据、平衡回合', () => {
   assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
   assert.equal(out.meta.cwd, 'D:\\demo\\pi-proj')
   assert.ok(out.meta.createdAt)
-  assertImportedMarker(out.events, { tool: 'pi-coding-agent', sourceId: '019f0a11-2222-7333-8444-555566667777', sourcePath: 'D:\\demo\\pi-proj\\2025-06-01_pi-simple.jsonl' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal(types.at(-1), 'turn/end')
   out.events.forEach((e, i) => assert.equal(e.seq, i))
@@ -1447,7 +1440,7 @@ test('convertOpencodeJson: 简单问答、元数据、平衡回合', () => {
   assert.equal(out.meta.cwd, 'E:/demo/opencode-proj')
   assert.equal(out.meta.createdAt, 1786000000000)
   assert.equal(out.title, 'Fix the build')
-  assertImportedMarker(out.events, { tool: 'opencode', sourceId: 'ses_simple001', sourcePath: 'E:/demo/opencode/opencode.db' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   // 回合平衡：最后一个（非 title）事件是 turn/end；seq 连续
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
@@ -1773,7 +1766,7 @@ test('tailSessionEvents: 指向尾外的 sourceEventSeqs 原样保留并计 drop
   const ev = (type, seq, data, extra) => ({ type, seq, data, ...extra })
   const converted = {
     events: [
-      ev('session/imported', 0, {}),
+      ev(0, {}),
       ev('turn/start', 1, { turn: 1 }),
       ev('user/message', 2, {}, { surfaceOp: 'append' }),
       ev('assistant/message', 3, {}, { surfaceOp: 'append' }),

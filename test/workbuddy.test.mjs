@@ -203,22 +203,16 @@ test('无用户提问（空/纯注入）→ 无可导入内容', () => {
   assert.equal(out.events.filter((e) => e.type === 'user/message').length, 0)
 })
 
-test('session/imported 内部标记钉在日志头（REQ-32）', () => {
+test('导入归属外置 registry：日志无标记，首事件为环境变更声明（issue #34）', () => {
   const raw = wb([
     userRec('<user_query>hi</user_query>'),
     assistantRec('yo'),
   ])
   const out = convertWorkbuddyJsonl(raw, { sourcePath: 'C:/Users/u/.workbuddy/projects/p/' + SID + '.jsonl' })
-  const ev = out.events[0]
-  assert.equal(ev.type, 'session/imported')
-  assert.equal(ev.seq, 0)
-  assert.equal(ev.ignorable, true)
-  assert.equal(ev.data.tool, 'workbuddy')
-  assert.equal(ev.data.sourceId, SID)
-  assert.equal(ev.data.sourcePath, 'C:/Users/u/.workbuddy/projects/p/' + SID + '.jsonl')
-  assert.equal(out.events[1].type, 'user/message') // 环境变更声明（总是注入）
-  assert.equal(out.events[1].data.source.kind, 'plugin')
-  assert.equal(out.events[2].type, 'turn/start')
+  assert.ok(out.events.every((e) => e.type !== 'session/imported'))
+  assert.equal(out.events[0].type, 'user/message')
+  assert.equal(out.events[0].data.source.kind, 'plugin')
+  assert.equal(out.events[1].type, 'turn/start')
 })
 
 test('file-history-snapshot 等运行期事件忽略', () => {

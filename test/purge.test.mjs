@@ -159,14 +159,26 @@ test('deleteImportedSession：工件被占用（rm 后仍存在）→ 中止且 
   }
 })
 
-test('deleteImportedSession：无 session/imported 标记拒绝删除', async () => {
+test('deleteImportedSession：不在 imports registry 的会话拒绝删除（归属以 registry 为权威，issue #34）', async () => {
   const dir = resolveRegistryDir()
   const sessionId = 'native-sess'
+  const persistence = makePersistence()
+  persistence.sessions.set(sessionId, { meta: { id: sessionId }, events: [{ type: 'turn/start', seq: 0 }] })
+  const ctx = makeCtx(persistence)
+  await assert.rejects(() => deleteImportedSession(ctx, dir, sessionId), /不在 imports registry/)
+})
+
+test('deleteImportedSession：registry 命中即可删除，日志无标记不阻断（0.8.3+ 导出无标记，issue #34）', async () => {
+  const dir = resolveRegistryDir()
+  const sessionId = 'import-no-marker'
   await rememberImport(dir, 'D:\\x.jsonl', { kind: 'single', dshId: sessionId, turns: 1, events: 1, importedAt: T0 })
   const persistence = makePersistence()
   persistence.sessions.set(sessionId, { meta: { id: sessionId }, events: [{ type: 'turn/start', seq: 0 }] })
   const ctx = makeCtx(persistence)
-  await assert.rejects(() => deleteImportedSession(ctx, dir, sessionId), /无 session\/imported 标记/)
+  const out = await deleteImportedSession(ctx, dir, sessionId)
+  assert.equal(out.sessionId, sessionId)
+  const reg = await loadImports(dir)
+  assert.equal(Object.keys(reg.imports).length, 0)
 })
 
 test('purgeAllImports：需 confirm；批量删除 registry 全部会话', async () => {

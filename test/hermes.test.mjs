@@ -123,12 +123,10 @@ test('convertHermesJson: 中间 JSON 问答、元数据、平衡回合', () => {
   assertBalanced(out)
   const types = out.events.map((e) => e.type)
   assert.deepEqual(types, [
-    'session/imported', 'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end', 'session/title',
+    'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end', 'session/title',
   ])
-  const imported = out.events[0]
-  assert.equal(imported.data.tool, 'hermes')
-  assert.equal(imported.data.sourceId, 'hm-a')
-  assert.equal(imported.data.sourcePath, 'E:/demo/hermes/state.db')
+  // 导入归属外置 registry（issue #34）：日志无 session/imported 标记
+  assert.ok(out.events.every((e) => e.type !== 'session/imported'))
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
   assert.deepEqual(asst.source, { kind: 'model', provider: 'hermes', model: 'hermes' })
   assert.equal(out.events.find((e) => e.type === 'session/title').data.title, 'Fix hermes build')

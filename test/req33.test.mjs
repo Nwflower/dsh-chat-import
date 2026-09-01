@@ -3,7 +3,7 @@
 // readFrom / locate，刻意不提供 delete / remove 面）+ mock fs（追踪调用，REQ-33
 // 工具不应触碰）+ 真实 imports registry（$DSH_HOME/dsh-chat-import）。
 //
-// 覆盖：list_imported_sessions 只列带 session/imported 标记会话（locate 路径正确、
+// 覆盖：list_imported_sessions 以 imports registry 反查为权威（locate 路径正确、
 // 标题/源路径/导入时间）、无标记会话不出现（registry 记录也不能让无标记会话上榜）、
 // 日志读不到时 registry 兜底识别；retract_import 移除 registry 记录 + 手动删除引导 +
 // 零删除保证（无 delete/remove 调用、会话工件仍在）、幂等、按 sourcePath 撤回 multi、
@@ -199,17 +199,23 @@ test('list_imported_sessions：只列带标记会话，locate 路径 / 标题 / 
   assert.ok(!persistence.calls.includes('create') && !persistence.calls.includes('append'), '识别零副作用')
 })
 
-test('list_imported_sessions：无标记会话不出现（registry 记录也不能让无标记会话上榜——标记是权威信号）', async () => {
+test('list_imported_sessions：registry 反查是权威（0.8.3 起日志无标记也上榜，issue #34）', async () => {
   const persistence = makePersistence()
-  // 日志读成功但首事件不是标记（legacy / 原生会话）；registry 却登记它是导入会话
-  seedSession(persistence, { id: 'legacy-x', events: balancedEvents(null) })
-  await rememberImport(resolveRegistryDir(), 'D:\\src\\legacy.jsonl', { kind: 'single', dshId: 'legacy-x', turns: 1, events: 6, sizeBytes: 1, version: 'v1', args: '[]', importedAt: T0 })
+  // 0.8.3+ 导入的会话：日志无标记，归属只在 registry
+  seedSession(persistence, { id: 'import-x', events: balancedEvents(null) })
+  await rememberImport(resolveRegistryDir(), 'D:\\src\\x.jsonl', { kind: 'single', dshId: 'import-x', turns: 1, events: 6, sizeBytes: 1, version: 'v1', args: '[]', importedAt: T0, format: 'claude' })
 
   const { ctx } = makeCtx(persistence)
   apply(ctx)
   const value = await ctx.tools.registered('list_imported_sessions').execute({})
-  assert.equal(value.total, 0)
-  assert.deepEqual(value.sessions, [])
+  assert.equal(value.total, 1)
+  assert.equal(value.sessions[0].sessionId, 'import-x')
+  assert.equal(value.sessions[0].sourcePath, 'D:\\src\\x.jsonl')
+  assert.equal(value.sessions[0].importedAt, T0)
+  // 原生会话（registry 无记录、日志无标记）不出现
+  seedSession(persistence, { id: 'native-2', events: balancedEvents(null) })
+  const again = await ctx.tools.registered('list_imported_sessions').execute({})
+  assert.ok(!again.sessions.some((s) => s.sessionId === 'native-2'), '原生会话不出现')
 })
 
 test('list_imported_sessions：日志读不到时用 registry 兜底识别（读失败 ≠ 无标记）', async () => {

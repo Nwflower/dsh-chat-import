@@ -137,17 +137,19 @@ function chatDef(ctx, format = 'zcode') {
   return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
 }
 
-// REQ-32：导入会话日志首事件为 session/imported 标记（seq 0、ignorable）。
-function assertImportedMarker(events, { tool, sourceId, sourcePath }) {
-  const ev = events[0]
-  assert.equal(ev.type, 'session/imported')
-  assert.equal(ev.seq, 0)
-  assert.equal(ev.ignorable, true)
-  assert.equal(ev.data.tool, tool)
-  assert.equal(ev.data.sourceId, sourceId)
-  assert.equal(ev.data.sourcePath, sourcePath)
-  assert.equal(typeof ev.data.importedAt, 'number')
-  assert.ok(ev.data.importedAt > 0)
+// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
+// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
+function assertEnvelopeHygiene(events) {
+  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
+  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
+  for (const e of events) {
+    for (const key of Object.keys(e)) {
+      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
+    }
+    assert.equal(typeof e.seq, 'number')
+    assert.equal(typeof e.time, 'number')
+    assert.notEqual(e.data, undefined)
+  }
 }
 
 // ── 合成 zcode db fixture（真实 schema：session 主会话 parent_id IS NULL；
@@ -284,10 +286,10 @@ test('convertZcodeJson: 简单问答、元数据、平衡回合', () => {
   assert.equal(out.meta.cwd, 'E:/demo/zcode')
   assert.equal(out.meta.createdAt, 1786000000000)
   assert.equal(out.title, 'Fix zcode build')
-  assertImportedMarker(out.events, { tool: 'zcode', sourceId: 'zcs-a', sourcePath: 'E:/demo/zcode/db.sqlite' })
+  assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.deepEqual(types, [
-    'session/imported', 'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end', 'session/title',
+    'user/message', 'turn/start', 'step/start', 'user/message', 'assistant/message', 'step/end', 'turn/end', 'session/title',
   ])
   out.events.forEach((e, i) => assert.equal(e.seq, i))
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message' || e.type === 'tool/result')) {
@@ -522,7 +524,7 @@ test('import_zcode 单库文件：批量形态、逐会话落盘、schema 校验
   assert.equal(savedA.meta.createdAt, 1786000000000)
   assert.equal(savedA.events.at(-1).type, 'session/title')
   assert.ok(savedA.events.every((e, i) => e.seq === i))
-  assertImportedMarker(savedA.events, { tool: 'zcode', sourceId: 'zcs-a', sourcePath: dbPath })
+  assertEnvelopeHygiene(savedA.events)
   // tool/call + tool/result 关联落盘
   const call = savedA.events.find((e) => e.type === 'tool/call')
   const result = savedA.events.find((e) => e.type === 'tool/result')
@@ -580,7 +582,7 @@ test('import_zcode zcode:// 伪路径：走默认库只导该会话、幂等', a
     const saved = persistence.sessions.get('import-zcs-a')
     assert.ok(saved)
     // 幂等键 = 伪路径原始字符串（fs.resolve 会归一化掉 '://' 前缀，不能用 displayPath）
-    assertImportedMarker(saved.events, { tool: 'zcode', sourceId: 'zcs-a', sourcePath: 'zcode://zcs-a' })
+    assertEnvelopeHygiene(saved.events)
     assert.equal(persistence.sessions.size, 1)
 
     // 幂等：重导同一伪路径 → already-imported
@@ -667,7 +669,7 @@ test('import_zcode db 缺失回退 transcript.jsonl：不报错、0 skipped', as
   const saved = persistence.sessions.get(sid)
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'E:/demo/zcode-old') // metadata.json 的 cwd
-  assertImportedMarker(saved.events, { tool: 'zcode', sourceId: basename(dirname(txPath)), sourcePath: txPath })
+  assertEnvelopeHygiene(saved.events)
   // 注入 user 被过滤（不产生回合）；工具调用成对
   assert.equal(saved.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').length, 1)
   const call = saved.events.find((e) => e.type === 'tool/call')

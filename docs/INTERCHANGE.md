@@ -18,7 +18,7 @@
     "sourceId": "<源会话 id>"           // 各源显式写入，不从 import- 前缀反解
   },
   "title": "会话标题（可选）",
-  "provider": "claude-code",            // 源标识（同 session/imported 标记的 tool）
+  "provider": "claude-code",            // 源标识（同 imports registry 记录的 format/来源标签）
   "model": "claude-opus-4-7",           // 源模型（可选）
   "turns": [
     {
