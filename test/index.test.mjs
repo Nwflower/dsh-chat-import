@@ -1230,6 +1230,23 @@ test('import_reasonix 目录 physical：显式恢复每个 JSONL 独立导入', 
   assert.deepEqual(new Set(persistence.sessions.keys()), new Set(['import-base', 'import-extended']))
 })
 
+test('import_reasonix 目录 canonical：无 topic key 的独立现代 meta 文件仍派生 cwd/标题', async () => {
+  const line = (content) => JSON.stringify({ role: 'user', content })
+  const meta = (id) => JSON.stringify({ id, workspace_root: 'D:\\Solo', topic_title: 'Solo topic' })
+  const tree = {
+    'D:\\demo\\reasonix': 'dir',
+    'D:\\demo\\reasonix\\solo.jsonl': line('A'),
+    'D:\\demo\\reasonix\\solo.jsonl.meta': meta('solo'),
+  }
+  const { ctx } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'reasonix')
+  const preview = await def.execute({ path: 'D:\\demo\\reasonix', preview: true })
+  assert.equal(preview.total, 1)
+  assert.equal(preview.results[0].cwd, 'D:\\Solo')
+  assert.ok(preview.results[0].title.includes('Solo topic'))
+})
+
 test('import_reasonix 幂等：同名 stem 不重复落盘', async () => {
   const { ctx, persistence } = makeCtx({ 'D:\\demo\\reasonix\\desktop-a.jsonl': load('reasonix-v1.jsonl') })
   apply(ctx)
