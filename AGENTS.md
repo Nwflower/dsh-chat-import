@@ -73,6 +73,6 @@ dsh web 侧边栏「导入会话」面板与设置页「会话导入」分区。
 
 - 版本 X.Y.Z；`npm version patch|minor` 后须同步 lockfile（`npm install --package-lock-only`），CI 会 diff 检查。
 - 发布前更新 `CHANGELOG.md`；`prepublishOnly` 自动跑 `npm test` + 工作树干净检查 + `npm pack --dry-run`。
-- `npm publish --otp=<2FA 码>` 手动发布；无 CI 自动发布流。
+- 双渠道发布，缺一不可：**npm**（`npm publish`，主分发渠道）+ **GitHub Releases**（`git tag vX.Y.Z && git push origin vX.Y.Z` 后 `gh release create vX.Y.Z --notes-file <CHANGELOG 对应节>`）。发布说明取自 CHANGELOG 对应版本节。
 
 本文件规则保持自包含，改完须与仓库现状一致。

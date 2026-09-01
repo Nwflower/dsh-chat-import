@@ -7,7 +7,9 @@ the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html
 Every entry maps to commits in the repository history
 (`git log --oneline --no-decorate`); the 0.1.0 boundary is anchored to the first
 npm publish timestamp (cross-checked with `npm view dsh-chat-import time`).
-Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
+Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
+version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
+from the matching section below.
 
 ## [0.8.3] - 2026-09-01
 
