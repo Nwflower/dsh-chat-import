@@ -32,7 +32,7 @@ export declare function exportClaudeSession(
 // ---------- 工具调用面（ToolSurface：apply 注册的 13 个工具） ----------
 // import_chat 是 18 个聊天导入源（17 个面板来源 + local-jsonl）的统一分发入口：
 // format 必填（源枚举），专属参数（compacted / branch / sessionIds / fullHistory /
-// lineage / parseFormat）只对相应 format 生效。export_chat 是 DSH → Claude/Codex/Kimi
+// lineage / lineageMode / parseFormat）只对相应 format 生效。export_chat 是 DSH → Claude/Codex/Kimi
 // 三个出边的统一分发入口：format 必填（claude/codex/kimi），cwd 仅 claude 有效、
 // path 仅 codex/kimi 有效。
 
@@ -94,6 +94,8 @@ export interface ImportChatOptions extends ImportOptions {
   fullHistory?: boolean
   /** 仅 hermes：'tail' 只导 lineage 链尾（叶子会话）。 */
   lineage?: 'tail'
+  /** 仅 reasonix 目录：canonical（默认）只折叠有严格语义前缀及明确 parent_id 谱系证明的恢复祖先；physical 逐文件导入。 */
+  lineageMode?: 'canonical' | 'physical'
   /** 仅 local-jsonl：强制按指定格式解析；缺省自动识别。 */
   parseFormat?: LocalJsonlFormat
 }

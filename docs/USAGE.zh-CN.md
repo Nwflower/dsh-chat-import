@@ -39,6 +39,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 - `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
 - `import_claude({ compacted: true })` — 只导长会话的**最后一次压缩摘要 + 尾部**（摘要作前置 `reasoning` 块；标题取 summary 记录）。无 summary 记录时该参数不生效。
 - `import_hermes({ lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
+- `import_chat({ format: 'reasonix', path: '<sessions 目录>' })` — 目录导入默认使用 `lineageMode: 'canonical'`。只有现代 sidecar 把两个文件归入同一逻辑话题、无歧义的 `parent_id` 链明确证明祖先关系，而且祖先的完整语义消息序列是更长后代的真前缀时，才折叠恢复祖先。畸形输入、带 WAL 的检查点、完全相同副本、谱系链缺失及真实分叉叶全部保留。此模式不会替 Reasonix catalog 选择唯一活动叶；真实分支继续独立存在。`lineageMode: 'physical'` 可恢复每个 JSONL 一条会话。
 - **已归档会话可重新导入** — DSH 的归档会把会话从侧边栏隐藏，但保留在持久化里（及其 id）——面板与 `scan_discover` 现在把已归档目标标记为 **已归档 / Archived** 并提供重新导入按钮。再次导入以新 id（`import-<sessionId>-<n>`，与 `force` 同一铸键）另存完整副本，不触碰已归档会话；多会话源（chatgpt / opencode / zcode / hermes 库）内逐会话同样适用。
 - **增量续写（重导）** — 重导同一源路径绝不改写已导入历史：未变文件跳过（`already-imported`，不重读）；增长文件只把**新增轮次** append 进同一会话（`appended`）；截断文件检测并上报（`sourceShrunk`）——需要完整新副本时用 `force: true`：
 

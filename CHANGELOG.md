@@ -20,6 +20,10 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8).
   导入（核对逐会话 `status`）-> 体检与撤回（`doctor` / `retract_import` / 历史）。ROADMAP 生态条目
   升级为指南链接。
 
+### Changed
+
+- **Reasonix recovery lineage aggregation** — Reasonix directory imports now default to a conservative `lineageMode: 'canonical'`: a recovery ancestor is collapsed only when modern sidecar metadata, an explicit `parent_id` chain, and a strict semantic prefix jointly prove coverage. Malformed, WAL-backed, duplicate, ambiguous, and genuinely divergent transcripts remain independent; `lineageMode: 'physical'` preserves the previous one-JSONL-per-session behavior.
+
 ## [0.8.2] - 2026-08-29
 
 ### Added
