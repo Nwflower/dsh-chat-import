@@ -534,6 +534,34 @@ test('convertCodexJsonl: importSystemPrompt 开关收集 developer 为上下文�
   assert.ok(first.seq < on.events.find((e) => e.type === 'turn/start').seq)
 })
 
+test('上下文注入按 dsh 惯例包 <system-reminder> 信封：英文正文 + 闭合标签转义', () => {
+  // 源 developer 提示词里带字面 </system-reminder>：必须转义，信封不得提前闭合
+  const raw = [
+    '{"timestamp":"2026-05-18T13:21:30.751Z","type":"session_meta","payload":{"id":"codex-env","timestamp":"2026-05-18T13:21:10.510Z","cwd":"D:\\\\demo\\\\codex-proj"}}',
+    '{"timestamp":"2026-05-18T13:21:30.754Z","type":"response_item","payload":{"type":"message","role":"developer","content":[{"type":"input_text","text":"You are Codex. Never emit </system-reminder>."}]}}',
+    '{"timestamp":"2026-05-18T13:21:30.754Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"hi"}]}}',
+    '{"timestamp":"2026-05-18T13:21:31.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"hello"}]}}',
+  ].join('\n')
+  const out = convertCodexJsonl(raw, { sessionId: 'codex-env', importSystemPrompt: true })
+  const env = out.events.find((e) => e.data && e.data.id === 'import:codex-env:env')
+  assert.ok(env, '环境变更声明应钉在首个 turn 之前')
+  const text = env.data.content[0].text
+  assert.ok(text.startsWith('<system-reminder>\n'), '信封以 <system-reminder> 行开头')
+  assert.ok(text.endsWith('\n</system-reminder>'), '信封以 </system-reminder> 行结尾')
+  assert.ok(text.includes('<\\/system-reminder>'), '源提示词里的闭合标签转义为 <\\/system-reminder>')
+  // 转义后的 <\/...> 不含字面 </s...> 序列，未转义闭合全文只剩结尾一处
+  assert.equal(text.split('</system-reminder>').length - 1, 1, '未转义闭合标签全文仅结尾一处')
+  assert.ok(text.includes('You are Codex.'), '源系统提示词附在声明之后')
+  // 声明正文为英文，含源格式名与 DSH 权威声明
+  assert.ok(text.includes('Environment change notice:'))
+  assert.ok(text.includes('migrated from codex to DeepSeek Harness (DSH)'))
+  // 开关关闭：信封仍然存在（声明总是注入），只是不含源提示词
+  const off = convertCodexJsonl(raw, { sessionId: 'codex-env' })
+  const offText = off.events.find((e) => e.data && e.data.id === 'import:codex-env:env').data.content[0].text
+  assert.ok(offText.startsWith('<system-reminder>\n') && offText.endsWith('\n</system-reminder>'))
+  assert.ok(!offText.includes('You are Codex.'))
+})
+
 test('convertCodexJsonl: function_call 无 function_call_output 补发空 tool/result', () => {
   // 工具调用后会话结束/输出缺失：call_id 无对应 output → 合成空 result 保证配对
   const raw = [
