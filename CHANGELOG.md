@@ -11,6 +11,20 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
 version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
 from the matching section below.
 
+## [0.9.0] - 2026-09-04
+
+### Added
+
+- **设置页新增「将本插件工具显式注入对话上下文」开关（默认开）** — `chat-import` 设置命名空间新增 `injectTools`（默认 `true`）：关闭后不再向对话内的 Agent 注入本插件的 13 个工具（可节省约 5k 上下文），导入/导出/发现/撤回等仍可通过 GUI「导入会话」面板与 `/import` 命令完成。工具注册改为响应式：`registerTools` 返回 `reconcile`，`registerImportPrefs` 在 settings 就绪/变化时驱动注销/重注册；面板与命令依赖的 `IMPORT_SPECS` 恒被填充，不受注入开关影响。
+
+### Changed
+
+- **上下文注入正文按 dsh 惯例包 `<system-reminder>` 信封** — 环境变更声明与（开关开启时）原始系统提示词整体包进 `<system-reminder>` 信封（OPEN / 正文 / CLOSE 逐行拼接），声明改英文；源提示词内的字面 `</system-reminder>` 转义为 `<\/system-reminder>`，防止源提示词提前闭合信封。
+
+### Fixed
+
+- **双向同步入站导入遵循 `importSystemPrompt` 开关** — 入站巡检 / 同步导入此前未读 `chat-import` 偏好、始终按默认注入系统提示词；现与工具 / 面板同口径读取 `importSystemPrompt`，关闭时仅保留环境变更声明。
+
 ## [0.8.3] - 2026-09-01
 
 ### Added
