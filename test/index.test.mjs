@@ -804,6 +804,48 @@ test('import_chatgpt 单文件：一文件多会话、恒返回 batch、schema �
   assert.deepEqual(attached.map((a) => a.id).sort(), ['import-conv-001', 'import-conv-002'])
 })
 
+test('import_chatgpt 默认开关：无显式参数默认收集 system（默认开启），设置显式 false 还原过滤', async () => {
+  const conv = {
+    id: 'conv-sp-def',
+    title: 'Default switch chat',
+    create_time: 1710000000,
+    mapping: {
+      s1: { id: 's1', parent: null, children: ['u1'], message: { id: 'm0', author: { role: 'system' }, content: { content_type: 'text', parts: ['You are a helpful assistant.'] } } },
+      u1: { id: 'u1', parent: 's1', children: ['a1'], message: { id: 'm1', author: { role: 'user' }, content: { content_type: 'text', parts: ['hi'] } } },
+      a1: { id: 'a1', parent: 'u1', children: [], message: { id: 'm2', author: { role: 'assistant' }, content: { content_type: 'text', parts: ['hello'] } } },
+    },
+  }
+  const pluginEnv = (session) => {
+    const ev = session.events.find((e) => e.data && e.data.source && e.data.source.kind === 'plugin')
+    assert.ok(ev, '环境变更声明存在')
+    return ev.data.content[0].text
+  }
+  // 默认（无 settings 服务 → readImportPrefs 回退默认 true）：system 原文随注入保留
+  {
+    const { ctx, persistence } = makeCtx({ 'D:\\demo\\chatgpt\\sp.json': JSON.stringify([conv]) })
+    apply(ctx)
+    await chatDef(ctx, 'chatgpt').execute({ path: 'D:\\demo\\chatgpt\\sp.json' })
+    const saved = persistence.sessions.get('import-conv-sp-def')
+    assert.ok(saved, '会话落盘')
+    assert.ok(pluginEnv(saved).includes('You are a helpful assistant.'), '默认开启：system 原文随注入保留')
+  }
+  {
+    // 显式存储 false（设置分区关闭）：过滤 system，仅环境变更声明
+    const settingsStub = {
+      register(ns, schema) { return { ns, schema } },
+      get() { return { importSystemPrompt: false } },
+      describe() { return [{ ns: 'chat-import', value: { importSystemPrompt: false }, revision: 1 }] },
+      watch() {},
+      async update() {},
+    }
+    const { ctx, persistence } = makeCtx({ 'D:\\demo\\chatgpt\\sp.json': JSON.stringify([conv]) }, { services: { settings: settingsStub } })
+    apply(ctx)
+    await chatDef(ctx, 'chatgpt').execute({ path: 'D:\\demo\\chatgpt\\sp.json' })
+    const saved = persistence.sessions.get('import-conv-sp-def')
+    assert.ok(!pluginEnv(saved).includes('You are a helpful assistant.'), '显式 false：仅环境变更声明')
+  }
+})
+
 test('import_chatgpt 幂等：重复导入同一文件只落盘一次', async () => {
   const { ctx, persistence } = makeCtx({ 'D:\\demo\\chatgpt\\conversations.json': load('chatgpt-export.json') })
   apply(ctx)
@@ -4472,7 +4514,7 @@ test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写�
   assert.equal(r0.res.status, 200)
   assert.equal(r0.data.ok, true)
   assert.equal(r0.data.available, false)
-  assert.deepEqual(r0.data.value, { importSystemPrompt: false })
+  assert.deepEqual(r0.data.value, { importSystemPrompt: true, injectTools: true })
   const w0 = await invoke(route, { importSystemPrompt: true })
   assert.equal(w0.data.ok, true)
   assert.equal(w0.data.available, false)
@@ -4483,10 +4525,10 @@ test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写�
     register(ns, schema) { return { ns, schema } },
     describe(opts) {
       assert.equal(opts.redactSecrets, true)
-      return [{ ns: 'chat-import', value: { importSystemPrompt: false }, revision: 7 }]
+      return [{ ns: 'chat-import', value: { importSystemPrompt: false, injectTools: true }, revision: 7 }]
     },
     async update(ns, patch, expectedRevision) { calls.push({ ns, patch, expectedRevision }) },
-    get(_ns) { return { importSystemPrompt: false } },
+    get(_ns) { return { importSystemPrompt: false, injectTools: true } },
   }
   const { ctx: ctx2, webRoutes: routes2 } = makeCtx({}, { services: { settings: settingsStub } })
   apply(ctx2)
@@ -4495,10 +4537,17 @@ test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写�
   assert.equal(r.data.ok, true)
   assert.equal(r.data.available, true)
   assert.equal(r.data.revision, 7)
-  assert.deepEqual(r.data.value, { importSystemPrompt: false })
+  assert.deepEqual(r.data.value, { importSystemPrompt: false, injectTools: true })
   const w = await invoke(route2, { importSystemPrompt: true, revision: 7 })
   assert.equal(w.data.ok, true)
   assert.deepEqual(calls, [{ ns: 'chat-import', patch: { importSystemPrompt: true }, expectedRevision: 7 }])
+  // injectTools 写入同样走 fenced 路由（第二个开关共用同一偏好命名空间）
+  const w2 = await invoke(route2, { injectTools: false, revision: 7 })
+  assert.equal(w2.data.ok, true)
+  assert.deepEqual(calls, [
+    { ns: 'chat-import', patch: { importSystemPrompt: true }, expectedRevision: 7 },
+    { ns: 'chat-import', patch: { injectTools: false }, expectedRevision: 7 },
+  ])
 
   // update 抛冲突 → ok:false + code: settings-conflict（客户端据此重读）
   const conflictStub = {

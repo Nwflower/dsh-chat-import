@@ -205,3 +205,10 @@ dsh web 侧边栏底部上方有一个「导入会话」浮动胶囊（`sidebar.
 
 - **迁移提示（默认开）**——当会话工作区存在可发现的（已导入或可导入）外部聊天历史时，注入一行 `PromptContext`，告诉模型如何继续（`/import <source> <path>` 命令或侧边栏面板）。per-project 记忆保证同一工作区只提示一次；设 `DSH_IMPORT_SESSION_HINT=0` 关闭。
 - **Claude 上下文桥接（默认关）**——设 `DSH_IMPORT_CONTEXT_BRIDGE=1` 把 Claude Code 的上下文资产桥进会话：`~/.claude/memory/*.md`（按 `feedback` > `project` > `reference` > `user` 分组、8 KiB 上限、mtime 缓存重读）、项目根 `CLAUDE.md` **与全局 `~/.claude/CLAUDE.md`**、以及 `~/.claude/skills/*/SKILL.md`（注册为该 agent 独有的 `claude-<name>` 技能）。
+
+### 设置页（会话导入）
+
+设置页「会话导入」分区提供两个开关，经面板 fenced 路由读写（与 settingsScope 白名单无关）：
+
+- **导入系统提示词（默认开）**——把源会话的 system / developer 提示词作为「上下文注入」保留；关闭后仅保留环境变更声明。
+- **将本插件工具显式注入对话上下文（默认开）**——关闭后不再向对话内的 Agent 注入本插件的 13 个工具（可节省约 5k 上下文）；导入、导出、发现、撤回与双向同步等仍可通过 GUI「导入会话」面板与斜杠命令完成。
