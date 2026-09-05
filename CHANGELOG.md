@@ -11,6 +11,12 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
 version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
 from the matching section below.
 
+## [Unreleased]
+
+### Fixed
+
+- **侧边栏「导入会话」按钮与 usage-billing 计费卡同槽被挤成窄条（issue #35）** — `footerOccupantRect()` 的整行占用者白名单新增 `@kenz1117/dsh-ui-usage-billing` 计费卡触发器（`[data-testid='billing-trigger']`），并把 `data-testid` 加入 MutationObserver 的 `attributeFilter`：检测到计费卡后按钮改为浮到其上方独占一行，不再被压成窄条/截断。
+
 ## [0.9.0] - 2026-09-04
 
 ### Added
