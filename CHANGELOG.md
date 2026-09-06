@@ -11,6 +11,12 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
 version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
 from the matching section below.
 
+## [Unreleased]
+
+### Fixed
+
+- **侧边栏「导入会话」按钮与 dsh-cost-meter 费用卡同槽被挤成窄条** — `footerOccupantRect()` 的整行占用者白名单新增 `dsh-cost-meter` 的侧栏费用卡根元素（`.cm-footer-stack`，`flex-direction:column; width:100%`）：检测到费用卡后按钮改为浮到其上方独占一行，不再被压成窄条/截断（与 cordis 徽标 / 插件市场 launcher / usage-billing 计费卡同款处理）。
+
 ## [0.9.1] - 2026-09-06
 
 ### Added
