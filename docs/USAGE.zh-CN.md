@@ -18,6 +18,7 @@ import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl"
 import_codex({ path: "C:\Users\<you>\.codex\sessions\2026\05\18\rollout-2026-05-18T21-14-16-xxxx.jsonl" })
 import_chatgpt({ path: "C:\Users\<you>\Downloads\chatgpt-export\conversations.json" })
 import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
+import_kilocode({ path: "C:\Users\<you>\.local\share\kilo\kilo.db" })
 import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 ```
 
@@ -28,7 +29,7 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_zcode` / `import_hermes` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。
+`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_zcode` / `import_hermes` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。
 
 <details>
 <summary><b>导入参数与行为</b></summary>
@@ -70,7 +71,7 @@ import_agents({ codexRoot: "~/.codex", apply: true })  // 显式包含 Codex 资
 
 ### scan_discover — 只读会话发现
 
-`scan_discover` 扫描全部 17 种格式的已知数据根（Windows 上含 Reasonix 桌面版与 Claude-3p 根），返回结构化会话索引（标题、项目、cwd、路径、导入状态，源目录为 git 仓库时附分支/dirty），供批导入前预览。零副作用：
+`scan_discover` 扫描全部 18 种格式的已知数据根（Windows 上含 Reasonix 桌面版与 Claude-3p 根），返回结构化会话索引（标题、项目、cwd、路径、导入状态，源目录为 git 仓库时附分支/dirty），供批导入前预览。零副作用：
 
 ```
 scan_discover()

@@ -23,7 +23,7 @@
 //   lib/retract.mjs         REQ-33 导入识别 / 撤回（list_imported_sessions / retract_import）
 //   lib/discovery-host.mjs  REQ-25/40 scan_discover 的 host 适配（fs + SQLite 摘要）
 //   lib/panel.mjs           REQ-41 面板路由（POST /api-import/sessions + /api-import/import）
-//   lib/tools.mjs           13 个工具的注册（import_chat 分发器 = 18 个导入源 +
+//   lib/tools.mjs           13 个工具的注册（import_chat 分发器 = 19 个导入源 +
 //                           import_agents + doctor + import_mcp + import_settings +
 //                           export_chat（claude/codex/kimi 三合一）+ bundle×2 + sync +
 //                           识别/撤回 + 发现 + verify）

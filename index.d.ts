@@ -30,7 +30,7 @@ export declare function exportClaudeSession(
 ): Promise<ExportChatResult>
 
 // ---------- 工具调用面（ToolSurface：apply 注册的 13 个工具） ----------
-// import_chat 是 18 个聊天导入源（17 个面板来源 + local-jsonl）的统一分发入口：
+// import_chat 是 19 个聊天导入源（18 个面板来源 + local-jsonl）的统一分发入口：
 // format 必填（源枚举），专属参数（compacted / branch / sessionIds / fullHistory /
 // lineage / lineageMode / parseFormat）只对相应 format 生效。export_chat 是 DSH → Claude/Codex/Kimi
 // 三个出边的统一分发入口：format 必填（claude/codex/kimi），cwd 仅 claude 有效、
@@ -77,7 +77,7 @@ export type LocalJsonlFormat =
 /** import_chat 的源格式枚举（值 = 来源短名，与面板来源 / discovery FORMATS 一致）。 */
 export type ChatFormat =
   | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'reasonix' | 'opencode'
-  | 'mimocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'kimi'
+  | 'mimocode' | 'kilocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'kimi'
   | 'qoder' | 'workbuddy' | 'qwen' | 'dsh' | 'local-jsonl'
 
 /** import_chat 参数：公共导入参数（ImportOptions）+ 源格式 + 源专属参数。 */
@@ -535,7 +535,7 @@ export interface RetractResult {
 
 export type ScanFormat =
   | 'claude' | 'codex' | 'cursor' | 'gemini' | 'reasonix' | 'opencode' | 'mimocode'
-  | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'hermes' | 'kimi'
+  | 'kilocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'hermes' | 'kimi'
   | 'qoder' | 'chatgpt' | 'workbuddy' | 'qwen' | 'dsh'
 
 export type ImportStatusLabel = 'imported' | 'partial' | 'not-imported' | 'archived'

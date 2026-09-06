@@ -76,6 +76,10 @@ export {
 } from './lib/convert/mimocode.mjs'
 
 export {
+  convertKilocodeJson,
+} from './lib/convert/kilocode.mjs'
+
+export {
   convertZcodeJson,
 } from './lib/convert/zcode.mjs'
 

@@ -18,6 +18,7 @@ import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl"
 import_codex({ path: "C:\Users\<you>\.codex\sessions\2026\05\18\rollout-2026-05-18T21-14-16-xxxx.jsonl" })
 import_chatgpt({ path: "C:\Users\<you>\Downloads\chatgpt-export\conversations.json" })
 import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
+import_kilocode({ path: "C:\Users\<you>\.local\share\kilo\kilo.db" })
 import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 ```
 
@@ -28,7 +29,7 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_zcode` / `import_hermes` always return a batch result — one file / database holds all conversations, so each conversation becomes its own session in a single call.
+`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_zcode` / `import_hermes` always return a batch result — one file / database holds all conversations, so each conversation becomes its own session in a single call.
 
 <details>
 <summary><b>Import parameters & behaviors</b></summary>
@@ -70,7 +71,7 @@ Scope note: `import_agents` is a lightweight asset mover only - it does not cove
 
 ### scan_discover — read-only session discovery
 
-`scan_discover` scans the known data roots of all 17 formats (including the Reasonix desktop app and Claude-3p roots on Windows) and returns a structured session index (title, project, cwd, path, import status, and git branch/dirty when the source directory is a git repo) so you can preview before a batch import. Zero side effects:
+`scan_discover` scans the known data roots of all 18 formats (including the Reasonix desktop app and Claude-3p roots on Windows) and returns a structured session index (title, project, cwd, path, import status, and git branch/dirty when the source directory is a git repo) so you can preview before a batch import. Zero side effects:
 
 ```
 scan_discover()

@@ -856,9 +856,9 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
   assert.equal(numeric.cwd, null)
 })
 
-test('FORMATS 与工具 schema enum 一致（18 种）', () => {
-  assert.equal(FORMATS.length, 18)
-  assert.deepEqual([...FORMATS].sort(), ['chatgpt', 'claude', 'codex', 'cursor', 'dsh', 'gemini', 'grokbuild', 'hermes', 'kimi', 'mimocode', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'workbuddy', 'zcode'])
+test('FORMATS 与工具 schema enum 一致（19 种）', () => {
+  assert.equal(FORMATS.length, 19)
+  assert.deepEqual([...FORMATS].sort(), ['chatgpt', 'claude', 'codex', 'cursor', 'dsh', 'gemini', 'grokbuild', 'hermes', 'kilocode', 'kimi', 'mimocode', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'workbuddy', 'zcode'])
 })
 
 // ── git 状态（REQ-58）──────────────────────────────────────────────────────

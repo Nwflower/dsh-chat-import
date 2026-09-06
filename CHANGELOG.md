@@ -13,6 +13,10 @@ from the matching section below.
 
 ## [Unreleased]
 
+### Added
+
+- **Kilo Code 导入支持（issue #36）** — 新增 `kilocode` 源，原生只读 Kilo Code 本地 SQLite 历史库（`~/.local/share/kilo/kilo.db`，开发频道 `kilo-<channel>.db` / 旧版 `opencode-<channel>.db` 可经 `path` 指定）：session/message/part 三表 schema 是 opencode 的超集（多出 `parent_id` / `time_archived` / `slug` 等列，核心对话列同构），读取/导入/预览完全复用 opencode 管线（`readOpencodeDb` / `importOpencodeFile`），provider 标签为 `kilocode`；默认跳过子会话（`parent_id` 非空）与已归档会话（`time_archived` 非空），只导主会话。发现层 `scan_discover` 默认根 `~/.local/share/kilo`，面板「Kilo Code」来源与 `import_chat({ format: 'kilocode' })` 同步可用。
+
 ### Fixed
 
 - **侧边栏「导入会话」按钮与 usage-billing 计费卡同槽被挤成窄条（issue #35）** — `footerOccupantRect()` 的整行占用者白名单新增 `@kenz1117/dsh-ui-usage-billing` 计费卡触发器（`[data-testid='billing-trigger']`），并把 `data-testid` 加入 MutationObserver 的 `attributeFilter`：检测到计费卡后按钮改为浮到其上方独占一行，不再被压成窄条/截断。

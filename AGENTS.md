@@ -1,6 +1,6 @@
 # AGENTS.md
 
-`dsh-chat-import` 是 DeepSeek Harness（DSH）插件：把 18 种外部 Agent 工具的聊天记录
+`dsh-chat-import` 是 DeepSeek Harness（DSH）插件：把 19 种外部 Agent 工具的聊天记录
 **全保真**导入为**可继续**的 DSH 会话，支持反向导出（Claude / Codex / Kimi）与双向增量同步。
 
 ## 背景

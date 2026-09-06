@@ -3416,7 +3416,7 @@ function registeredDef(ctx, toolName) {
   return ctx.tools.registered(toolName)
 }
 
-// 辅助：import_chat 分发器定义——execute 时注入 format（18 种来源收敛为单工具
+// 辅助：import_chat 分发器定义——execute 时注入 format（19 种来源收敛为单工具
 // 后的测试形态；等价于旧 import_<format> 工具的调用方式）
 function chatDef(ctx, format) {
   const tool = registeredDef(ctx, 'import_chat')

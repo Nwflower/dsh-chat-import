@@ -4,7 +4,7 @@
 
 # DSH Chat Import
 
-**A DeepSeek Harness plugin that imports conversation history from 17+ AI coding tools, so you can continue right where you left off.**
+**A DeepSeek Harness plugin that imports conversation history from 18+ AI coding tools, so you can continue right where you left off.**
 
 > **All sessions, continued in DSH.**
 
@@ -23,7 +23,7 @@
 
 `DSH Chat Import` imports conversation history with full context from other agents, turning it into a seamlessly resumable DeepSeek Harness session.
 
-Now covers import from 19 agents: Claude Code, Codex, ChatGPT, Cursor, Gemini, Reasonix, opencode, MiMo Code, ZCode, Grok Build, OpenClaw, Pi Coding Agent, Hermes, Kimi CLI / Kimi Code, Qoder CLI, WorkBuddy, Qwen Work CN (千问办公) and DSH session logs.
+Now covers import from 20 agents: Claude Code, Codex, ChatGPT, Cursor, Gemini, Reasonix, opencode, MiMo Code, ZCode, Grok Build, OpenClaw, Pi Coding Agent, Hermes, Kimi CLI / Kimi Code, Kilo Code, Qoder CLI, WorkBuddy, Qwen Work CN (千问办公) and DSH session logs.
 
 Export back to: Claude Code, Codex, Kimi Code.
 
@@ -64,7 +64,7 @@ This plugin's `import_agents` is a lightweight asset mover (it persists pi/openc
 
 | Capability | Entry points | Description |
 | --- | --- | --- |
-| Batch import | `import_chat` (19 formats) · `scan_discover` · sidebar panel | Import 18+ sources with one tool; each conversation becomes its own session |
+| Batch import | `import_chat` (20 formats) · `scan_discover` · sidebar panel | Import 19+ sources with one tool; each conversation becomes its own session |
 | Import history & purge | sidebar panel **History** tab | View `imports.json` records; remove plugin-created sessions (with confirmation) |
 | Full-fidelity resume | Imported sessions | Tool calls & results, reasoning, titles, models and timestamps carry over |
 | Export back | `export_chat` (`format: claude` / `codex` / `kimi`) | Serialize DSH sessions back to Claude / Codex / Kimi |
