@@ -11,7 +11,7 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
 version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
 from the matching section below.
 
-## [Unreleased]
+## [0.9.1] - 2026-09-06
 
 ### Added
 
