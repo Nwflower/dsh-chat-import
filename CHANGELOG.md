@@ -13,6 +13,10 @@ from the matching section below.
 
 ## [Unreleased]
 
+### Added
+
+- **整合 dsh-better-sidebar：安装后「导入会话」注册为侧边栏 tab（可选 peer + 回退）** — 检测到 `ctx.betterSidebar` 服务时，把「导入会话」面板注册为该侧边栏的单一 tab（`registerTab`，导入/历史两个子视图内聚为一个 tab）；footer「导入会话」按钮点击改为 `openTab`（新开/聚焦 tab 并展开侧边栏面板）。未安装 better-sidebar 时按钮保持自绘滑出面板回退，行为不变。
+
 ### Fixed
 
 - **侧边栏「导入会话」按钮与 dsh-cost-meter 费用卡同槽被挤成窄条** — `footerOccupantRect()` 的整行占用者白名单新增 `dsh-cost-meter` 的侧栏费用卡根元素（`.cm-footer-stack`，`flex-direction:column; width:100%`）：检测到费用卡后按钮改为浮到其上方独占一行，不再被压成窄条/截断（与 cordis 徽标 / 插件市场 launcher / usage-billing 计费卡同款处理）。
