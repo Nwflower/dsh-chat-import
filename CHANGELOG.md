@@ -18,7 +18,7 @@ from the matching section below.
 - **整合 dsh-better-sidebar：安装后「导入会话」注册为侧边栏 tab（可选 peer + 回退）** — 检测到 `ctx.betterSidebar` 服务时，把「导入会话」面板注册为该侧边栏的单一 tab（`registerTab`，导入/历史两个子视图内聚为一个 tab）；footer「导入会话」按钮点击改为 `openTab`（新开/聚焦 tab 并展开侧边栏面板）。未安装 better-sidebar 时按钮保持自绘滑出面板回退，行为不变。
 - **导入面板 UI 对齐 DSH 设计规范** — 圆角统一到 8px（输入/按钮/列表项）与 12px（卡片/对话框），字号收敛到 13/12/11 三级（消除 12.5/11.5/10px 等非标字号）；列表项的「最后活跃 / 导入时间」改为相对时间显示（刚刚 / N 分钟前 / N 小时前 / N 天前，超 7 天回退绝对时间，hover 显示精确时间）。
 - **导入面板窄宽度自适应（侧边栏可拖宽）** — 面板宽度低于 400px 时：工具栏「全选 / 清空 / 刷新 / 仅选未导入 / 仅选已导入」与分页「上一页 / 下一页」降级为内联 SVG 图标（title/aria-label 保留文字说明）、页码压缩为「当前页/总页」、搜索与清除按钮只留图标；宽度 ≥ 400px 保持原文字形态，行为不变。
-- **多选复选框替换为来源 Agent 徽标** — 列表项前的原生 checkbox 改为白色圆角卡 + 品牌标：有公开 logo 的来源内联 session-migrate 站点的 agent 徽标（Claude Code / Codex / Cursor / OpenCode / Kilo Code / Grok / Pi / Kimi / Qwen），Gemini / DeepSeek 用 simple-icons 品牌路径，其余无公开标的用 brand 色缩写（ChatGPT / Reasonix / MimoCode / ZCode / OpenClaw / Hermes / Qoder / WorkBuddy）；未选中只显徽标，选中时叠加半透明主题强调色遮罩 + 带环 tick（环/勾随主题文字色），保留 role=checkbox 与键盘切换的可访问性；来源文本框（itemMeta 里的 format 徽章）不再显示。
+- **多选复选框替换为来源 Agent 徽标（LobeHub icons）** — 列表项前的原生 checkbox 改为白色圆角卡 + 品牌标：从 LobeHub 官方图标库（`@lobehub/icons-static-svg`）内联 Claude Code / Codex / Cursor / OpenCode / Kilo Code / Grok / Pi / Qwen / ChatGPT / OpenClaw / Qoder / Hermes / Kimi 的品牌标（Kimi 按品牌惯例用黑色底），Gemini / DeepSeek 用 simple-icons 品牌路径，仅 Reasonix / MimoCode / ZCode / WorkBuddy 无公开标的用 brand 色缩写；未选中只显徽标，选中时叠加半透明主题强调色遮罩 + 带环 tick（环/勾随主题文字色），保留 role=checkbox 与键盘切换的可访问性；来源文本框（itemMeta 里的 format 徽章）不再显示。
 
 ### Fixed
 
