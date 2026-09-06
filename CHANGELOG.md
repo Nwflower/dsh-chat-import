@@ -20,6 +20,8 @@ from the matching section below.
 
 ### Fixed
 
+- **已导入会话不再重复显示两个「已导入」** — 列表项右侧的 `importedTag` 徽标与 itemMeta 里的状态徽标重复，删除前者，仅保留状态徽标 + 同步按钮。
+- **导入面板按钮精简** — 删除「搬空当前筛选 / 刷新已导入 / 搬空全部」三个作用易混淆的批量按钮（及其确认对话框），改为在工具栏「全选 / 清空 / 刷新」后新增「仅选未导入」「仅选已导入」两个批量勾选按钮，配合「导入所选」完成批量导入/增量同步，交互更直白。
 - **侧边栏「导入会话」按钮与 dsh-cost-meter 费用卡同槽被挤成窄条** — `footerOccupantRect()` 的整行占用者白名单新增 `dsh-cost-meter` 的侧栏费用卡根元素（`.cm-footer-stack`，`flex-direction:column; width:100%`）：检测到费用卡后按钮改为浮到其上方独占一行，不再被压成窄条/截断（与 cordis 徽标 / 插件市场 launcher / usage-billing 计费卡同款处理）。
 - **「导入会话」按钮样式对齐侧边栏「设置」按钮** — 宽态改对齐官方设置按钮几何（`height: 42px`、`padding: 0 10px 0 8px`、`overflow: hidden`、`font-family: inherit`），rail 态图标对齐 18px：此前 `height: 34px`、`padding: 6px 2px 6px 10px` 与设置按钮不一致。
 
