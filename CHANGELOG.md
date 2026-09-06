@@ -16,6 +16,7 @@ from the matching section below.
 ### Fixed
 
 - **侧边栏「导入会话」按钮与 dsh-cost-meter 费用卡同槽被挤成窄条** — `footerOccupantRect()` 的整行占用者白名单新增 `dsh-cost-meter` 的侧栏费用卡根元素（`.cm-footer-stack`，`flex-direction:column; width:100%`）：检测到费用卡后按钮改为浮到其上方独占一行，不再被压成窄条/截断（与 cordis 徽标 / 插件市场 launcher / usage-billing 计费卡同款处理）。
+- **「导入会话」按钮样式对齐侧边栏「设置」按钮** — 宽态改对齐官方设置按钮几何（`height: 42px`、`padding: 0 10px 0 8px`、`overflow: hidden`、`font-family: inherit`），rail 态图标对齐 18px：此前 `height: 34px`、`padding: 6px 2px 6px 10px` 与设置按钮不一致。
 
 ## [0.9.1] - 2026-09-06
 
