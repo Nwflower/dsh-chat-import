@@ -16,6 +16,7 @@ from the matching section below.
 ### Added
 
 - **整合 dsh-better-sidebar：安装后「导入会话」注册为侧边栏 tab（可选 peer + 回退）** — 检测到 `ctx.betterSidebar` 服务时，把「导入会话」面板注册为该侧边栏的单一 tab（`registerTab`，导入/历史两个子视图内聚为一个 tab）；footer「导入会话」按钮点击改为 `openTab`（新开/聚焦 tab 并展开侧边栏面板）。未安装 better-sidebar 时按钮保持自绘滑出面板回退，行为不变。
+- **导入面板 UI 对齐 DSH 设计规范** — 圆角统一到 8px（输入/按钮/列表项）与 12px（卡片/对话框），字号收敛到 13/12/11 三级（消除 12.5/11.5/10px 等非标字号）；列表项的「最后活跃 / 导入时间」改为相对时间显示（刚刚 / N 分钟前 / N 小时前 / N 天前，超 7 天回退绝对时间，hover 显示精确时间）。
 
 ### Fixed
 
