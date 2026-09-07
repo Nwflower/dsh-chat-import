@@ -11,7 +11,7 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
 version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
 from the matching section below.
 
-## [Unreleased]
+## [0.11.0] - 2026-09-07
 
 ### Added
 
@@ -21,6 +21,14 @@ from the matching section below.
 ### Changed
 
 - **全量档工具描述瘦身（约 6k → 约 3.8k tokens，-36%）** — 模型选择工具只需要「何时用 + 一行用法」，参数级描述保留形状与默认值；行为契约（batch 形态、回退、lineage 收缩、幂等语义等）不进 schema，下沉到执行结果与错误文本按需携带。`import_chat` 的 20 个 format 枚举描述压缩为「名字 + 路径形状」。新增测试护栏锁定基线：单工具 description ≤ 500 字符、全量档 payload ≤ 15k 字符，防止描述回肥。
+
+### Fixed
+
+- **导入 DSH 自身会话：`sourceEventSeqs` 区间对压缩格式归一化** — 较新版本 DSH 把 `assistant/message` 聚合的流式引用写成区间对 `[[14,24]]`（seq 14→24 连续区间），而宿主 `agents.create` 的 provenance 校验要求密集非负安全整数数组，区间对原样透传导致校验失败、导入会话只落盘不入 workspace 索引（doctor / list_imported_sessions 报「缺失」、面板不可见）。转换器现在把区间对展开为密集整数数组；指向已丢弃事件（流式 chunk 等非持久事件）的悬空引用在重映射时一并丢弃——保留会错位指向无关且更晚的事件，违反宿主「引用必须严格早于当前事件」校验；展开产生的重复引用去重保首现；全部引用失效时移除该键（空数组仅 assistant/message 允许，无键对全部事件类型合法）。畸形区间（反向 / 超大跨度）不展开、按无效引用丢弃，不做静默截断。
+
+- **DSH 源发现根随宿主 `DSH_HOME` 走** — dsh 格式的默认发现根此前硬编码 `~/.dsh/sessions`（CLI 直跑的域），而桌面端 DSH Desktop 的宿主域是 `%APPDATA%\dsh-desktop\harness`（env `DSH_HOME` 指向它，与插件 registry 的 `$DSH_HOME/dsh-chat-import` 同域）：桌面上打开「导入会话」面板的 DSH 源列出的是 CLI 域的旧会话（其中不少是空会话，导入走「无用户回合」跳过、零产物零反馈），桌面端真实会话反而不在列表里。发现根现在优先 `env DSH_HOME/sessions`（与 registry 同一存储域），env 缺省回退 `~/.dsh/sessions`，与 `defaultRoots` 既有桌面根（REQ-45）同一模式；工具描述与 USAGE 同步该口径。
+
+- **DSH 源扫描的大 `.zstd` 快路径与导入产物过滤** — `.zstd` 取头需 fzstd 全帧解压（纯 JS 实测 ~2s/MB 压缩明文），桌面域 223MB 会话全量解压首扫要 10 分钟级：超过 256KB 的 `.zstd` 跳过解压，按 DSH 布局目录名（`<session-id>`）兜底构造条目（title/messageCount 留空，以导入结果为准），实测 262 会话首扫 16s，之后条目随 mtime/size 书签跳过；同时导入产物目录（`import-<id>`）不再被当源扫出——重复列出且重导它们等于递归自我导入。
 
 ## [0.10.1] - 2026-09-07
 

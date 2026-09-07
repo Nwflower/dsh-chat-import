@@ -139,7 +139,7 @@ npx dsh-chat-import export-md <session-dir> --out session.md
 npx dsh-chat-import doctor
 ```
 
-`export-md` renders a DSH session log as readable Markdown (session header, title, user/assistant text, thinking, tool calls and results). `doctor` reads `$DSH_HOME/dsh-chat-import/imports.json` and the local `sessions` tree for a lightweight health summary.
+`export-md` renders a DSH session log as readable Markdown (session header, title, user/assistant text, thinking, tool calls and results). The sessions root follows the host's `DSH_HOME` (`%APPDATA%\dsh-desktop\harness` for the desktop app; `~/.dsh` when unset, e.g. the standalone CLI). `doctor` reads `$DSH_HOME/dsh-chat-import/imports.json` and the local `sessions` tree for a lightweight health summary.
 
 ### import_mcp — MCP mirror plan
 

@@ -139,7 +139,7 @@ npx dsh-chat-import export-md <会话目录> --out session.md
 npx dsh-chat-import doctor
 ```
 
-`export-md` 把 DSH 会话日志渲染为可读 Markdown（会话头、标题、user/assistant 文本、thinking、工具调用与结果）。`doctor` 读取 `$DSH_HOME/dsh-chat-import/imports.json` 与本地 `sessions` 树，做轻量健康汇总。
+`export-md` 把 DSH 会话日志渲染为可读 Markdown（会话头、标题、user/assistant 文本、thinking、工具调用与结果）。会话根随宿主的 `DSH_HOME` 走（桌面端为 `%APPDATA%\dsh-desktop\harness`；未设置时为 `~/.dsh`，如独立 CLI 场景）。`doctor` 读取 `$DSH_HOME/dsh-chat-import/imports.json` 与本地 `sessions` 树，做轻量健康汇总。
 
 ### import_mcp — MCP 镜像计划
 
