@@ -72,6 +72,8 @@ Reasonix 目录导入只会折叠同时满足“严格语义前缀”和明确 `
 | 反向导出 | `export_chat`（`format: claude` / `codex` / `kimi`） | DSH 会话序列化回 Claude / Codex / Kimi |
 | 双向同步 | 面板「同步」页 | 外部 ↔ DSH 双向增量同步，默认关闭 |
 
+> 「全保真」的既定例外：源转录里**失败重发的 ghost step**（一轮工具调用没等到结果而中止、紧随的下一步用同一 callId 原样重发）会在导入时去重——保留重发步、丢弃失败步。重复 callId 的 `tool/call` 会让 DSH 会话折叠器在「同一 id 第二次 start」处硬异常、吞掉其后整段轨迹。丢弃计数见转换返回值 `droppedRetrySteps`。
+
 ## 文档
 
 | 文档 | 说明 |
