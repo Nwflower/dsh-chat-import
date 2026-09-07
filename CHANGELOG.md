@@ -13,6 +13,10 @@ from the matching section below.
 
 ## [Unreleased]
 
+### Added
+
+- **README 以图标矩阵展示全部支持的 Agent 工具** — 参考 session-migrate 的兼容性矩阵，把 19 个可导入（其中 Claude / Codex / Kimi 同时可反向导出）的来源以图标方式列出：图标内联自 `assets/agents/*.svg`（与导入面板徽标同源），每个图标链接到对应 Agent 的仓库/官网；README 双语（EN / zh-CN）同步，`files` 白名单补 `assets/agents`。
+
 ## [0.10.1] - 2026-09-07
 
 ### Added
