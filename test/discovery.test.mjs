@@ -48,6 +48,11 @@ function mockHost(files) {
       const v = files.get(path)
       return v && v.type === 'file' ? v.text.slice(0, maxBytes) : null
     },
+    async readTail(path, maxBytes) {
+      counters.reads++
+      const v = files.get(path)
+      return v && v.type === 'file' ? v.text.slice(-maxBytes) : null
+    },
     async readDir(path) {
       counters.dirs++
       const s = sep(path)
@@ -104,6 +109,32 @@ test('claude：注入过滤标题、记录 cwd 项目名、主 transcript 判定
   assert.equal(b.title, '真实提问') // 注入首行被过滤
   assert.equal(b.project, 'proj-a') // 无 cwd → 布局 slug 回退
   assert.equal(b.importStatus, 'not-imported')
+})
+
+test('claude：上下文 token 数取最后一条 assistant 的 usage.input_tokens（小文件走头、大文件走尾）', async () => {
+  const root = join(HOME, '.claude', 'projects')
+  const slug = join(root, 'proj-a')
+  const small = join(slug, 'sess-small.jsonl')
+  const big = join(slug, 'sess-big.jsonl')
+  const filler = 'x'.repeat(300 * 1024) // 撑过 HEAD_MAX_BYTES，逼尾部 assistant 只能靠 readTail 拿到
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [slug, { type: 'dir' }],
+    [small, { type: 'file', text: [
+      j({ sessionId: 'sess-small', type: 'user', message: { role: 'user', content: '问' } }),
+      j({ sessionId: 'sess-small', type: 'assistant', message: { role: 'assistant', content: '答1', usage: { input_tokens: 1000, output_tokens: 10 } } }),
+      j({ sessionId: 'sess-small', type: 'assistant', message: { role: 'assistant', content: '答2', usage: { input_tokens: 2345, output_tokens: 20 } } }),
+    ].join('\n') }],
+    [big, { type: 'file', text: [
+      j({ sessionId: 'sess-big', type: 'user', message: { role: 'user', content: '问' } }),
+      j({ sessionId: 'sess-big', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: filler }] } }),
+      j({ sessionId: 'sess-big', type: 'assistant', message: { role: 'assistant', content: '尾', usage: { input_tokens: 888888, output_tokens: 30 } } }),
+    ].join('\n') }],
+  ])
+  const host = mockHost(files)
+  const { sessions } = await discoverSessions({ path: root, format: 'claude', host, imports: {} })
+  assert.equal(sessions.find((s) => s.sessionId === 'sess-small').contextTokens, 2345)
+  assert.equal(sessions.find((s) => s.sessionId === 'sess-big').contextTokens, 888888) // >256KB 头不含尾部 assistant
 })
 
 test('onEntry：逐条产出顺序与返回一致、状态标注与 query 过滤已应用（面板流式底座）', async () => {
@@ -401,6 +432,28 @@ test('kimi：wire.jsonl 会话目录发现、custom_title 标题、kimi.json md5
   assert.equal(s.createdAt, 1786000000000) // 首条记录 timestamp（秒 → 毫秒）
   assert.equal(s.lastActiveAt, 1786000002000) // wire.jsonl mtime
   assert.equal(s.messageCount, null)
+})
+
+test('kimi：上下文 token 数取 usage 记录的 inputOther + inputCacheRead', async () => {
+  const root = join(HOME, '.kimi', 'sessions')
+  const workDir = join('D:', 'demo', 'kimi-proj')
+  const hashDir = createHash('md5').update(workDir, 'utf8').digest('hex')
+  const sessDir = join(root, hashDir, 'sess-001')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [join(HOME, '.kimi'), { type: 'dir' }],
+    [join(root, hashDir), { type: 'dir' }],
+    [join(HOME, '.kimi', 'kimi.json'), { type: 'file', text: j({ work_dirs: [{ path: workDir, kaos: 'local' }] }) }],
+    [sessDir, { type: 'dir' }],
+    [join(sessDir, 'wire.jsonl'), { type: 'file', text: [
+      j({ type: 'metadata', protocol_version: '1' }),
+      j({ timestamp: 1786000000.5, message: { type: 'TurnBegin', payload: { user_input: '跑一下' } } }),
+      j({ type: 'usage.record', usage: { inputOther: 3347, output: 138, inputCacheRead: 18432, inputCacheCreation: 0 } }),
+    ].join('\n') }],
+  ])
+  const host = mockHost(files)
+  const { sessions } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
+  assert.equal(sessions[0].contextTokens, 3347 + 18432)
 })
 
 test('kimi：新 Kimi Code ~/.kimi-code agents/main/wire.jsonl 发现、state.json cwd/title', async () => {
