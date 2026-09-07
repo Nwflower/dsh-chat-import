@@ -16,6 +16,11 @@ from the matching section below.
 ### Added
 
 - **README 以图标矩阵展示全部支持的 Agent 工具** — 参考 session-migrate 的兼容性矩阵，把 19 个可导入（其中 Claude / Codex / Kimi 同时可反向导出）的来源以图标方式列出：图标内联自 `assets/agents/*.svg`（与导入面板徽标同源），每个图标链接到对应 Agent 的仓库/官网；README 双语（EN / zh-CN）同步，`files` 白名单补 `assets/agents`。
+- **工具注入档位 `injectTools`（off / minimal / full，默认 minimal）** — 导入是低频需求，13 个工具的 schema 常驻每个会话（约 6k tokens）却绝大多数时候用不上：新增 minimal 档只注入 `import_chat` 入口工具（约 1.2k tokens），低频管理型工具（export / sync / bundle / scan 等）不再占常驻上下文，GUI 面板与 `/import` 命令任何档位都照常可用；历史持久化 boolean（true→full / false→off）自动归一，reconcile 对 boolean 入参保持旧语义（minimal 为纯新增档）。设置页开关升级为三档选择，双语（EN / zh-CN）同步。
+
+### Changed
+
+- **全量档工具描述瘦身（约 6k → 约 3.8k tokens，-36%）** — 模型选择工具只需要「何时用 + 一行用法」，参数级描述保留形状与默认值；行为契约（batch 形态、回退、lineage 收缩、幂等语义等）不进 schema，下沉到执行结果与错误文本按需携带。`import_chat` 的 20 个 format 枚举描述压缩为「名字 + 路径形状」。新增测试护栏锁定基线：单工具 description ≤ 500 字符、全量档 payload ≤ 15k 字符，防止描述回肥。
 
 ## [0.10.1] - 2026-09-07
 

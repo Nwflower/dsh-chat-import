@@ -56,9 +56,9 @@ function apply(ctx) {
   // REQ-24 imports registry 目录：$DSH_HOME/dsh-chat-import（$DSH_HOME 缺省 ~/.dsh）
   const registryDir = resolveRegistryDir()
   // registerTools 先构建工具定义（makeImportChatTool 同时把 IMPORT_SPECS 落进
-  // lib/toolkit.mjs，面板/命令依赖它），再默认注入并返回 reconcile——settings 就绪/
-  // injectTools 变化时由 registerImportPrefs 驱动注销/重注册（关闭 = 不向 Agent 注入
-  // 工具、省上下文；GUI 面板仍可转换）。
+  // lib/toolkit.mjs，面板/命令依赖它），再默认全量注入并返回 reconcile——settings
+  // 就绪 / injectTools 变化时由 registerImportPrefs 驱动按档位对账（'off' 不注入省
+  // 上下文、'minimal' 仅注入 import_chat 入口、'full' 全量；GUI 面板任何档位都可转换）。
   const reconcileTools = registerTools(ctx, registryDir)
   // REQ-41 面板路由：webServer 是可选 host 服务且晚挂载——web 组合的服务插件在
   // import-claude apply 之后才发布它，apply 时 ctx.get('webServer') 仍为空（实测
@@ -84,8 +84,9 @@ function apply(ctx) {
   // memory / CLAUDE.md / skills 桥进 agent 的 scoped systemPrompt / skills 注册。
   registerContextBridge(ctx)
   // 导入偏好设置命名空间（chat-import）：「导入系统提示词作为上下文注入」开关（默认开）
-  // 与「将本插件工具显式注入对话上下文」开关（默认开）。ctx.settings 可选，缺席时注册
-  // 空转；读取见 buildImportExecutor（lib/toolkit.mjs）。injectTools 变化经 reconcileTools
+  // 与工具注入档位 injectTools（'off' | 'minimal' | 'full'，默认 'minimal'；历史 boolean
+  // 由 normalizeInjectTools 归一）。ctx.settings 可选，缺席时注册空转；读取见
+  // buildImportExecutor（lib/toolkit.mjs）。injectTools 变化经 reconcileTools 按档位
   // 注销/重注册工具（见上方 registerTools 注释）。
   registerImportPrefs(ctx, reconcileTools)
 }

@@ -4514,7 +4514,8 @@ test('REQ-41 /api-import/prefs：settings 缺席回退默认；在场时读/写�
   assert.equal(r0.res.status, 200)
   assert.equal(r0.data.ok, true)
   assert.equal(r0.data.available, false)
-  assert.deepEqual(r0.data.value, { importSystemPrompt: true, injectTools: true })
+  // settings 缺席回退 IMPORT_PREFS_DEFAULT：injectTools 默认档 'minimal'
+  assert.deepEqual(r0.data.value, { importSystemPrompt: true, injectTools: 'minimal' })
   const w0 = await invoke(route, { importSystemPrompt: true })
   assert.equal(w0.data.ok, true)
   assert.equal(w0.data.available, false)

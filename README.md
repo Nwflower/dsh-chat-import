@@ -60,6 +60,8 @@ Reasonix directory imports conservatively collapse only recovery ancestors prove
 
 3. **Sync (optional)** — the panel's "Sync" tab offers bidirectional incremental sync, off by default. Sub-agent conversations are filtered out by default in both directions.
 
+4. **Tool injection (optional)** — the "Session Import" settings section exposes three `injectTools` levels: **Minimal** (default, keeps only the `import_chat` entry tool resident; low-frequency management tools stay out of context), **Full** (all 13 tools), and **Off** (invisible to the agent; the GUI panel still works). Tool descriptions are slimmed down to selection-time essentials; behavioral details ride along in execution results and error text, only when needed.
+
 Full tool / command usage (parameters, examples, edge cases) lives in **[docs/USAGE.md](docs/USAGE.md)**.
 
 ## Companion tool: config migration
