@@ -13,6 +13,10 @@ from the matching section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- **claude / workbuddy 转换清洗「失败重发」的 ghost step** — 源转录在一轮工具调用没等到结果而中止时，会在紧随的下一步用同一个 tool_use/callId 原样重发（content 逐字节相同）；两条都保留会产生重复 callId 的 `tool/call`，而 DSH 会话折叠器对同一 id 只允许一次 start（`received more than one start Match` 硬异常），首个重复处之后的整段轨迹被吞掉。转换器现在在合成事件前丢弃失败重发的整步（相邻两步、前一步只含 tool-call 块、无任何结果、且全部 callId 在后一步同名同参重发；链式重试循环处理；非相邻重发保守保留），结果本就按 callId 配对到重发步，无内容损失。转换返回值新增 `droppedRetrySteps` 计数。
+
 ## [0.10.0] - 2026-09-06
 
 ### Added

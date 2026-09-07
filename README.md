@@ -70,6 +70,8 @@ This plugin's `import_agents` is a lightweight asset mover (it persists pi/openc
 | Export back | `export_chat` (`format: claude` / `codex` / `kimi`) | Serialize DSH sessions back to Claude / Codex / Kimi |
 | Bidirectional sync | panel "Sync" tab | Incremental sync in both directions (external ↔ DSH), off by default |
 
+> One documented exception to full fidelity: **failed ghost retry steps**. When a tool call never received its result and the very next step re-emits the same call id verbatim, the dead step is dropped at import — the result already pairs with the re-emitted call. Duplicate call ids in the imported log would hard-fail DSH's conversation folding (a second `start` for the same id), swallowing the whole trajectory after the first duplicate. See the `droppedRetrySteps` counter on the converter result.
+
 ## Docs
 
 | Document | Description |

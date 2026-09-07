@@ -2128,3 +2128,41 @@ test('validateSessionEvents：非数组 / 畸形条目报告且封顶', () => {
   assert.ok(many.problems.length <= 20) // VALIDATION_PROBLEM_CAP
   assert.equal(many.ok, false)
 })
+
+// ===== 失败重发 step 清洗（ghost retry dedupe）=====
+// Claude Code 在一轮工具调用没等到结果而中止时，会在紧随的下一步用同一个 tool_use id
+// 原样重发（content 逐字节相同）。两条都保留会产生重复 callId 的 tool/call——DSH 会话
+// 折叠器对同一 id 只允许一次 start（“received more than one start Match” 硬异常），
+// 首个重复处之后的整段轨迹被吞掉。转换器在合成事件前丢弃失败重发的整步。
+
+test('convertClaudeJsonl: 失败重发 ghost step 丢弃（同一 tool_use id 下一步原样重发）', () => {
+  const out = convertClaudeJsonl(load('claude-ghost-retry.jsonl'))
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 1, 'ghost 步丢弃后只保留一次 tool/call')
+  assert.equal(out.droppedRetrySteps, 1)
+  assertToolPairing(out.events)
+  // 文本产物完整：重发前的文本步与重发后的回复都在
+  const texts = out.events
+    .filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => e.data.message.content)
+    .filter((b) => b.type === 'text')
+    .map((b) => b.text)
+  assert.ok(texts.some((t) => t.includes('我来执行')), '重发前的文本步保留')
+  assert.ok(texts.some((t) => t.includes('列出了 3 个文件')), '重发后的回复保留')
+})
+
+test('convertClaudeJsonl: 链式失败重发（连续两次 ghost）全部丢弃', () => {
+  const out = convertClaudeJsonl(load('claude-ghost-chain.jsonl'))
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 1)
+  assert.equal(out.droppedRetrySteps, 2)
+  assertToolPairing(out.events)
+})
+
+test('convertClaudeJsonl: 非相邻的重发保守保留（已知边界，不清洗）', () => {
+  // ghost 与重发之间隔了带文本的 assistant 步 → 不满足「相邻两步」条件，保持原样
+  const out = convertClaudeJsonl(load('claude-ghost-nonadjacent.jsonl'))
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 2)
+  assert.equal(out.droppedRetrySteps, 0)
+})

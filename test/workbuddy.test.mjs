@@ -226,3 +226,35 @@ test('file-history-snapshot 等运行期事件忽略', () => {
   assert.equal(out.skipped, 0)
   assert.equal(out.messages, 2)
 })
+// ===== 失败重发 step 清洗（ghost retry dedupe，claude.test 同款规则）=====
+// 一轮 function_call 没等到结果而中止时，源会在紧随的下一步用同一 callId 原样重发；
+// 两条都保留会产生重复 callId 的 tool/call，DSH 会话折叠器对同一 id 只允许一次
+// start（硬异常）。转换器在合成事件前丢弃失败重发的整步。
+
+test('失败重发 step 清洗：同一 callId 下一步原样重发 → 丢弃 ghost 步', () => {
+  const raw = wb([
+    userRec('<user_query>跑一下</user_query>'),
+    callRec('call_G', 'Bash', '{"command":"ls"}'),
+    assistantRec([]), // 空 assistant 消息开新步（重发前有记录分隔）
+    callRec('call_G', 'Bash', '{"command":"ls"}'),
+    resultRec('call_G', 'ok'),
+  ])
+  const out = convertWorkbuddyJsonl(raw, { sourcePath: '/p/' + SID + '.jsonl' })
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 1)
+  assert.equal(out.droppedRetrySteps, 1)
+  assertToolPairing(out.events)
+})
+
+test('失败重发 step 清洗：无重发（正常流程）不误删', () => {
+  const raw = wb([
+    userRec('<user_query>跑一下</user_query>'),
+    callRec('call_OK', 'Bash', '{"command":"ls"}'),
+    resultRec('call_OK', 'ok'),
+  ])
+  const out = convertWorkbuddyJsonl(raw, { sourcePath: '/p/' + SID + '.jsonl' })
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.equal(calls.length, 1)
+  assert.equal(out.droppedRetrySteps, 0)
+  assertToolPairing(out.events)
+})
