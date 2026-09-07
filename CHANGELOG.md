@@ -13,11 +13,17 @@ from the matching section below.
 
 ## [Unreleased]
 
+## [0.10.1] - 2026-09-07
+
 ### Added
 
 - **Claude / Kimi 会话发现新增「上下文 token 数」（替代空的消息条数）** — 发现层提取标题的同时读转录尾部，取最后一条带用量的记录：Claude 取 `message.usage.input_tokens`（Anthropic API 精确值），Kimi 取 `usage.inputOther + inputCacheRead`（输入 + 前缀缓存命中）；返回结构新增 `contextTokens` 字段，面板列表项用「上下文 128K」替代此前的「— 条」（小文件直接复用 256KB 头、大文件才额外读 64KB 尾，值随 mtime/size 书签缓存，二次扫描零额外 I/O）。
 
 ### Fixed
+
+- **侧边栏「导入会话」按钮不再压住长会话列表末尾行** — footer 槽默认不换行，常驻的「插件」徽标（cordis，全宽 `width: calc(100% + 4px)`）占满整行后把同槽按钮挤出；此前用 `position: fixed` 浮层钉到徽标上方、脱离文档流压住会话列表末尾行（列表长时重叠）。现改为检测到整行占用者时把 footer 容器换成 `flex-wrap: wrap`，按钮以整宽行落到「插件」下方、「设置」上方，footArea 高度随内容增长、不再重叠；rail（收起）态与无占用者场景保持原布局，插件卸载时还原容器原始 flex-wrap。
+
+- **发现层 scan-cache 版本 bump 使旧书签失效** — 新增的 `contextTokens` 字段在旧书签条目里缺失，命中会退回「—」；`SCAN_CACHE_VERSION` 从 1 升到 2 整体失效旧缓存，下一次扫描重读回填，避免改代码后旧缓存不刷新的假阴性。
 
 - **claude / workbuddy 转换清洗「失败重发」的 ghost step** — 源转录在一轮工具调用没等到结果而中止时，会在紧随的下一步用同一个 tool_use/callId 原样重发（content 逐字节相同）；两条都保留会产生重复 callId 的 `tool/call`，而 DSH 会话折叠器对同一 id 只允许一次 start（`received more than one start Match` 硬异常），首个重复处之后的整段轨迹被吞掉。转换器现在在合成事件前丢弃失败重发的整步（相邻两步、前一步只含 tool-call 块、无任何结果、且全部 callId 在后一步同名同参重发；链式重试循环处理；非相邻重发保守保留），结果本就按 callId 配对到重发步，无内容损失。转换返回值新增 `droppedRetrySteps` 计数。
 
