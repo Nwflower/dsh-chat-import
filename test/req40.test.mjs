@@ -94,7 +94,7 @@ test('首次扫描落书签（原子写）；同 mtime+size 二次扫描命中�
   // 书签文件：原子写（目录里只有 scan-cache.json，无 .tmp 残留）、按 format 分表、两个源
   assert.deepEqual(readdirSync(cacheDir).sort(), [SCAN_CACHE_FILE])
   const disk = JSON.parse(readFileSync(bmPath, 'utf8'))
-  assert.equal(disk.version, 1)
+  assert.equal(disk.version, 2)
   const claudeTable = disk.bookmarks.claude
   assert.equal(Object.keys(claudeTable).length, 2) // agent-* 辅助 transcript 不建书签
   const bm1 = claudeTable[s1]
@@ -179,7 +179,7 @@ test('书签文件损坏按空书签处理，扫描后重写为合法', async (t
   assert.equal(r.total, 2)
   assert.ok(host.counters.reads > 0) // 损坏 → 按空书签全量重扫
   const disk = JSON.parse(readFileSync(bmPath, 'utf8')) // 扫描后已重写为合法书签
-  assert.equal(disk.version, 1)
+  assert.equal(disk.version, 2)
   assert.ok(disk.bookmarks.claude[s1])
 })
 
@@ -223,7 +223,7 @@ test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project
   t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
   const bmPath = join(cacheDir, SCAN_CACHE_FILE)
   writeFileSync(bmPath, JSON.stringify({
-    version: 1,
+    version: 2,
     bookmarks: {
       cursor: {
         [file]: {
@@ -282,7 +282,7 @@ test('cursor 书签命中：纯数字 slug 读时补丁清空 project，不误�
   const cacheDir = mkdtempSync(join(tmpdir(), 'req40-cursor-numeric-'))
   t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
   writeFileSync(join(cacheDir, SCAN_CACHE_FILE), JSON.stringify({
-    version: 1,
+    version: 2,
     bookmarks: {
       cursor: {
         [file]: {
