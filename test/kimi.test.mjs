@@ -277,8 +277,6 @@ test('convertKimiWire: ToolCallPart 与状态/控制事件跳过（不产生事�
     ev('ToolCall', { type: 'function', id: 'call_04', function: { name: 'Bash', arguments: '{"command":"ls"}' } }),
     ev('ToolResult', { tool_call_id: 'call_04', return_value: { is_error: false, output: 'out', message: '', display: [] } }),
     ev('StatusUpdate', { context_tokens: 100, token_usage: { input: 10, output: 5 } }),
-    ev('CompactionBegin'),
-    ev('CompactionEnd'),
     ev('StepInterrupted'),
     ev('ApprovalRequest', { id: 'req-1', tool_call_id: 'call_04', sender: 'shell', action: 'Bash', description: 'x' }),
     ev('Notification', { id: 'n1', category: 'x', type: 'x', source_kind: 'x', source_id: 'x', title: 't', body: 'b', severity: 'info', created_at: 1 }),
@@ -459,4 +457,213 @@ test('convertKimiWire: 新 wire 无 turn.prompt 时 context.append_message 兜�
   const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user')
   assert.equal(users.length, 1)
   assert.equal(users[0].data.content[0].text, '只有 append_message')
+})
+
+test('convertKimiWire: append_message 与 turn.prompt 同文本去重、不同文本开新轮（steer / 压缩后续聊）', () => {
+  const out = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '第一问' }], origin: { kind: 'user' } }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: '第一问' }], toolCalls: [] } }), // 成对记录 → 去重
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: '追加的一问' }], toolCalls: [] } }), // 不同文本 → 新轮
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 2 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '再答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 2, finishReason: 'end_turn' } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.turns.length, 2)
+  const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user')
+  assert.deepEqual(users.map((e) => e.data.content[0].text), ['第一问', '追加的一问'])
+  assertMessageOrderLegal(out.events)
+})
+
+// ── 上下文压缩：只保留最后一次压缩之后的模型视角（修复预算超限）──────────────
+
+test('convertKimiWire: 旧格式 CompactionBegin/End 截断——压缩前轮次丢弃、进行中轮保留续写', () => {
+  const out = convertKimiWire(wire([
+    ev('TurnBegin', { user_input: '第一问' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '第一答' }),
+    ev('ToolCall', { type: 'function', id: 'call_c1', function: { name: 'Bash', arguments: '{"command":"ls"}' } }),
+    ev('ToolResult', { tool_call_id: 'call_c1', return_value: { is_error: false, output: 'out', message: '', display: [] } }),
+    ev('TurnEnd'),
+    ev('TurnBegin', { user_input: '第二问' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '压缩前的第二步' }),
+    ev('CompactionBegin'),
+    ev('CompactionEnd'),
+    ev('StepBegin', { n: 2 }),
+    ev('TextPart', { text: '压缩后的回答' }),
+    ev('TurnEnd'),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 1)
+  const t = out.turns[0]
+  assert.equal(t.prompt, '第二问') // 压缩前的轮次整体退出模型视角
+  // 旧 wire 只有标记无摘要（摘要只写 context.jsonl）→ 不虚构 reasoning 块
+  assert.deepEqual(t.steps.map((s) => s.content.map((c) => c.text)), [['压缩后的回答']])
+  assert.equal(out.toolCalls, 0) // 压缩前的调用随步骤退出
+  assert.ok(!out.events.some((e) => JSON.stringify(e.data).includes('第一答')))
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertKimiWire: 旧格式 CompactionBegin 无 End（压缩失败）不成截点', () => {
+  const out = convertKimiWire(wire([
+    ev('TurnBegin', { user_input: '问' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '答' }),
+    ev('CompactionBegin'),
+    ev('TurnEnd'),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, undefined) // 全量导入
+  assert.equal(out.turns.length, 1)
+  assert.equal(out.events.find((e) => e.type === 'assistant/message').data.message.content[0].text, '答')
+})
+
+test('convertKimiWire: 旧格式多次压缩取最后一次截点（最终模型视角）', () => {
+  const out = convertKimiWire(wire([
+    ev('TurnBegin', { user_input: '问一' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '答一' }),
+    ev('CompactionBegin'),
+    ev('CompactionEnd'),
+    ev('TurnEnd'),
+    ev('TurnBegin', { user_input: '问二' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '答二' }),
+    ev('TurnEnd'),
+    ev('TurnBegin', { user_input: '问三' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '答三' }),
+    ev('CompactionBegin'),
+    ev('CompactionEnd'),
+    ev('StepBegin', { n: 2 }),
+    ev('TextPart', { text: '答三续' }),
+    ev('TurnEnd'),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 1)
+  assert.equal(out.turns[0].prompt, '问三')
+  assert.deepEqual(out.turns[0].steps.map((s) => s.content.map((c) => c.text)), [['答三续']])
+})
+
+test('convertKimiWire: 新格式 context.apply_compaction——摘要前置 + 压缩后视角（append_message 驱动 wire）', () => {
+  const out = convertKimiWire(newWire([
+    newEv('config.update', { cwd: '/tmp/work' }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: 'before compaction' }], toolCalls: [] } }),
+    newEv('context.append_message', { message: { role: 'assistant', content: [{ type: 'text', text: 'assistant reply' }], toolCalls: [] } }),
+    newEv('context.apply_compaction', { summary: 'compacted summary', compactedCount: 2, tokensBefore: 100, tokensAfter: 30, keptUserMessageCount: 1 }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: 'after compaction' }], toolCalls: [] } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '1', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: 'resumed' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '1', step: 1, finishReason: 'end_turn' } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 2)
+  // keptUserMessageCount=1：压缩前的 verbatim user 消息保留，assistant 内容被压缩丢弃
+  assert.equal(out.turns[0].prompt, 'before compaction')
+  assert.equal(out.turns[0].steps.length, 1) // 摘要宿主步骤（首个保留轮无既有步骤）
+  assert.deepEqual(out.turns[0].steps[0].content, [{ type: 'reasoning', text: 'compacted summary' }])
+  assert.equal(out.turns[1].prompt, 'after compaction')
+  assert.equal(out.turns[1].steps[0].content[0].text, 'resumed')
+  assert.ok(!out.events.some((e) => JSON.stringify(e.data).includes('assistant reply')))
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertKimiWire: 新格式轮中压缩——截点前步骤丢弃、摘要前置到保留步骤', () => {
+  const out = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '第一问' }], origin: { kind: 'user' } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'tool.call', turnId: '0', step: 1, toolCallId: 'call_k1', name: 'Bash', args: { command: 'ls' } } }),
+    newEv('context.append_loop_event', { event: { type: 'tool.result', toolCallId: 'call_k1', result: { output: 'out', is_error: false } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'tool_use' } }),
+    newEv('context.apply_compaction', { summary: '摘要文本', compactedCount: 4 }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 2 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '压缩后的回答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 2, finishReason: 'end_turn' } }),
+    newEv('turn.ended', { turnId: 0, reason: 'completed' }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 1)
+  const t = out.turns[0]
+  assert.equal(t.prompt, '第一问')
+  assert.equal(t.steps.length, 1)
+  assert.deepEqual(t.steps[0].content.map((c) => c.type), ['reasoning', 'text'])
+  assert.equal(t.steps[0].content[0].text, '摘要文本')
+  assert.equal(t.steps[0].content[1].text, '压缩后的回答')
+  assert.equal(out.toolCalls, 0) // 压缩前的调用随步骤退出
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertKimiWire: 新格式 apply_compaction legacy 变体（summary 为 ContextMessage / contextSummary 回退）', () => {
+  const legacyMsg = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '问' }], origin: { kind: 'user' } }),
+    newEv('context.apply_compaction', { summary: { role: 'user', content: [{ type: 'text', text: '旧变体摘要' }, { type: 'image_url', image_url: { url: 'x' } }] }, count: 2 }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(legacyMsg.compacted, true)
+  assert.equal(legacyMsg.turns[0].steps[0].content[0].text, '旧变体摘要') // 非 text 部件不进摘要
+
+  const ctxFallback = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '问' }], origin: { kind: 'user' } }),
+    newEv('context.apply_compaction', { contextSummary: '降级摘要', compactedCount: 2 }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(ctxFallback.compacted, true)
+  assert.equal(ctxFallback.turns[0].steps[0].content[0].text, '降级摘要')
+})
+
+test('convertKimiWire: 压缩为最后一条记录——边界轮保留 prompt 与摘要宿主（kept-user 近似）', () => {
+  const out = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '问' }], origin: { kind: 'user' } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+    newEv('turn.ended', { turnId: 0, reason: 'completed' }),
+    newEv('context.apply_compaction', { summary: '终局摘要', compactedCount: 2 }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 1)
+  // 边界轮 prompt 保留（压缩保留最近 user 消息的近似），已被压掉的回答退出
+  assert.equal(out.turns[0].prompt, '问')
+  assert.deepEqual(out.turns[0].steps[0].content, [{ type: 'reasoning', text: '终局摘要' }])
+  assert.ok(!out.events.some((e) => e.type === 'assistant/message' && e.data.message.content.some((c) => c.text === '答')))
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertKimiWire: 压缩先于首问且无后续内容 → 空 turns（导入层按 skipped 上报）', () => {
+  const out = convertKimiWire(newWire([
+    newEv('context.apply_compaction', { summary: '开局即压缩', compactedCount: 1 }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 0)
+  assert.equal(out.events.length, 0)
+})
+
+test('convertKimiWire: 压缩视角导入不再触发预算裁剪（修复前全量 pre-compaction 历史超预算）', () => {
+  const recs = []
+  for (let i = 1; i <= 40; i++) {
+    recs.push(ev('TurnBegin', { user_input: '问题' + '字'.repeat(49) + i }))
+    recs.push(ev('StepBegin', { n: 1 }))
+    recs.push(ev('TextPart', { text: '回答' + '字'.repeat(49) + i }))
+    recs.push(ev('TurnEnd'))
+    if (i === 20) recs.push(ev('CompactionBegin'), ev('CompactionEnd'))
+  }
+  const out = convertKimiWire(wire(recs), { sourcePath: SRC, kimiId: 'sess-001', budget: 3000 })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 21) // 压缩点后的 20 轮 + 边界轮 prompt（kept-user 近似）
+  assert.equal(out.turns[0].prompt, '问题' + '字'.repeat(49) + '20')
+  assert.equal(out.turns[0].steps.length, 0) // 边界轮已被压掉的回答退出
+  assert.equal(out.turns[1].prompt, '问题' + '字'.repeat(49) + '21')
+  assert.equal(out.trimmed, undefined) // 压缩视角内预算充裕（约 2.2k < 3k），无需被动裁剪
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+  // 全量 40 轮（约 4.2k tokens）在同等预算下必然触发被动裁剪——压缩识别前正是该路径
+  const full = convertKimiWire(wire(recs.filter((r) => !/^Compaction/.test(r.type))), { sourcePath: SRC, kimiId: 'sess-001', budget: 3000 })
+  assert.ok(full.trimmed)
 })

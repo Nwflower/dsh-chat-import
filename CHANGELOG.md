@@ -11,6 +11,12 @@ Release dates are the npm publish timestamps in Asia/Shanghai (UTC+8). Every
 version is also published as a GitHub Release (tag `vX.Y.Z`), with notes taken
 from the matching section below.
 
+## [Unreleased]
+
+### Fixed
+
+- **导入 Kimi 源会话正确识别上下文压缩事件，长下文不再预算超限** — Kimi 的 wire 日志是 append-only 事件流，上下文压缩只追加标记不改写历史：新 Kimi Code（`~/.kimi-code`）写 `context.apply_compaction`（durable 记录，携带压缩摘要与 token 前后值），旧 Kimi CLI（`~/.kimi`）写 `CompactionBegin`/`CompactionEnd` 配对标记（失败只发 Begin；摘要只写 `context.jsonl` 不进 wire）。转换器此前把两类事件当控制事件跳过——已压掉的 pre-compaction 全量历史被原样灌回导入会话，导入预算的三层保护只能按「锚点+尾部」被动截断，保出来的既不是源模型实际所见、也容易在恢复对话时超限。现在压缩截点后的导入 = 源模型最终视角：截点前的轮次与进行中步骤整体退出（工具调用与结果随步骤同进同退，配对不变量不破），压缩摘要作 reasoning 块前置到首个保留步骤（新格式从 payload 三种变体提取摘要；旧格式 wire 无摘要、不虚构），紧邻截点的边界轮保留 prompt 作为 kept-user 近似；压缩后无内容的 `context.append_message`（压缩续聊 / steer 追加 / 无 turn.prompt 的 wire）按同文本去重、不同文本开新轮，不再被误判为 turn.prompt 的成对记录而整段丢失。导入结果透出 `compacted: true`（REQ-22 claude compacted 同款上报），能力矩阵 kimi `compacted` 置 true。
+
 ## [0.11.0] - 2026-09-07
 
 ### Added
