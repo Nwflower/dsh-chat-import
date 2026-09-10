@@ -498,6 +498,66 @@ test('kimi：新 Kimi Code ~/.kimi-code agents/main/wire.jsonl 发现、state.js
   assert.equal(direct.sessions[0].sourcePath, sessDir)
 })
 
+test('antigravity：~/.gemini/antigravity-cli 每会话一目录发现、annotation 标题、cwd、缺 transcript 自拒', async () => {
+  const root = join(HOME, '.gemini', 'antigravity-cli')
+  const convDir = join(root, 'conversations')
+  const brainDir = join(root, 'brain')
+  const annoDir = join(root, 'annotations')
+  const logsDir = join(brainDir, 'conv-1', '.system_generated', 'logs')
+  const transcript = join(logsDir, 'transcript.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [convDir, { type: 'dir' }],
+    [brainDir, { type: 'dir' }],
+    [annoDir, { type: 'dir' }],
+    [join(brainDir, 'conv-1'), { type: 'dir' }],
+    [join(brainDir, 'conv-1', '.system_generated'), { type: 'dir' }],
+    [logsDir, { type: 'dir' }],
+    [transcript, { type: 'file', mtimeMs: 1786000002000, text: [
+      j({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-01-02T03:04:05Z', content: '<USER_REQUEST>\n首个提问\n</USER_REQUEST>\n<ADDITIONAL_METADATA>\nws: /x\n</ADDITIONAL_METADATA>' }),
+      j({ step_index: 1, source: 'MODEL', type: 'PLANNER_RESPONSE', status: 'DONE', created_at: '2026-01-02T03:04:06Z', content: '回复', tool_calls: [{ name: 'run_command', args: { CommandLine: '"ls"', Cwd: '"/home/u/demo"' } }] }),
+    ].join('\n') + '\n' }],
+    [join(annoDir, 'conv-1.pbtxt'), { type: 'file', text: 'title:"权威标题"' }],
+    // 有 .db 但无 transcript 的会话：无正文可导 → 不产出条目
+    [join(convDir, 'conv-2.db'), { type: 'file', text: '' }],
+    [join(convDir, 'conv-1.db'), { type: 'file', text: '' }],
+  ])
+  const host = mockHost(files)
+
+  const { sessions, total } = await discoverSessions({ path: root, format: 'antigravity', host, imports: {} })
+  assert.equal(total, 1)
+  const s = sessions[0]
+  assert.equal(s.format, 'antigravity')
+  assert.equal(s.sessionId, 'conv-1')
+  assert.equal(s.title, '权威标题') // annotations/*.pbtxt 权威标题
+  assert.equal(s.project, 'antigravity')
+  assert.equal(s.cwd, '/home/u/demo') // 工具参数 Cwd 推断
+  assert.equal(s.lastActiveAt, 1786000002000)
+  assert.equal(s.messageCount, 2)
+  assert.equal(s.sourcePath, transcript) // 导入输入指向 transcript.jsonl
+})
+
+test('antigravity：无 annotation 时回退首问标题（剥 <USER_REQUEST> 信封）', async () => {
+  const root = join(HOME, '.gemini', 'antigravity-cli')
+  const logsDir = join(root, 'brain', 'c9', '.system_generated', 'logs')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [join(root, 'conversations'), { type: 'dir' }],
+    [join(root, 'conversations', 'c9.db'), { type: 'file', text: '' }],
+    [join(root, 'brain'), { type: 'dir' }],
+    [join(root, 'brain', 'c9'), { type: 'dir' }],
+    [join(root, 'brain', 'c9', '.system_generated'), { type: 'dir' }],
+    [logsDir, { type: 'dir' }],
+    [join(logsDir, 'transcript.jsonl'), { type: 'file', text: j({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-01-02T03:04:05Z', content: '<USER_REQUEST>回退标题</USER_REQUEST>' }) + '\n' }],
+  ])
+  const host = mockHost(files)
+
+  const { sessions, total } = await discoverSessions({ path: root, format: 'antigravity', host, imports: {} })
+  assert.equal(total, 1)
+  assert.equal(sessions[0].title, '回退标题')
+  assert.equal(sessions[0].cwd, null)
+})
+
 test('qoder：~/.qoder/projects 发现、ai-title 标题、cwd 项目名、subagents 跳过', async () => {
   const root = join(HOME, '.qoder', 'projects')
   const proj = join(root, '-home-u-demo')
@@ -909,9 +969,9 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
   assert.equal(numeric.cwd, null)
 })
 
-test('FORMATS 与工具 schema enum 一致（19 种）', () => {
-  assert.equal(FORMATS.length, 19)
-  assert.deepEqual([...FORMATS].sort(), ['chatgpt', 'claude', 'codex', 'cursor', 'dsh', 'gemini', 'grokbuild', 'hermes', 'kilocode', 'kimi', 'mimocode', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'workbuddy', 'zcode'])
+test('FORMATS 与工具 schema enum 一致（20 种）', () => {
+  assert.equal(FORMATS.length, 20)
+  assert.deepEqual([...FORMATS].sort(), ['antigravity', 'chatgpt', 'claude', 'codex', 'cursor', 'dsh', 'gemini', 'grokbuild', 'hermes', 'kilocode', 'kimi', 'mimocode', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'workbuddy', 'zcode'])
 })
 
 // ── git 状态（REQ-58）──────────────────────────────────────────────────────

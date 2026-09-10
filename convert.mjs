@@ -59,6 +59,13 @@ export {
 } from './lib/convert/gemini.mjs'
 
 export {
+  convertAntigravityJsonl,
+  indexTaskMessages,
+  parseAnnotationTitle,
+  unwrapUserRequest,
+} from './lib/convert/antigravity.mjs'
+
+export {
   reasonixStemTime,
   convertReasonixJsonl,
 } from './lib/convert/reasonix.mjs'
