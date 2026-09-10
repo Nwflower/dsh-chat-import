@@ -76,7 +76,7 @@ export type LocalJsonlFormat =
 
 /** import_chat 的源格式枚举（值 = 来源短名，与面板来源 / discovery FORMATS 一致）。 */
 export type ChatFormat =
-  | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'reasonix' | 'opencode'
+  | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode'
   | 'mimocode' | 'kilocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'kimi'
   | 'qoder' | 'workbuddy' | 'qwen' | 'dsh' | 'local-jsonl'
 
@@ -534,7 +534,7 @@ export interface RetractResult {
 // ---------- scan_discover ----------
 
 export type ScanFormat =
-  | 'claude' | 'codex' | 'cursor' | 'gemini' | 'reasonix' | 'opencode' | 'mimocode'
+  | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'mimocode'
   | 'kilocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'hermes' | 'kimi'
   | 'qoder' | 'chatgpt' | 'workbuddy' | 'qwen' | 'dsh'
 
