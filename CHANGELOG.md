@@ -13,6 +13,8 @@ from the matching section below.
 
 ## [Unreleased]
 
+## [0.11.1] - 2026-09-12
+
 ### Fixed
 
 - **dsh 0.1.5 上导入全量失败：会话头与种子的宿主校验适配** — 宿主把会话写入路径改成逐字校验（header 必须 `version: 3` + `isSeeded` + `delegationDepth`，且只能含固定白名单字段；assistant/message 必须带 settlement 字段 `stream`；meta 与种子事件必须可无损 JSON 往返），插件此前写出的内容全部被拒：`agents.create` 先报 settlement 形状错、再报白名单外的 `sourceId`，而回退路径（legacy schema 与当前格式互斥）必然失败，于是每轮同步刷一轮错误、一条也导不进来。现在落盘前统一归一：header 按白名单重建（转换层的 `sourceId` / `provider` / `model` 只服务 registry 与导出协议，不落 header；非宿主平台绝对路径的 cwd 剔除、`createdAt` 越界回落），assistant/message 补 `stream: []`，meta 与事件做无损 JSON 清洗（剥离即上报字段路径，不静默）。
