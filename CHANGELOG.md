@@ -13,6 +13,10 @@ from the matching section below.
 
 ## [Unreleased]
 
+### Fixed
+
+- **与 dsh-better-sidebar 0.19 不兼容：点「导入会话」报 cannot resolve target** — better-sidebar 0.19 起给 `openTab` 的 seed 接了原生右侧栏 surface，`seed.path` 的语义从「写进 tab 对象的数据」变成「要打开的工作区资源地址」：插件此前把 tab 类型名当 path 一起传（本意是借「带 path 的 open 会自动展开面板」），新语义下它被按会话 cwd 解析成 `<cwd>/chat-import`，目录不存在即 realpath ENOENT → 400，面板根本打不开，报错文案里还带着用户自己的工作区绝对路径。而 0.18 恰恰只有带 path / url 才会走 reducer 的自动展开分支——同一个 seed 在两版里语义相反，现在按服务自报的 `version` 分支：≥ 0.19 不带 path（走原生 tab kind 的 `revealIfOpened`，不碰文件系统）、< 0.19 保留 path（靠展开分支），版本缺失 / 非语义化时按新版处理（不带 path 一定能开 tab，是唯一不会报错的一侧）。兼容判断收敛为 `lib/sidebar-compat.mjs` 的纯函数并单测，`lib/client.js` 内联同款副本（bundle 不做构建）。
+
 ## [0.11.1] - 2026-09-12
 
 ### Fixed
