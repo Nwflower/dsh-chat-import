@@ -8,7 +8,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, writeFileSync, readFileSync, statSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import { registerTools } from '../lib/tools.mjs'
 import { registerImportCommand } from '../lib/command.mjs'
 
@@ -295,6 +295,29 @@ test('REQ-66 /doctor：命令注册 + 导入后健康检查通过', async () => 
   const out = await cmd.handler({ rawInput: '' })
   assert.equal(out.kind, 'success', out.text)
   assert.ok(out.text.includes('会话 1 个'), out.text)
+})
+
+test('issue #41 /doctor：报告磁盘上既不在 registry 也不在宿主的残留导入会话目录', async () => {
+  const env = makeCtx()
+  registerTools(env.ctx, env.registryDir)
+  registerImportCommand(env.ctx, env.registryDir)
+  const cmd = env.getCommand('doctor')
+  // 宿主读不出的旧格式/半成品导入会话目录：sessionPersistence.list() 不暴露、
+  // registry 也无记录，但目录仍占用会话 id
+  mkdirSync(join(dirname(env.registryDir), 'sessions', 'bucket-a', 'import-ghost-1'), { recursive: true })
+
+  const out = await cmd.handler({ rawInput: '' })
+  assert.equal(out.kind, 'error')
+  assert.ok(out.text.includes('import-ghost-1'), out.text)
+  assert.ok(out.text.includes('既不在 imports registry 也不在 sessionPersistence'), out.text)
+
+  // 正常导入的会话（registry 有记录、宿主列出）不被误报为残留
+  const file = join(mkdtempSync(join(tmpdir(), 'dsh-doctor-src-')), 'doctor-stray.jsonl')
+  writeFileSync(file, simpleClaudeJsonl('doctor-stray'), 'utf8')
+  const importCmd = env.getCommand('import')
+  assert.equal((await importCmd.handler({ rawInput: 'claude ' + file })).kind, 'success')
+  const after = await cmd.handler({ rawInput: '' })
+  assert.ok(!after.text.includes('import-doctor-stray'), after.text)
 })
 
 // ── REQ-74（缓存重置）/import-reset ────────────────────────────────────────

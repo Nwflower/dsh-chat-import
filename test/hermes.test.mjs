@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { convertHermesJson } from '../lib/convert/hermes.mjs'
+import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { readHermesDb } from '../lib/hermes.mjs'
 
 // 平衡会话断言：seq 连续、turn 开合配对、tool call/result 1:1、surface 事件带 surfaceOp。
@@ -116,7 +117,7 @@ test('convertHermesJson: 中间 JSON 问答、元数据、平衡回合', () => {
   assert.equal(out.droppedToolResults, 0)
   assert.equal(out.meta.id, 'import-hm-a')
   assert.equal(out.meta.sourceId, 'hm-a')
-  assert.equal(out.meta.version, 0)
+  assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
   assert.equal(out.meta.cwd, 'E:/demo/hermes')
   assert.equal(out.meta.createdAt, 1786000000000)
   assert.equal(out.title, 'Fix hermes build')

@@ -10,11 +10,12 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { apply, readOpencodeDb, exportClaudeSession } from '../index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
-import { resolveRegistryDir, loadImports, rememberImport } from '../lib/imports.mjs'
+import { resolveRegistryDir, loadImports, rememberImport, listPersistedIds, readSessionRecord, readSessionEvents, writeSession } from '../lib/imports.mjs'
 import { syncClaudeSession, evaluateWritebackGuards, readFileTailUuid } from '../lib/backfill.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
 import { clearWorkspacePathCache } from '../lib/cwd-map.mjs'
-import { restampSession } from '../lib/import-core.mjs'
+import { restampSession, sanitizeJsonValue, prepareHostMeta } from '../lib/import-core.mjs'
+import { SESSION_FORMAT_VERSION } from '../convert.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const load = (name) => readFileSync(join(fixtures, name), 'utf8')
@@ -109,11 +110,52 @@ function makePersistence() {
   }
 }
 
+// 新宿主（dsh >= 0.1.5）会话 API 形态：list() 返回 { header, revision, sizeBytes }
+// 元素，读走 open(id,'read') + handle.read()，写走 create(header) → handle.append /
+// flush / close（旧形态的 readFrom / inspect / append(id, events) 已移除）。与
+// makePersistence 共用同一 store，便于断言同一份数据在两种形态下行为一致。
+function makeHandlePersistence(store) {
+  const sess = (id) => store.sessions.get(id)
+  return {
+    sessions: store.sessions,
+    async list() {
+      return [...store.sessions.values()].map((s) => ({ header: s.meta, revision: 'rev', sizeBytes: 0 }))
+    },
+    async create(header) {
+      if (store.sessions.has(header.id)) throw new Error('session "' + header.id + '" already exists in this backend')
+      store.sessions.set(header.id, { meta: header, events: [] })
+      return {
+        header,
+        async append(events) {
+          const target = sess(header.id)
+          for (let i = 0; i < events.length; i++) {
+            if (events[i].seq !== target.events.length + i) throw new Error('append seq 不连续: ' + String(events[i] && events[i].seq))
+          }
+          target.events.push(...events)
+        },
+        async flush() {},
+        async close() {},
+      }
+    },
+    async open(id, access) {
+      if (!store.sessions.has(id)) throw new Error('unknown session ' + id)
+      if (access !== 'read') throw new Error('tests only expose a read lease: ' + access)
+      return {
+        header: sess(id).meta,
+        async read(offset = 0) { return { events: sess(id).events.slice(offset) } },
+        async close() {},
+      }
+    },
+  }
+}
+
 // 目录树：path -> 'dir' | content。opts.versions 可钉住某路径的 stat/writeText 版本
 // （测试用：模拟「内容变但 fs 版本不变」的外部修改，隔离 tail-mismatch/预检失败守卫）。
 // opts.services 可注入额外 ctx.get 服务（REQ-37 动态预算的 agentDefaultModel / llm）。
 function makeCtx(tree, opts = {}) {
   const persistence = makePersistence()
+  // opts.hostApi: 'legacy'（默认，readFrom/inspect/append(id, events)）| 'handle'（新宿主句柄面）
+  const hostPersistence = opts.hostApi === 'handle' ? makeHandlePersistence(persistence) : persistence
   const attached = []
   const workspaces = new Map()
   const registered = []
@@ -222,11 +264,11 @@ function makeCtx(tree, opts = {}) {
 
   const ctx = {
     fs,
-    sessionPersistence: persistence,
+    sessionPersistence: hostPersistence,
     webServer: webServerStub,
     get(service) {
       if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
+      if (service === 'sessionPersistence') return hostPersistence
       if (service === 'webServer') return opts.noWebServer ? undefined : webServerStub
       if (services[service] !== undefined) return services[service]
       return undefined
@@ -726,7 +768,9 @@ test('import_workbuddy 单文件导入：落盘、归组、返回值符合 schem
   const saved = persistence.sessions.get('import-' + WB_SID)
   assert.ok(saved)
   assert.equal(saved.meta.cwd, WB_CWD)
-  assert.equal(saved.meta.sourceId, WB_SID)
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.match(saved.events.at(-1).data.title, /^WorkBuddy · /)
   assert.ok(saved.events.every((e, i) => e.seq === i))
@@ -1674,7 +1718,9 @@ test('import_grokbuild 单会话目录：双文件转换、落盘、归组、sch
   const saved = persistence.sessions.get('import-grok-sess-001')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'D:/demo/grok-proj')
-  assert.equal(saved.meta.sourceId, 'grok-sess-001')
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
   // 显式标题（generated_title）钉 session/title 事件
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.equal(saved.events.at(-1).data.title, 'Grok · Grok 会话标题')
@@ -1767,7 +1813,9 @@ test('import_openclaw 单文件：displayName 从同目录 sessions.json 派生�
   const saved = persistence.sessions.get('import-sess-openclaw-001')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, '/home/dev/proj')
-  assert.equal(saved.meta.sourceId, 'sess-openclaw-001')
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
   // displayName（sessions.json 索引）→ 标题钉 session/title 事件
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.equal(saved.events.at(-1).data.title, 'OpenClaw · 重构登录模块')
@@ -2045,7 +2093,9 @@ test('import_kimi 单会话目录：wire.jsonl + state.json + kimi.json 映射�
   const saved = persistence.sessions.get('import-sess-001')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, workDir) // kimi.json md5 映射
-  assert.equal(saved.meta.sourceId, 'sess-001')
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
   // 显式标题（state.json custom_title）钉 session/title 事件
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.equal(saved.events.at(-1).data.title, 'Kimi · Kimi 会话标题')
@@ -2236,7 +2286,9 @@ test('import_kimi 新 Kimi Code 单会话目录：agents/main/wire.jsonl + state
   const saved = persistence.sessions.get('import-session-001')
   assert.ok(saved)
   assert.equal(saved.meta.cwd, 'C:/Users/u/proj') // state.json.cwd
-  assert.equal(saved.meta.sourceId, 'session-001')
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.equal(saved.events.at(-1).data.title, 'Kimi · 新 Kimi Code 标题') // isCustomTitle:true 钉标题
   assertEnvelopeHygiene(saved.events)
@@ -4699,4 +4751,144 @@ test('REQ-41 /api-import/import handler：批量形态（chatgpt conversations.j
   assert.equal(out.data.results[0].imported, 2)
   assert.equal(out.data.results[0].skipped, 1)
   assert.equal(persistence.sessions.size, 2)
+})
+
+// ---- issue #41：宿主会话格式 v3 适配 ----
+
+// 宿主写入路径把 header 按 released-v2 schema 严格校验：必填 version/id/createdAt/
+// isSeeded/delegationDepth，可选 cwd/parentSession/origin/agentPreset——白名单外的
+// 键会让整次创建被拒（issue #41 ③）。
+const HOST_HEADER_ALLOWED = new Set(['version', 'id', 'createdAt', 'isSeeded', 'delegationDepth', 'cwd', 'parentSession', 'origin', 'agentPreset'])
+
+test('issue #41 落盘 meta 恰为宿主 header 白名单字段（无 agents 服务路径）', async () => {
+  const simple = load('sess-simple-001.jsonl')
+  const { ctx, persistence } = makeCtx({ 'D:\\demo\\proj\\sess-simple-001.jsonl': simple })
+  apply(ctx)
+  const value = await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
+  assert.equal(value.status, 'imported')
+  const stored = persistence.sessions.get('import-sess-simple-001')
+  assert.equal(stored.meta.version, SESSION_FORMAT_VERSION)
+  assert.equal(stored.meta.isSeeded, false)
+  assert.equal(stored.meta.delegationDepth, 0)
+  assert.deepEqual(Object.keys(stored.meta).filter((k) => !HOST_HEADER_ALLOWED.has(k)), [])
+})
+
+test('issue #41 prepareHostMeta：非绝对 cwd 剔除、createdAt 越界回落、插件自有字段不进 header', () => {
+  const base = { version: 0, id: 'import-x', createdAt: 1700000000000, sourceId: 'src-1', provider: 'codex', model: 'gpt' }
+  // 相对路径 / 跨平台路径在宿主平台非绝对 → 剔除（会话退化为未分组，不拒绝整次导入）
+  assert.deepEqual(prepareHostMeta({ ...base, cwd: 'demo/proj' }, 3), {
+    version: 3, id: 'import-x', createdAt: 1700000000000, isSeeded: false, delegationDepth: 0,
+  })
+  assert.equal(prepareHostMeta({ ...base, cwd: '/tmp/proj' }, 3).cwd, '/tmp/proj')
+  // createdAt 缺失/越界 → 回落当前时间（宿主要求非负安全整数）
+  const fixed = prepareHostMeta({ ...base, createdAt: -1 }, 3).createdAt
+  assert.ok(Number.isSafeInteger(fixed) && fixed > 0)
+})
+
+test('issue #41 幽灵 id：agents.create 报 already exists 时不回退，另铸后缀新 id 重试', async () => {
+  const calls = []
+  const services = {
+    agents: {
+      async create({ sessionId, meta, seed }) {
+        calls.push(sessionId)
+        // 首次撞宿主内存索引残留的同名会话（list 不暴露但 create 拒绝）
+        if (calls.length === 1) throw new Error('session "' + sessionId + '" already exists in this backend')
+        await persistence.create(meta)
+        await persistence.append(sessionId, seed)
+      },
+    },
+  }
+  const simple = load('sess-simple-001.jsonl')
+  const { ctx, persistence } = makeCtx({ 'D:\\demo\\proj\\sess-simple-001.jsonl': simple }, { services })
+  apply(ctx)
+  const value = await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
+  assert.equal(value.status, 'imported')
+  assert.equal(value.sessionId, 'import-sess-simple-001-1')
+  assert.deepEqual(calls, ['import-sess-simple-001', 'import-sess-simple-001-1'])
+  // 回退路径未被触发：重铸后的新 id 落盘，原 id 不被 sessionPersistence 收下
+  assert.equal(persistence.sessions.has('import-sess-simple-001'), false)
+  assert.ok(persistence.sessions.has('import-sess-simple-001-1'))
+})
+
+test('issue #41 sanitizeJsonValue 剥离不可无损 JSON 序列化的值并上报路径', () => {
+  const stripped = []
+  const cyclic = { name: 'loop' }
+  cyclic.self = cyclic
+  const out = sanitizeJsonValue({
+    keep: 1,
+    drop: undefined,
+    nested: { drop: undefined, keep: 'x' },
+    list: [1, undefined, 3],
+    nan: NaN,
+    zero: -0,
+    cyclic,
+    when: new Date(0),
+  }, 'v', stripped)
+  assert.deepEqual(out, {
+    keep: 1,
+    nested: { keep: 'x' },
+    list: [1, null, 3],
+    nan: null,
+    zero: null,
+    cyclic: { name: 'loop' },
+    when: {},
+  })
+  // 剥离即上报（失败要大声），路径含字段名
+  assert.ok(stripped.some((x) => x.includes('v.drop')))
+  assert.ok(stripped.some((x) => x.includes('v.nested.drop')))
+  assert.ok(stripped.some((x) => x.includes('v.nan')))
+  assert.ok(stripped.some((x) => x.includes('v.cyclic.self')))
+  assert.ok(stripped.some((x) => x.includes('v.when')))
+  // 返回值本身可无损 JSON 往返
+  assert.deepEqual(JSON.parse(JSON.stringify(out)), out)
+})
+
+// ---- issue #41：新宿主会话 API（句柄形态） ----
+
+test('issue #41 句柄形态会话 API：判重命中、不重复导入、落盘可读回', async () => {
+  const simple = load('sess-simple-001.jsonl')
+  const { ctx, persistence } = makeCtx({ 'D:\\demo\\proj\\sess-simple-001.jsonl': simple }, { hostApi: 'handle' })
+  apply(ctx)
+  const first = await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
+  assert.equal(first.status, 'imported')
+  assert.equal(persistence.sessions.size, 1)
+  // 二次导入必须命中判重：list() 的元素在新宿主是 { header, ... }，把它当 header 用会
+  // 让 id 全为 undefined、persisted 集合失效——每次同步都另铸新 id 重复导入（issue #41
+  // 的重试风暴）。这条断言守住「新宿主形态下判重仍然有效」。
+  const second = await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
+  assert.equal(second.status, 'already-imported')
+  assert.equal(persistence.sessions.size, 1)
+  const saved = persistence.sessions.get('import-sess-simple-001')
+  assert.ok(saved.events.length > 0)
+  assert.ok(saved.events.every((e, i) => e.seq === i))
+})
+
+test('issue #41 持久化适配层：list 元素形状、readSessionRecord、writeSession 双形态', async () => {
+  const store = { sessions: new Map([['import-a', { meta: { id: 'import-a' }, events: [{ seq: 0 }] }]]) }
+  const ctxOf = (sp) => ({ get: (name) => (name === 'sessionPersistence' ? sp : undefined) })
+  const handleApi = makeHandlePersistence(store)
+
+  // list 元素是 { header }：仍能取到会话 id
+  assert.deepEqual([...(await listPersistedIds(ctxOf(handleApi)))], ['import-a'])
+  const rec = await readSessionRecord(ctxOf(handleApi), 'import-a', 0)
+  assert.equal(rec.meta.id, 'import-a')
+  assert.equal(rec.events.length, 1)
+  assert.equal(await readSessionEvents(ctxOf(handleApi), 'missing', 0), null)
+  // 写：句柄面走 create → handle.append
+  await writeSession(ctxOf(handleApi), { id: 'import-b' }, [{ seq: 0 }, { seq: 1 }])
+  assert.equal(store.sessions.get('import-b').events.length, 2)
+
+  // 旧形态（list 返回 header 数组、readFrom/inspect、append(id, events)）继续可用
+  const legacy = {
+    async list() { return [...store.sessions.values()].map((s) => s.meta) },
+    async readFrom(id) {
+      const s = store.sessions.get(id)
+      return { meta: s.meta, events: s.events }
+    },
+    async create(meta) { store.sessions.set(meta.id, { meta, events: [] }) },
+    async append(id, events) { store.sessions.get(id).events.push(...events) },
+  }
+  assert.deepEqual([...(await listPersistedIds(ctxOf(legacy)))].sort(), ['import-a', 'import-b'])
+  await writeSession(ctxOf(legacy), { id: 'import-c' }, [{ seq: 0 }])
+  assert.equal(store.sessions.get('import-c').events.length, 1)
 })

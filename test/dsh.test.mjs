@@ -270,3 +270,47 @@ test('readDshText 用 fzstd 纯 JS 解压 session.jsonl.zstd', async () => {
   }
 })
 
+
+test('convertDshJsonl 透传净化：补 surfaceOp / stream、归一 tool/result source（issue #41）', () => {
+  // 旧宿主/旧插件写出的日志在新宿主（dsh >= 0.1.5）上 fail-closed：surface 事件
+  // 缺 surfaceOp、assistant/message 缺 settlement 字段 stream、tool/result 的
+  // source 是 user-kind——任一条都会让整份导入被拒。
+  const stale = [
+    { type: 'session', id: 'stale-x', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 0, time: 1700000000000, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'user/message', seq: 2, time: 1700000000000, data: { id: 'u1', role: 'user', content: [{ type: 'text', text: '你好' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 3, time: 1700000000000, data: { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '好的' }], source: { kind: 'model', provider: 'deepseek-official', model: 'deepseek-v4' } } } },
+    { type: 'tool/call', seq: 4, time: 1700000000000, data: { callId: 'c1', name: 'read', arguments: '{}' } },
+    { type: 'tool/result', seq: 5, time: 1700000000000, data: { turn: 1, step: 1, message: { id: 't1', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }], source: { kind: 'user' } } } },
+    { type: 'step/end', seq: 6, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 7, time: 1700000000000, data: { turn: 1 } },
+  ]
+  const out = convertDshJsonl(stale.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/stale-x.jsonl' })
+  for (const type of ['user/message', 'assistant/message', 'tool/result']) {
+    assert.equal(out.events.find((e) => e.type === type).surfaceOp, 'append', type + ' 补 surfaceOp')
+  }
+  const assistant = out.events.find((e) => e.type === 'assistant/message')
+  assert.deepEqual(assistant.data.stream, [], 'assistant/message 补 settlement 字段 stream')
+  const result = out.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.data.message.source, { kind: 'tool', callId: 'c1' })
+  assert.equal(result.data.message.content[0].toolCallId, 'c1')
+  assert.equal(out.droppedEvents, undefined, '无丢弃时不占键')
+})
+
+test('convertDshJsonl 丢弃无法归一的 tool/result 并计数上报（issue #41）', () => {
+  // tool/result 两侧都没有 callId：无法关联任何 tool/call，保留只会让整份导入失败
+  const lines = [
+    { type: 'session', id: 'orphan-x', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 0, time: 1700000000000, data: { turn: 1 } },
+    { type: 'user/message', seq: 1, time: 1700000000000, surfaceOp: 'append', data: { id: 'u1', role: 'user', content: [{ type: 'text', text: '你好' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 2, time: 1700000000000, surfaceOp: 'append', data: { turn: 1, step: 1, stream: [], message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '好的' }], source: { kind: 'model', provider: 'dsh', model: 'm' } } } },
+    { type: 'tool/result', seq: 3, time: 1700000000000, surfaceOp: 'append', data: { turn: 1, step: 1, message: { id: 't1', role: 'user', content: [{ type: 'tool-result', toolCallId: '', content: [] }], source: { kind: 'user' } } } },
+    { type: 'turn/end', seq: 4, time: 1700000000000, data: { turn: 1 } },
+  ]
+  const out = convertDshJsonl(lines.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/orphan-x.jsonl' })
+  assert.equal(out.droppedEvents, 1)
+  assert.ok(out.events.every((e) => e.type !== 'tool/result'))
+  // 丢弃后 seq 仍密集连续
+  assert.deepEqual(out.events.map((e) => e.seq), out.events.map((_, i) => i))
+})

@@ -121,7 +121,7 @@ verify_session({ sessionId: "import-019f5f27-…" })
 
 ### doctor — read-only migration health check
 
-`doctor()` runs a read-only health check after migration: imports registry readability, whether every imported session still exists in `sessionPersistence`, whether `import_agents` skills were persisted, and whether `workspaceRegistry` is available. It never writes, imports, syncs, or deletes anything:
+`doctor()` runs a read-only health check after migration: imports registry readability, whether every imported session still exists in `sessionPersistence`, whether `import_agents` skills were persisted, whether `workspaceRegistry` is available, and whether the sessions tree holds stray `import-*` directories the host can no longer read back (they still occupy a session id, so re-import can only create a suffixed copy). It never writes, imports, syncs, or deletes anything:
 
 ```
 doctor()

@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, reasonixStemTime, mintSessionId, parseTime, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents } from '../convert.mjs'
+import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents } from '../convert.mjs'
 import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
@@ -2165,4 +2165,30 @@ test('convertClaudeJsonl: 非相邻的重发保守保留（已知边界，不清
   const calls = out.events.filter((e) => e.type === 'tool/call')
   assert.equal(calls.length, 2)
   assert.equal(out.droppedRetrySteps, 0)
+})
+
+// 宿主 dsh >= 0.1.5 的 assertAssistantSettlementShape 要求 assistant/message 除
+// turn/step 外还带 stream 数组；缺 stream 会让整份种子被拒（issue #41 ①）。
+// 所有源共用 synthesizeSession，这里按源抽查落盘形状。
+test('所有源的 assistant/message 都带 settlement 字段 stream（issue #41）', () => {
+  const cases = [
+    ['claude', () => convertClaudeJsonl(load('sess-simple-001.jsonl'))],
+    ['codex', () => convertCodexJsonl(load('codex-simple.jsonl'))],
+    ['cursor', () => convertCursorJsonl(load('cursor-simple.jsonl'))],
+    ['gemini', () => convertGeminiJson(load('gemini-simple.json'))],
+    ['pi', () => convertPiJsonl(load('pi-simple.jsonl'))],
+    ['reasonix', () => convertReasonixJsonl(load('reasonix-v2.jsonl'))],
+    ['qoder', () => convertQoderJsonl(load('qoder-simple.jsonl'))],
+    ['opencode', () => convertOpencodeJson(load('opencode-simple.json'))],
+  ]
+  for (const [name, convert] of cases) {
+    const out = convert()
+    const assistants = out.events.filter((e) => e.type === 'assistant/message')
+    assert.ok(assistants.length > 0, name + ' 应产出 assistant/message')
+    for (const ev of assistants) {
+      assert.equal(typeof ev.data.turn, 'number', name + ' assistant/message 带 turn')
+      assert.equal(typeof ev.data.step, 'number', name + ' assistant/message 带 step')
+      assert.ok(Array.isArray(ev.data.stream), name + ' assistant/message 带 stream 数组')
+    }
+  }
 })

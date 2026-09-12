@@ -121,7 +121,7 @@ verify_session({ sessionId: "import-019f5f27-…" })
 
 ### doctor — 只读迁移健康检查
 
-`doctor()` 做一次只读迁移后体检：imports registry 是否可读、每个已导入会话是否仍存在于 `sessionPersistence`、`import_agents` 的 skills 是否落盘、`workspaceRegistry` 是否可用。绝不写文件、不导入、不同步、不删除：
+`doctor()` 做一次只读迁移后体检：imports registry 是否可读、每个已导入会话是否仍存在于 `sessionPersistence`、`import_agents` 的 skills 是否落盘、`workspaceRegistry` 是否可用，以及宿主会话目录里是否残留着宿主已读不出的 `import-*` 目录（它们仍占用会话 id，重导只能另建带后缀的副本）。绝不写文件、不导入、不同步、不删除：
 
 ```
 doctor()

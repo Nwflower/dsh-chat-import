@@ -173,6 +173,7 @@ test('REQ-45 import_reasonix 桌面版：标题走 .titles.json、cwd 走 slug �
     },
     get(name) {
       if (name === 'workspaceRegistry') return { async resolveByPath() { return null }, async create(p) { const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }; return ws } }
+      if (name === 'sessionPersistence') return persistence
       return undefined
     },
     sessionPersistence: persistence,

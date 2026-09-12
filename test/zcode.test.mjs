@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os'
 import { basename, dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { apply } from '../index.mjs'
-import { convertZcodeJson } from '../convert.mjs'
+import { convertZcodeJson, SESSION_FORMAT_VERSION } from '../convert.mjs'
 import { readZcodeDb, readZcodeTranscript } from '../lib/zcode.mjs'
 import { resolveRegistryDir, loadImports } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
@@ -282,7 +282,7 @@ test('convertZcodeJson: 简单问答、元数据、平衡回合', () => {
   assert.equal(out.toolCalls, 0)
   assert.equal(out.meta.id, 'import-zcs-a')
   assert.equal(out.meta.sourceId, 'zcs-a')
-  assert.equal(out.meta.version, 0)
+  assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
   assert.equal(out.meta.cwd, 'E:/demo/zcode')
   assert.equal(out.meta.createdAt, 1786000000000)
   assert.equal(out.title, 'Fix zcode build')
