@@ -132,7 +132,7 @@ function kilocodeTestSessions() {
     {
       id: 'kilo-a',
       title: 'Fix build',
-      directory: 'E:/demo/kilocode',
+      directory: '/home/dev/kilocode',
       createdAt: 1786100000000,
       model: JSON.stringify({ id: 'deepseek-v4', providerID: 'deepseek', variant: 'flash' }),
       messages: [
@@ -148,7 +148,7 @@ function kilocodeTestSessions() {
     {
       id: 'kilo-b',
       title: 'Refactor',
-      directory: 'E:/demo/kilocode',
+      directory: '/home/dev/kilocode',
       createdAt: 1786100100000,
       messages: [
         { id: 'msg-b1', createdAt: 1786100100001, data: { role: 'user' }, parts: [
@@ -163,7 +163,7 @@ function kilocodeTestSessions() {
     {
       id: 'kilo-child',
       title: 'subtask',
-      directory: 'E:/demo/kilocode',
+      directory: '/home/dev/kilocode',
       createdAt: 1786100200000,
       parentId: 'kilo-a',
       messages: [
@@ -179,7 +179,7 @@ function kilocodeTestSessions() {
     {
       id: 'kilo-archived',
       title: 'Old work',
-      directory: 'E:/demo/kilocode',
+      directory: '/home/dev/kilocode',
       createdAt: 1786100300000,
       archivedAt: 1786100400000,
       messages: [
@@ -245,7 +245,7 @@ test('readKilocodeDb：无 parent_id / time_archived 列的旧库正常读取（
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')
-  db.prepare('INSERT INTO session (id, title, directory, time_created) VALUES (?, ?, ?, ?)').run('legacy-a', 'Old', 'E:/demo/kilocode', 1786100000000)
+  db.prepare('INSERT INTO session (id, title, directory, time_created) VALUES (?, ?, ?, ?)').run('legacy-a', 'Old', '/home/dev/kilocode', 1786100000000)
   db.prepare('INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)').run('msg-a', 'legacy-a', 1786100000001, JSON.stringify({ role: 'user' }))
   db.prepare('INSERT INTO part (id, message_id, session_id, time_created, data) VALUES (?, ?, ?, ?, ?)').run('p-a', 'msg-a', 'legacy-a', 1786100000001, JSON.stringify({ type: 'text', text: 'hi' }))
   db.close()
@@ -274,7 +274,7 @@ test('import_kilocode 单库文件：批量形态、跳过子/归档会话、pro
 
   const saved = persistence.sessions.get('import-kilo-a')
   assert.ok(saved)
-  assert.equal(saved.meta.cwd, 'E:/demo/kilocode')
+  assert.equal(saved.meta.cwd, '/home/dev/kilocode')
   assert.equal(saved.meta.createdAt, 1786100000000)
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.ok(saved.events.every((e, i) => e.seq === i))
