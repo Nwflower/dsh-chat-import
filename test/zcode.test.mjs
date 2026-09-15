@@ -162,7 +162,7 @@ function zcodeTestSessions() {
       id: 'zcs-a',
       parentId: null,
       title: 'Fix zcode build',
-      directory: 'E:/demo/zcode',
+      directory: '/home/dev/zcode',
       timeUpdated: 1786000000000,
       messages: [
         { id: 'zm-a1', time: 1786000000001, data: { role: 'user' }, parts: [
@@ -179,7 +179,7 @@ function zcodeTestSessions() {
       id: 'zcs-b',
       parentId: null,
       title: 'Refactor',
-      directory: 'E:/demo/zcode',
+      directory: '/home/dev/zcode',
       timeUpdated: 1786000100000,
       messages: [
         { id: 'zm-b1', time: 1786000100001, data: { role: 'user' }, parts: [
@@ -199,7 +199,7 @@ function zcodeCompactedSession() {
     id: 'zcs-comp',
     parentId: null,
     title: 'Long zcode task',
-    directory: 'E:/demo/zcode',
+    directory: '/home/dev/zcode',
     timeUpdated: 1786000200000,
     messages: [
       { id: 'zm-c1', time: 1786000200001, data: { role: 'user' }, parts: [
@@ -259,7 +259,7 @@ function writeZcodeTranscript() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-zcode-tx-'))
   const txPath = join(dir, 'transcript.jsonl')
   writeFileSync(txPath, zcodeTranscriptFixture(), 'utf8')
-  writeFileSync(join(dir, 'metadata.json'), JSON.stringify({ cwd: 'E:/demo/zcode-old' }), 'utf8')
+  writeFileSync(join(dir, 'metadata.json'), JSON.stringify({ cwd: '/home/dev/zcode-old' }), 'utf8')
   return { dir, txPath }
 }
 
@@ -269,21 +269,21 @@ test('convertZcodeJson: 简单问答、元数据、平衡回合', () => {
   const raw = JSON.stringify({
     id: 'zcs-a',
     title: 'Fix zcode build',
-    directory: 'E:/demo/zcode',
+    directory: '/home/dev/zcode',
     createdAt: 1786000000000,
     messages: [
       { id: 'zm-a1', role: 'user', createdAt: 1, parts: [{ type: 'text', text: '为什么构建失败' }] },
       { id: 'zm-a2', role: 'assistant', createdAt: 2, modelID: 'glm-4.5', parts: [{ type: 'text', text: '是缺依赖，补上即可。' }] },
     ],
   })
-  const out = convertZcodeJson(raw, { sourcePath: 'E:/demo/zcode/db.sqlite' })
+  const out = convertZcodeJson(raw, { sourcePath: '/home/dev/zcode/db.sqlite' })
   assert.equal(out.turns.length, 1)
   assert.equal(out.messages, 2)
   assert.equal(out.toolCalls, 0)
   assert.equal(out.meta.id, 'import-zcs-a')
   assert.equal(out.meta.sourceId, 'zcs-a')
   assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
-  assert.equal(out.meta.cwd, 'E:/demo/zcode')
+  assert.equal(out.meta.cwd, '/home/dev/zcode')
   assert.equal(out.meta.createdAt, 1786000000000)
   assert.equal(out.title, 'Fix zcode build')
   assertEnvelopeHygiene(out.events)
@@ -430,8 +430,8 @@ test('readZcodeDb: 只读抽取、主会话过滤（parent_id IS NULL）、time_
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, directory TEXT, time_updated INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT)')
-  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('zcs-a', null, 'Fix build', 'E:/demo/zcode', 1786000000000)
-  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('zcs-child', 'zcs-a', 'Subagent', 'E:/demo/zcode', 1786000000500)
+  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('zcs-a', null, 'Fix build', '/home/dev/zcode', 1786000000000)
+  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('zcs-child', 'zcs-a', 'Subagent', '/home/dev/zcode', 1786000000500)
   // 乱序插入 message/part：读取按 time_created 升序
   db.prepare('INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)').run('zm-a2', 'zcs-a', 1786000000002, JSON.stringify({ role: 'assistant' }))
   db.prepare('INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)').run('zm-a1', 'zcs-a', 1786000000001, JSON.stringify({ role: 'user' }))
@@ -445,7 +445,7 @@ test('readZcodeDb: 只读抽取、主会话过滤（parent_id IS NULL）、time_
   const a = sessions[0]
   assert.equal(a.id, 'zcs-a')
   assert.equal(a.title, 'Fix build')
-  assert.equal(a.directory, 'E:/demo/zcode')
+  assert.equal(a.directory, '/home/dev/zcode')
   assert.equal(a.createdAt, 1786000000000)
   assert.equal(a.messages.length, 2)
   assert.equal(a.messages[0].id, 'zm-a1')
@@ -461,8 +461,8 @@ test('readZcodeDb: compaction part 摘要抽到会话级 summary；消息级 sum
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, directory TEXT, time_updated INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT)')
-  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('s1', null, 'T1', 'E:/demo/zcode', 1)
-  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('s2', null, 'T2', 'E:/demo/zcode', 2)
+  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('s1', null, 'T1', '/home/dev/zcode', 1)
+  db.prepare('INSERT INTO session (id, parent_id, title, directory, time_updated) VALUES (?, ?, ?, ?, ?)').run('s2', null, 'T2', '/home/dev/zcode', 2)
   // s1：compaction part 带 summary.body
   db.prepare('INSERT INTO message (id, session_id, time_created, data) VALUES (?, ?, ?, ?)').run('m1', 's1', 1, JSON.stringify({ role: 'user' }))
   db.prepare('INSERT INTO part (id, message_id, time_created, data) VALUES (?, ?, ?, ?)').run('p1', 'm1', 1, JSON.stringify({ type: 'compaction', summary: { body: 'part 级摘要。' } }))
@@ -486,7 +486,7 @@ test('readZcodeTranscript: 旧格式 model_request → 中间 JSON（工具结�
   const { txPath } = writeZcodeTranscript()
   const [session] = readZcodeTranscript(txPath)
   assert.ok(session.id)
-  assert.equal(session.directory, 'E:/demo/zcode-old') // metadata.json 的 cwd
+  assert.equal(session.directory, '/home/dev/zcode-old') // metadata.json 的 cwd
   // system 消息跳过；注入 user（含 <system-reminder>）与注入回复仍保留在中间 JSON
   //（<system-reminder> 过滤在 converter 层做，readZcodeTranscript 只做格式归一）
   assert.equal(session.messages.length, 5) // user(注入) + assistant(注入回复) + user(真实) + assistant(tool) + assistant
@@ -520,7 +520,7 @@ test('import_zcode 单库文件：批量形态、逐会话落盘、schema 校验
 
   const savedA = persistence.sessions.get('import-zcs-a')
   assert.ok(savedA)
-  assert.equal(savedA.meta.cwd, 'E:/demo/zcode')
+  assert.equal(savedA.meta.cwd, '/home/dev/zcode')
   assert.equal(savedA.meta.createdAt, 1786000000000)
   assert.equal(savedA.events.at(-1).type, 'session/title')
   assert.ok(savedA.events.every((e, i) => e.seq === i))
@@ -668,7 +668,7 @@ test('import_zcode db 缺失回退 transcript.jsonl：不报错、0 skipped', as
   const sid = 'import-' + basename(dirname(txPath))
   const saved = persistence.sessions.get(sid)
   assert.ok(saved)
-  assert.equal(saved.meta.cwd, 'E:/demo/zcode-old') // metadata.json 的 cwd
+  assert.equal(saved.meta.cwd, '/home/dev/zcode-old') // metadata.json 的 cwd
   assertEnvelopeHygiene(saved.events)
   // 注入 user 被过滤（不产生回合）；工具调用成对
   assert.equal(saved.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').length, 1)
