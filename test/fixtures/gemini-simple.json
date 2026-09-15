@@ -3,7 +3,7 @@
   "projectHash": "384e9530e99733805bc2c98a596ab23e67d4c29a6ef263cdc1c89b3bcd022c69",
   "startTime": "2026-04-17T18:09:18.567Z",
   "lastUpdated": "2026-04-17T18:12:52.535Z",
-  "directories": ["D:\\demo\\gemini-proj"],
+  "directories": ["/home/dev/gemini-proj"],
   "kind": "main",
   "messages": [
     {

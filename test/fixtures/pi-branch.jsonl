@@ -1,4 +1,4 @@
-{"type":"session","version":3,"id":"019f0a11-4444-7555-8666-777788889999","timestamp":"2025-06-03T10:00:00.000Z","cwd":"D:\\demo\\pi-proj"}
+{"type":"session","version":3,"id":"019f0a11-4444-7555-8666-777788889999","timestamp":"2025-06-03T10:00:00.000Z","cwd":"/home/dev/pi-proj"}
 {"type":"message","id":"a1b2c3d4","parentId":null,"timestamp":"2025-06-03T10:00:01.000Z","message":{"role":"user","content":"重构这个模块","timestamp":1748944801000}}
 {"type":"message","id":"b2c3d4e5","parentId":"a1b2c3d4","timestamp":"2025-06-03T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"可以走方案 A。"}],"provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","timestamp":1748944802000}}
 {"type":"message","id":"c3d4e5f6","parentId":"b2c3d4e5","timestamp":"2025-06-03T10:01:00.000Z","message":{"role":"user","content":"试试方案 A","timestamp":1748944860000}}

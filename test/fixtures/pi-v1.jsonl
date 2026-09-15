@@ -1,3 +1,3 @@
-{"type":"session","version":1,"id":"019f0a11-6666-7777-8888-999900001111","timestamp":"2025-06-05T10:00:00.000Z","cwd":"D:\\demo\\pi-proj"}
+{"type":"session","version":1,"id":"019f0a11-6666-7777-8888-999900001111","timestamp":"2025-06-05T10:00:00.000Z","cwd":"/home/dev/pi-proj"}
 {"type":"message","timestamp":"2025-06-05T10:00:01.000Z","message":{"role":"user","content":"旧版本会话","timestamp":1749117601000}}
 {"type":"message","timestamp":"2025-06-05T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"线性条目也能导入。"}],"provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","timestamp":1749117602000}}

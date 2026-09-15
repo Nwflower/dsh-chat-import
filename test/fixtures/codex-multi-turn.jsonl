@@ -1,9 +1,9 @@
-{"timestamp":"2026-05-18T13:21:30.751Z","type":"session_meta","payload":{"id":"019e3b3f-636d-7cb3-aaab-0255eb45ad4f","timestamp":"2026-05-18T13:21:10.510Z","cwd":"D:\\demo\\codex-proj","originator":"codex-tui","cli_version":"0.131.0-alpha.9","source":"cli","model_provider":"openai"}}
-{"timestamp":"2026-05-18T13:21:30.754Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"D:\\demo\\codex-proj","model":"gpt-5.5","approval_policy":"on-request","sandbox_policy":{"type":"workspace-write","network_access":false}}}
+{"timestamp":"2026-05-18T13:21:30.751Z","type":"session_meta","payload":{"id":"019e3b3f-636d-7cb3-aaab-0255eb45ad4f","timestamp":"2026-05-18T13:21:10.510Z","cwd":"/home/dev/codex-proj","originator":"codex-tui","cli_version":"0.131.0-alpha.9","source":"cli","model_provider":"openai"}}
+{"timestamp":"2026-05-18T13:21:30.754Z","type":"turn_context","payload":{"turn_id":"turn-1","cwd":"/home/dev/codex-proj","model":"gpt-5.5","approval_policy":"on-request","sandbox_policy":{"type":"workspace-write","network_access":false}}}
 {"timestamp":"2026-05-18T13:21:30.754Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"第一个问题"}]}}
 {"timestamp":"2026-05-18T13:21:31.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"第一个回答。"}]}}
 {"timestamp":"2026-05-18T13:21:32.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-1","last_agent_message":"第一个回答。","completed_at":1779110471,"duration_ms":1234}}
-{"timestamp":"2026-05-18T13:21:33.000Z","type":"turn_context","payload":{"turn_id":"turn-2","cwd":"D:\\demo\\codex-proj","model":"gpt-5.5","approval_policy":"on-request","sandbox_policy":{"type":"workspace-write","network_access":false}}}
+{"timestamp":"2026-05-18T13:21:33.000Z","type":"turn_context","payload":{"turn_id":"turn-2","cwd":"/home/dev/codex-proj","model":"gpt-5.5","approval_policy":"on-request","sandbox_policy":{"type":"workspace-write","network_access":false}}}
 {"timestamp":"2026-05-18T13:21:33.500Z","type":"response_item","payload":{"type":"message","role":"user","content":[{"type":"input_text","text":"第二个问题"}]}}
 {"timestamp":"2026-05-18T13:21:34.000Z","type":"response_item","payload":{"type":"message","role":"assistant","content":[{"type":"output_text","text":"第二个回答。"}]}}
 {"timestamp":"2026-05-18T13:21:35.000Z","type":"event_msg","payload":{"type":"task_complete","turn_id":"turn-2","last_agent_message":"第二个回答。","completed_at":1779110471,"duration_ms":2345}}

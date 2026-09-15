@@ -89,7 +89,7 @@ test('convertClaudeJsonl: 简单问答合成平衡回合', () => {
   assert.equal(out.meta.id, 'import-sess-simple-001')
   assert.equal(out.meta.sourceId, 'sess-simple-001')
   assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
-  assert.equal(out.meta.cwd, 'D:\\demo\\proj')
+  assert.equal(out.meta.cwd, '/home/dev/proj')
   assert.ok(out.meta.createdAt)
 
   const types = out.events.map((e) => e.type)
@@ -443,7 +443,7 @@ test('convertCodexJsonl: 简单问答合成平衡回合（元数据来自 sessio
   assert.equal(out.meta.id, 'import-019e3b3f-636d-7cb3-aaab-0255eb45ad4f')
   assert.equal(out.meta.sourceId, '019e3b3f-636d-7cb3-aaab-0255eb45ad4f')
   assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
-  assert.equal(out.meta.cwd, 'D:\\demo\\codex-proj')
+  assert.equal(out.meta.cwd, '/home/dev/codex-proj')
   assert.ok(out.meta.createdAt)
 
   const types = out.events.map((e) => e.type)
@@ -649,7 +649,7 @@ test('convertCodexJsonl: 子代理 rollout 跳过（issue #17），fork 会话�
 // 避免在测试源码里手工转义 input 里的引号/花括号）。
 function codexJsCallRollout(input, name = 'exec_command') {
   return [
-    { timestamp: 't0', type: 'session_meta', payload: { id: 'codex-js-001', timestamp: 't0', cwd: 'D:\\demo\\codex-proj' } },
+    { timestamp: 't0', type: 'session_meta', payload: { id: 'codex-js-001', timestamp: 't0', cwd: '/home/dev/codex-proj' } },
     { timestamp: 't1', type: 'turn_context', payload: { turn_id: 't1', model: 'gpt-5.5' } },
     { timestamp: 't2', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '跑一下' }] } },
     { timestamp: 't3', type: 'response_item', payload: { type: 'custom_tool_call', status: 'completed', call_id: 'call_js_01', name, input } },
@@ -1105,7 +1105,7 @@ test('convertGeminiJson: 简单会话、元数据、平衡回合', () => {
   assert.equal(out.toolCalls, 0)
   assert.equal(out.meta.id, 'import-b26d7f99-0116-4d1d-b125-98c228a4b933')
   assert.equal(out.meta.sourceId, 'b26d7f99-0116-4d1d-b125-98c228a4b933')
-  assert.equal(out.meta.cwd, 'D:\\demo\\gemini-proj') // directories[0] → cwd
+  assert.equal(out.meta.cwd, '/home/dev/gemini-proj') // directories[0] → cwd
   assert.ok(out.meta.createdAt) // startTime ISO → ms
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
@@ -1146,7 +1146,7 @@ test('convertGeminiJson: toolCalls 无 result 补发空 tool/result', () => {
   const raw = JSON.stringify({
     sessionId: 'gemini-cut-001',
     startTime: '2026-04-17T18:09:18.567Z',
-    directories: ['D:\\demo\\gemini-proj'],
+    directories: ['/home/dev/gemini-proj'],
     messages: [
       { id: 'u1', type: 'user', content: [{ text: '跑一下' }] },
       {
@@ -1363,7 +1363,7 @@ test('convertPiJsonl: 简单问答、头行元数据、平衡回合', () => {
   assert.equal(out.meta.id, 'import-019f0a11-2222-7333-8444-555566667777')
   assert.equal(out.meta.sourceId, '019f0a11-2222-7333-8444-555566667777')
   assert.equal(out.meta.version, SESSION_FORMAT_VERSION)
-  assert.equal(out.meta.cwd, 'D:\\demo\\pi-proj')
+  assert.equal(out.meta.cwd, '/home/dev/pi-proj')
   assert.ok(out.meta.createdAt)
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)

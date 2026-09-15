@@ -1,4 +1,4 @@
-{"type":"session","version":3,"id":"019f0a11-2222-7333-8444-555566667777","timestamp":"2025-06-01T10:00:00.000Z","cwd":"D:\\demo\\pi-proj"}
+{"type":"session","version":3,"id":"019f0a11-2222-7333-8444-555566667777","timestamp":"2025-06-01T10:00:00.000Z","cwd":"/home/dev/pi-proj"}
 {"type":"message","id":"a1b2c3d4","parentId":null,"timestamp":"2025-06-01T10:00:01.000Z","message":{"role":"user","content":"你好，帮我看看这个项目","timestamp":1748772001000}}
 {"type":"message","id":"b2c3d4e5","parentId":"a1b2c3d4","timestamp":"2025-06-01T10:00:02.000Z","message":{"role":"assistant","content":[{"type":"text","text":"好的，我先看一下项目结构。"}],"provider":"anthropic","model":"claude-sonnet-4-5","stopReason":"stop","timestamp":1748772002000}}
 {"type":"message","id":"c3d4e5f6","parentId":"b2c3d4e5","timestamp":"2025-06-01T10:01:00.000Z","message":{"role":"user","content":"跑一下测试","timestamp":1748772060000}}
