@@ -132,13 +132,13 @@ function mimocodeTestSessions() {
     {
       id: 'mim-a',
       title: 'Fix build',
-      directory: 'E:/demo/mimocode',
+      directory: '/home/dev/mimocode',
       createdAt: 1786000000000,
       messages: [
         { id: 'msg-a1', createdAt: 1786000000001, data: { role: 'user' }, parts: [
           { id: 'p-a1', createdAt: 1786000000001, data: { type: 'text', text: '为什么构建失败' } },
         ] },
-        { id: 'msg-a2', createdAt: 1786000000002, data: { role: 'assistant', modelID: 'mimo-cli-pro', path: { cwd: 'E:/demo/mimocode' } }, parts: [
+        { id: 'msg-a2', createdAt: 1786000000002, data: { role: 'assistant', modelID: 'mimo-cli-pro', path: { cwd: '/home/dev/mimocode' } }, parts: [
           { id: 'p-a2', createdAt: 1786000000002, data: { type: 'text', text: '修好了' } },
         ] },
       ],
@@ -146,7 +146,7 @@ function mimocodeTestSessions() {
     {
       id: 'mim-b',
       title: 'Refactor',
-      directory: 'E:/demo/mimocode',
+      directory: '/home/dev/mimocode',
       createdAt: 1786000100000,
       messages: [
         { id: 'msg-b1', createdAt: 1786000100001, data: { role: 'user' }, parts: [
@@ -161,7 +161,7 @@ function mimocodeTestSessions() {
     {
       id: 'bg-cw',
       title: 'checkpoint-writer: save memory',
-      directory: 'E:/demo/mimocode',
+      directory: '/home/dev/mimocode',
       createdAt: 1786000200000,
       messages: [
         { id: 'msg-cw1', createdAt: 1786000200001, data: { role: 'assistant', agent: 'checkpoint-writer' }, parts: [
@@ -173,7 +173,7 @@ function mimocodeTestSessions() {
     {
       id: 'bg-dream',
       title: 'Auto Dream',
-      directory: 'E:/demo/mimocode',
+      directory: '/home/dev/mimocode',
       createdAt: 1786000300000,
       messages: [
         { id: 'msg-d1', createdAt: 1786000300001, data: { role: 'assistant', agent: 'dream' }, parts: [
@@ -185,7 +185,7 @@ function mimocodeTestSessions() {
     {
       id: 'bg-distill',
       title: 'Auto Distill',
-      directory: 'E:/demo/mimocode',
+      directory: '/home/dev/mimocode',
       createdAt: 1786000400000,
       messages: [
         { id: 'msg-di1', createdAt: 1786000400001, data: { role: 'assistant', agent: 'distill' }, parts: [
@@ -281,7 +281,7 @@ test('import_mimocode 单库文件：批量形态、逐会话落盘、schema 校
 
   const saved = persistence.sessions.get('import-mim-a')
   assert.ok(saved)
-  assert.equal(saved.meta.cwd, 'E:/demo/mimocode')
+  assert.equal(saved.meta.cwd, '/home/dev/mimocode')
   assert.equal(saved.meta.createdAt, 1786000000000)
   assert.equal(saved.events.at(-1).type, 'session/title')
   assert.ok(saved.events.every((e, i) => e.seq === i))
