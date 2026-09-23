@@ -8,10 +8,8 @@
       useEffect(() => {
         const listener = (val) => setVisible(val);
         sidebarButtonListeners.add(listener);
-        fetch("/api-import/prefs", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-        })
-          .then((r) => readJson(r))
+        // 0.1.7 走客户端 configForms，旧宿主走 fenced 路由（loadPrefsView 分流）。
+        loadPrefsView()
           .then((d) => {
             if (d && d.ok && d.value && typeof d.value.sidebarButton === "boolean") {
               setSidebarButton(d.value.sidebarButton);
@@ -162,6 +160,8 @@
     const inject = ["slots", "locale", "sidebarRightTabs"];
 
     function apply(ctx) {
+      // 交给 settings.js 的传输层：0.1.7 的设置值走客户端 configForms，需要客户端 ctx。
+      setClientHostCtx(ctx);
       // locale 服务（@deepseek-ai/dsh-client-locale）：已声明进 inject，apply 期就绪；
       // 注册面板字典并随 DSH web 语言切换（缺失时 useTranslate 降级内置 zh 字典）。
       const locale = ctx.get("locale");
@@ -217,20 +217,26 @@
           { name: "sidebar.footer.action", id: "chat-import", order: 0 },
           ImportButton,
         ));
-      // 设置页「会话导入」分区：settings.section 槽（设置页左侧导航的「每功能一页」）
-      // 承载「导入系统提示词」开关（默认关）——宿主留给插件设置页的正确 Hook
-      //（settings.plugins.tab 是「插件」分区内部的子页，非插件设置入口）。开关值经
-      // 面板 fenced 路由 /api-import/prefs 读写（DSH 配置客户端 settingsScope 只
-      // 服务暴露白名单命名空间，插件自有 chat-import 不在其列，走自有路由）。该槽由
-      // ui-settings-general 声明，晚于本插件 apply 期；slots.inject 惰性挂到槽被
-      // 声明时，无设置页的 profile 则回调永不执行、不报错。label 用 thunk 跟随
-      // 语言切换（同 agent-presets / plugins 等官方分区写法）。
+      // 设置席位按宿主世代分流（对齐 dsh-claude-style）：
+      //   0.1.7+ —— 插件页 plugins.bundle.config（键 = 包名），由 ui-plugin-manager 声明，
+      //             渲染在「设置 → 插件 → dsh-chat-import」；值走客户端 configForms。
+      //   旧宿主 —— settings.section 整页（设置页左侧导航「每功能一页」）；值走 fenced
+      //             路由 /api-import/prefs。
+      // 两个 slots.inject 都是惰性的：槽被声明才触发（旧宿主不声明 plugins.bundle.config，
+      // 新宿主仍声明 settings.section），再用 configForms 是否存在否决整页在新宿主上的
+      // 重复注册——否则同一个设置会在两处各长一份。label 用 thunk 跟随语言切换。
       const settingsLabel = () => (localeSvc ? localeSvc.bind(LOCALE_NS)("settings.tab") : (DICT.zh["settings.tab"] || "会话导入"));
       ctx.effect(
         () => registerSettingsNavIcon(settingsLabel),
         "dsh-chat-import: settings navigation icon",
       );
+      ctx.slots.inject("plugins.bundle.config", () =>
+        ctx.slots.register(
+          { name: "plugins.bundle.config", key: "dsh-chat-import", label: settingsLabel },
+          ImportSettingsSection,
+        ));
       ctx.slots.inject("settings.section", () => {
+        if (hostConfigForms()) return undefined;
         return ctx.slots.register(
           { name: "settings.section", id: "chat-import", order: 21, label: settingsLabel, locale: LOCALE_NS, inject: () => ({}) },
           ImportSettingsSection,

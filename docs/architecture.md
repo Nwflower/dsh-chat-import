@@ -88,5 +88,6 @@
 
 - **背景**：DSH 0.1.7 删除了 `settings.register()`——命名空间改为 profile 条目 id、schema 改为插件导出的 `Config`；0.1.5 及更早则是插件按名字注册。插件以软链 / 本地 link 装进 profile 时，`@deepseek-ai/schemastery` 也未必从其自身 require 锚点解析得到；0.1.7 的 loader 还把条目 id 报成 `<kind>:<id>`，而设置服务按裸 id 建索引（带前缀写会 409 `settings-conflict`）。
 - **决定**：`lib/import-prefs.mjs` 按宿主能力探测绑定，一套代码跑两版：`describe()` 名单含本插件**裸条目 id** → `forms`（0.1.7，按条目 id 走 describe / update，并 `settings.configure({ auto: false })` 声明自带面板）；只有 `register` / `get` → `legacy`（0.1.5，自持命名空间 `chat-import`）；两者皆无 → `none`（读默认、写不持久化）。`entryIdOf()` 剥离 `<kind>:` 前缀并回退 patch 声明的 `import-claude`；schemastery 解析锚点指向**运行中的 harness bin**，并对 `.volatile()` 做能力探测；插件入口导出 `Config`。
+- **决定（客户端席位）**：设置界面按同一世代分流——`ctx.get('configForms')` 在场（0.1.7+）→ 注册 `plugins.bundle.config`（键 = 包名 `dsh-chat-import`，渲染在「设置 → 插件」的插件页）并用 `configForms.get(条目 id)` 逐字段读写；缺席 → 保留 `settings.section` 整页与 `/api-import/prefs` fenced 路由。两处互斥注册（`configForms` 存在即否决整页），避免同一设置在两处各长一份。
 - **代价**：两套设置模型都要测试覆盖；`.volatile()` 探测与软链锚点是宿主实现细节，宿主换版需重审（完整踩坑与自检见 [SETTINGS-MIGRATION.zh-CN.md](SETTINGS-MIGRATION.zh-CN.md)）。
 - **重审条件**：宿主 0.1.7+ 成为唯一支持面时，删掉 legacy 路径与探测，只留 `Config` + 条目 id。

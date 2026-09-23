@@ -1,11 +1,91 @@
-    // 设置页「会话导入」分区（settings.section 槽 = 设置页左侧导航的「每功能一页」；
-    // 宿主留给插件设置页的正确 Hook；settings.plugins.tab 只是「插件」分区内的子页，
-    // 非插件设置入口）。开关值经面板 fenced 路由 /api-import/prefs 读写——DSH 配置
-    // 客户端（settingsScope）只能访问 api-proxy 暴露白名单内的命名空间，插件自有
-    // chat-import 不在其列（对齐 dsh-better-sidebar 的 settingsGet/settingsUpdate
-    // 模式）；settings 服务缺席或路由失败时回退默认并显示错误行，分区照常渲染。
+    // 设置页「会话导入」分区。席位按宿主世代分流（对齐 dsh-claude-style）：
+    //   0.1.7+ —— 插件设置搬到「设置 → 插件」的插件页（plugins.bundle.config 槽，
+    //             键 = 包名 dsh-chat-import），值走客户端服务 configForms（命名空间 =
+    //             本插件 profile 条目 id，控制器带值 + 写队列 + revision 栅栏）。
+    //   旧宿主 —— settings.section 整页（设置页左侧导航「每功能一页」），值走宿主
+    //             半边自建的 fenced 路由 /api-import/prefs（旧宿主 configForms 缺席，
+    //             且 api-proxy 白名单不含插件自有命名空间）。
+    // 两条传输携带同一组字段，组件只认下面的 loadPrefsView / savePrefsPatch。
     // injectTools 是三档（off/minimal/full）：服务端与客户端各做一次归一（客户端兜
     // 历史持久化 boolean：true→full / false→off），两端语义一致。
+
+    // 客户端 ctx（entry.js 的 apply 注入）：configForms 是客户端服务，晚于 apply 也
+    // 可能在，所以每次调用都现取，不缓存服务本身。
+    let clientHostCtx = null;
+    function setClientHostCtx(ctx) { clientHostCtx = ctx; }
+    // 0.1.7+ 的官方配置表单服务；旧宿主没有 → null（回落 fenced 路由）。
+    function hostConfigForms() {
+      try {
+        const forms = clientHostCtx && typeof clientHostCtx.get === "function" ? clientHostCtx.get("configForms") : null;
+        return forms && typeof forms.get === "function" ? forms : null;
+      } catch (_) { return null; }
+    }
+    // 本插件在宿主设置里的**裸条目 id**（0.1.7 loader 报 "<kind>:<id>"，设置服务认裸
+    // id）；读不到回落 patch 声明的 import-claude（与宿主半边同口径）。
+    function settingsEntryId() {
+      try {
+        const entry = clientHostCtx && clientHostCtx.fiber ? clientHostCtx.fiber.entry : null;
+        const id = entry ? entry.id : null;
+        if (typeof id === "string" && id !== "") {
+          const colon = id.lastIndexOf(":");
+          return colon === -1 ? id : id.slice(colon + 1);
+        }
+      } catch (_) { /* 无条目：回落 */ }
+      return "import-claude";
+    }
+    function settingsForm() {
+      const forms = hostConfigForms();
+      if (!forms) return null;
+      try {
+        const form = forms.get(settingsEntryId());
+        return form && typeof form.getSnapshot === "function" ? form : null;
+      } catch (_) { return null; }
+    }
+    const CLIENT_PREFS_DEFAULT = { sidebarButton: true, importSystemPrompt: true, injectTools: "minimal" };
+    // 读当前偏好：官方表单 ready 时直接给值；否则走 fenced 路由。返回 { ok, value, revision, available }。
+    function loadPrefsView() {
+      const form = settingsForm();
+      if (form) {
+        const snap = form.getSnapshot();
+        if (snap && snap.status === "ready" && snap.value && typeof snap.value === "object") {
+          return Promise.resolve({ ok: true, value: snap.value, revision: snap.revision, available: true });
+        }
+        return Promise.resolve({ ok: true, value: { ...CLIENT_PREFS_DEFAULT }, revision: undefined, available: false });
+      }
+      return fetch("/api-import/prefs", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+      }).then((resp) => readJson(resp));
+    }
+    // 写偏好：官方表单逐字段 set（控制器自带写队列与 revision 栅栏，一次一个字段串行）；
+    // 否则走 fenced 路由。返回 { ok, value, revision, error? }。
+    function savePrefsPatch(patch) {
+      const form = settingsForm();
+      if (form) {
+        const keys = Object.keys(patch);
+        let run = Promise.resolve(true);
+        for (const key of keys) {
+          run = run.then((accepted) => {
+            if (accepted === false) return false;
+            let pending;
+            try { pending = form.set(key, patch[key]); } catch (_) { return false; }
+            return pending && typeof pending.then === "function" ? pending.then((ok) => ok === true) : true;
+          });
+        }
+        return run.then((accepted) => {
+          if (accepted === false) return { ok: false, error: "宿主拒绝了这次设置写入（revision 冲突或字段不被 Config 接受）" };
+          const snap = form.getSnapshot();
+          return {
+            ok: true,
+            value: snap && snap.value && typeof snap.value === "object" ? snap.value : { ...CLIENT_PREFS_DEFAULT },
+            revision: snap ? snap.revision : undefined,
+            available: !!(snap && snap.status === "ready"),
+          };
+        });
+      }
+      return fetch("/api-import/prefs", {
+        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
+      }).then((resp) => readJson(resp));
+    }
     const normalizeMode = (v) => {
       if (v === "off" || v === "minimal" || v === "full") return v;
       if (v === true) return "full";
@@ -15,43 +95,51 @@
     function ImportSettingsSection() {
       const t = useTranslate();
       const colors = themeColors();
-      const [state, setState] = useState({ sidebarButton: cachedSidebarButton, importSystemPrompt: false, injectTools: "minimal", saving: false, error: null });
+      const [state, setState] = useState({ sidebarButton: cachedSidebarButton, importSystemPrompt: true, injectTools: "minimal", saving: false, error: null });
       const readPrefs = (data) => ({
         sidebarButton: data && data.value && typeof data.value.sidebarButton === "boolean" ? data.value.sidebarButton : true,
-        importSystemPrompt: !!(data && data.value && data.value.importSystemPrompt),
+        // 缺字段按默认 true（宿主 Config 默认）；显式 false 才算关。
+        importSystemPrompt: !(data && data.value) || data.value.importSystemPrompt !== false,
         injectTools: normalizeMode(data && data.value && data.value.injectTools),
       });
+      const adopt = (data) => {
+        const prefs = readPrefs(data);
+        setSidebarButton(prefs.sidebarButton);
+        setState((s) => ({ ...s, ...prefs, error: null }));
+      };
       const load = () => {
-        fetch("/api-import/prefs", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-        })
-          .then((resp) => readJson(resp))
+        loadPrefsView()
           .then((data) => {
-            if (data && data.ok === true) {
-              const prefs = readPrefs(data);
-              setSidebarButton(prefs.sidebarButton);
-              setState((s) => ({ ...s, ...prefs, error: null }));
-            } else {
-              setState((s) => ({ ...s, error: (data && data.error) || t("error.load") }));
-            }
+            if (data && data.ok === true) adopt(data);
+            else setState((s) => ({ ...s, error: (data && data.error) || t("error.load") }));
           })
           .catch((err) => setState((s) => ({ ...s, error: "导入偏好读取失败：" + String((err && err.message) || err) })));
       };
-      useEffect(() => { load(); }, []);
+      useEffect(() => {
+        load();
+        // 0.1.7 官方表单：订阅宿主侧变更（另一处改了值 / 写入回流）后重读。
+        const form = settingsForm();
+        if (form && typeof form.subscribe === "function") {
+          let off;
+          try {
+            off = form.subscribe(() => {
+              const snap = form.getSnapshot();
+              if (snap && snap.status === "ready") adopt({ ok: true, value: snap.value });
+            });
+          } catch (_) { off = undefined; }
+          return () => { try { if (off) off(); } catch (_) {} };
+        }
+        return undefined;
+      }, []);
       const applyPref = (patch) => {
         setState((s) => ({ ...s, saving: true, error: null }));
-        fetch("/api-import/prefs", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(patch),
-        })
-          .then((resp) => readJson(resp))
+        Promise.resolve(savePrefsPatch(patch))
           .then((data) => {
             if (data && data.ok === true) {
-              const prefs = readPrefs(data);
-              setSidebarButton(prefs.sidebarButton);
-              setState((s) => ({ ...s, ...prefs, saving: false }));
+              adopt(data);
+              setState((s) => ({ ...s, saving: false }));
             } else {
-              // 写失败（含 settings-conflict）：显示错误并重读服务端权威值
+              // 写失败（含 revision 冲突）：显示错误并重读权威值
               setState((s) => ({ ...s, saving: false, error: (data && data.error) || t("error.route") }));
               load();
             }
