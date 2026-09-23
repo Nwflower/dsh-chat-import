@@ -1284,6 +1284,28 @@ test('resolveImportStatus：归档目标 → archived（single / legacy / multi 
   assert.equal(resolveImportStatus(imports, '/a.jsonl', 's'), 'imported')
 })
 
+test('resolveImportStatus：注册表指向的会话已被删除（不在 persisted）→ not-imported（面板显示导入而非同步）', () => {
+  // 真机回归：归档后再删除的会话，registry 记录还在、dshId 已不在宿主，此前返回 imported
+  // → 面板显示「同步」，但会话没了无从同步，也无法重新导入。persistedIds 里没有该 dshId
+  // 即判定「已删除」，优先级高于归档（归档后又被删除同样是 not-imported）。
+  const imports = {
+    '/a.jsonl': { kind: 'single', dshId: 'import-gone' },
+    '/b.jsonl': 'import-legacy-gone',
+    '/c.jsonl': { kind: 'multi', sessions: { 'ses-1': { dshId: 'import-s1-gone' }, 'ses-2': { dshId: 'import-s2-kept' } } },
+  }
+  const persisted = new Set(['import-s2-kept', 'import-alive'])
+  assert.equal(resolveImportStatus(imports, '/a.jsonl', 's', undefined, persisted), 'not-imported')
+  assert.equal(resolveImportStatus(imports, '/b.jsonl', 's', undefined, persisted), 'not-imported')
+  assert.equal(resolveImportStatus(imports, '/c.jsonl', 'ses-1', undefined, persisted), 'not-imported')
+  assert.equal(resolveImportStatus(imports, '/c.jsonl', 'ses-2', undefined, persisted), 'imported')
+  // 已删除优先于已归档
+  const archived = new Set(['import-gone'])
+  assert.equal(resolveImportStatus(imports, '/a.jsonl', 's', archived, persisted), 'not-imported')
+  // persistedIds 缺省 → 旧行为（不判删除）
+  assert.equal(resolveImportStatus(imports, '/a.jsonl', 's'), 'imported')
+  assert.equal(resolveImportStatus(imports, '/a.jsonl', 's', archived), 'archived')
+})
+
 // ── chatgpt（无自动根，path 显式）与默认根扫描 ─────────────────────────────
 
 test('chatgpt：无自动根；path 显式 conversations.json 才解析；默认扫不含 chatgpt', async () => {
@@ -1751,4 +1773,34 @@ test('discoverSessions：persistedIds 过滤宿主已加载的原生会话（DSH
     imports,
   })
   assert.equal(fallback.total, 3, '不传 persistedIds 时全部 3 条正常产出')
+})
+
+test('discoverSessions：注册表指向的会话已删除 → importStatus not-imported（显示导入而非同步）', async () => {
+  const root = join(HOME, 'dsh-home-gone', 'sessions')
+  const proj = join(root, '--proj--')
+  const sessGone = join(proj, 'session-gone')
+  const fGone = join(sessGone, 'session.v3.jsonl')
+  const body = (id) => [
+    j({ type: 'session', id, cwd: '/demo/proj', createdAt: 1700000000000 }),
+    j({ type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '会话内容 ' + id }] } }),
+  ].join('\n')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [proj, { type: 'dir' }],
+    [sessGone, { type: 'dir' }],
+    [fGone, { type: 'file', mtimeMs: 1786000001000, text: body('session-gone') }],
+  ])
+  const host = mockHost(files)
+  const imports = { [fGone]: { kind: 'single', dshId: 'import-deleted', importedAt: 1 } }
+
+  // 注册表说导入过，但 import-deleted 已不在宿主（被删除）→ 该源回到未导入（可重新导入）
+  const res = await discoverSessions({ path: root, format: 'dsh', host, imports, persistedIds: new Set(['session-other']) })
+  const entry = res.sessions.find((s) => s.sourcePath === fGone)
+  assert.ok(entry, '条目必须列出')
+  assert.equal(entry.importStatus, 'not-imported', '会话已删除 → 显示导入')
+
+  // 会话仍在宿主 → 保持 imported（显示同步）
+  const res2 = await discoverSessions({ path: root, format: 'dsh', host, imports, persistedIds: new Set(['import-deleted']) })
+  const entry2 = res2.sessions.find((s) => s.sourcePath === fGone)
+  assert.equal(entry2.importStatus, 'imported', '会话仍在 → 显示同步')
 })

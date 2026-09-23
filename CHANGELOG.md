@@ -2,6 +2,18 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">问题修复</h3>
+
+- 修复**已归档并删除的会话在导入面板显示「同步」而非「导入」**：`resolveImportStatus` 只看 imports registry 记录与归档集，不看宿主里该会话是否还在——会话被删除后 registry 记录仍在、归档集也已清掉，于是被判成「已导入」→ 面板显示「同步」，可会话没了无从同步、也无法重新导入。现在把宿主持久化会话 id 集合（`persistedIds`，发现层本就传入）一并交给状态判定：记录指向的会话**已不在宿主** → `not-imported`（显示「导入」，重导走 `decideItem` 的 `staleRegistry` 重建路径）；**已删除优先于已归档**（归档后又被删除同样是 `not-imported`）。本机实测：96 条「registry 有记录、磁盘上没有会话」的条目从 `imported` 纠正为 `not-imported`。
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+- Fix **archived-then-deleted sessions showing as "Sync" instead of "Import" in the import panel**: `resolveImportStatus` looked only at the imports registry record and the archive set, never at whether the session still exists in the host — after a delete the registry record remained while the archive set was already cleared, so the row was judged "imported" and showed **Sync**, even though a deleted session cannot be synced and could not be re-imported. The host's persisted session id set (`persistedIds`, already passed into discovery) now feeds the status: a record whose session is **no longer in the host** → `not-imported` (the panel shows **Import**, and a re-import takes `decideItem`'s `staleRegistry` rebuild path); **deleted takes precedence over archived** (archived-then-deleted is `not-imported` too). Measured on this machine: 96 entries with "a registry record but no session on disk" were corrected from `imported` to `not-imported`.
+
 ## [0.19.3] - 2026-09-22
 
 [中文](#cn-0.19.3) | [English](#en-0.19.3)
