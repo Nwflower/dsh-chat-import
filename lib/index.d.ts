@@ -89,13 +89,13 @@ export type ChatFormat =
 export interface ImportChatOptions extends ImportOptions {
   /** 源格式（必填），决定 path 形态与解析器。 */
   format: ChatFormat
-  /** 仅 claude：true 时只导最后一次压缩摘要 + 尾部（compacted 摘要导入）；默认 false 全量。 */
+  /** 仅 claude：历史兼容别名。压缩导入自本版本起默认即发射原生压缩检查点，无需该参数。 */
   compacted?: boolean
   /** 仅 chatgpt：'main'（默认）只重建主线程；'all' 枚举全部分支会话。 */
   branch?: 'main' | 'all'
   /** 仅 opencode / mimocode / zcode：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
-  /** 仅 opencode / mimocode / kilocode / teleagent / pi / codex：true 时导入全量历史（忽略对话压缩）；默认 false 尊重压缩。 */
+  /** 仅 opencode / mimocode / kilocode / teleagent / pi / codex / claude：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。该开关进参数指纹，换值须重导。 */
   fullHistory?: boolean
   /** 仅 hermes：'tail' 只导 lineage 链尾（叶子会话）。 */
   lineage?: 'tail'
@@ -164,6 +164,10 @@ export interface SingleImportResult {
   backfilled?: boolean
   droppedBoundaryResults?: number
   trimmed?: TrimReport | null
+  /** 日志里带了原生压缩检查点（来源工具的上下文压缩被导入为 `compaction/*` 事务）。 */
+  compacted?: boolean
+  /** 原生压缩检查点数量（>0 才占键）。 */
+  compactions?: number
   forceImported?: { previous: string; current: string }
   /** 宿主内存残留幽灵会话（retract 后工件已删）时重导自动另铸后缀新 id，
    * previous = 幽灵原 id、current = 新落盘 id。 */
@@ -189,6 +193,9 @@ export interface BatchItemResult {
   budgetChanged?: boolean
   backfilled?: boolean
   trimmed?: TrimReport | null
+  /** 同 SingleImportResult.compacted / compactions（批量条目）。 */
+  compacted?: boolean
+  compactions?: number
   forceImported?: { previous: string; current: string }
   /** 同 SingleImportResult.staleGhost（批量条目）。 */
   staleGhost?: { previous: string; current: string }

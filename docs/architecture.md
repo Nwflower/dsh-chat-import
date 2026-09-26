@@ -91,3 +91,10 @@
 - **决定（客户端席位）**：设置界面按同一世代分流——`ctx.get('configForms')` 在场（0.1.7+）→ 注册 `plugins.bundle.config`（键 = 包名 `dsh-chat-import`，渲染在「设置 → 插件」的插件页）并用 `configForms.get(条目 id)` 逐字段读写；缺席 → 保留 `settings.section` 整页与 `/api-import/prefs` fenced 路由。两处互斥注册（`configForms` 存在即否决整页），避免同一设置在两处各长一份。
 - **代价**：两套设置模型都要测试覆盖；`.volatile()` 探测与软链锚点是宿主实现细节，宿主换版需重审（完整踩坑与自检见 [SETTINGS-MIGRATION.zh-CN.md](SETTINGS-MIGRATION.zh-CN.md)）。
 - **重审条件**：宿主 0.1.7+ 成为唯一支持面时，删掉 legacy 路径与探测，只留 `Config` + 条目 id。
+
+## D11. 上下文压缩导入为原生压缩事件，不切窗口（2026-09 定）
+
+- **背景**：来源工具的上下文压缩（Claude Code 的 `compact_boundary` + `isCompactSummary` user 记录、Codex 的 `compacted` 信封、Pi 的 `compaction` 条目、opencode 的 `compaction` part + 摘要消息）意味着「模型只看到摘要 + 压缩点之后的对话」，而压缩前的记录仍留在源转录里。此前的两种做法都不好：不处理 → 全量历史灌进上下文，超预算时预算裁剪会把中间若干轮真删掉（本机一份 6579 条记录、压缩 10 次的 Codex rollout 约 8411412 tokens，被裁 5 轮 / 796 条消息 / 741 次工具调用）；「切窗口」→ 只导压缩点之后的记录，压缩前的历史在导入时就**永久消失**（既不能回溯，也不能导出回源），与「日志是记录、投影才是上下文」的宿主模型相反。
+- **决定**：压缩导入为**宿主原生的压缩事务**，日志照常保全量历史。IR 加两个可选字段：`turns[i].compaction = { summary, provider, model }`（该轮**之前**有一次压缩）与 `turns[i].shadowed = true`（该轮已被后续压缩遮蔽，log-only）。`synthesizeSession` 在边界轮的 `turn/start` 之前发射 `compaction/start → compaction/summary → 带 surfaceOp:{op:'replace'} 的检查点 user/message → compaction/end`（独立事务，`turn: null`；`sourceEventSeqs` 覆盖全部被遮蔽的 surface 节点；checkpoint 标记 `{kind:'plugin',plugin:'compact',compactionId}` 照抄 `dsh-compaction` 的契约字面量——纯函数层不 import 宿主包）。protected head 与环境变更声明**不进**遮蔽范围（遮蔽范围是连续区间，故声明必须排在所有会话节点之前）。一次会话压缩多次就发多个链式检查点。预算裁剪只在检查点之后的「有效段」上工作：受遮蔽轮不估算、不裁剪、不丢弃。`fullHistory: true` 时不发检查点（模型看全量）并进参数指纹。
+- **代价**：日志体积等于源转录（几十 MB 级），投影缓存与 sync 的读放大随之而来；`compaction/summary` 的 `provider`/`model` 是**来源工具的**事实（Codex 写 `codex`、Claude 写 `claude-code`、Pi 写 `pi-coding-agent`、opencode 系列写 `provider` 标签），不是宿主模型的；导出方向暂不重建源工具的压缩记录（检查点消息按「插件注入」计入 `skippedInjections`，不静默）。
+- **被推翻的旧决策**：无（此前压缩处理只在各源转换器里「切窗口」，从未写进本文档）。**重审条件**：宿主压缩事件契约（事件名 / `shadowedSeqs` 语义 / 检查点标记）变更，或 `deriveMessages` 不再折叠 replace 检查点时。

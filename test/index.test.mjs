@@ -2631,31 +2631,50 @@ test('readOpencodeDb：只读抽取会话、消息/part 排序、模型解析', 
   assert.equal(b.messages[1].model, undefined)
 })
 
-test('readOpencodeDb：尊重压缩只导摘要+尾巴，fullHistory 导全量', () => {
+test('readOpencodeDb：压缩不切日志（全量消息 + compactions 描述），fullHistory 不发检查点', () => {
   const dbPath = makeOpencodeDb([opencodeCompactedSession()])
   const [s] = readOpencodeDb(dbPath)
-  assert.equal(s.summary, '前面做过的所有事摘要。')
-  assert.equal(s.messages.length, 3) // c3/c4/c5（c1/c2 被压掉，c6 摘要消息剔除）
-  assert.equal(s.messages[0].id, 'msg-c3')
-  assert.equal(s.messages[1].id, 'msg-c4')
-  assert.equal(s.messages[2].id, 'msg-c5')
+  assert.equal(s.summary, '前面做过的所有事摘要。') // 兼容字段 = 最后一次压缩摘要
+  assert.deepEqual(s.compactions, [{ tailStartId: 'msg-c3', summary: '前面做过的所有事摘要。', summaryMessageId: 'msg-c6' }])
+  assert.equal(s.messages.length, 6) // 全量消息（摘要消息带 isSummary 标记，由转换器跳过）
+  assert.equal(s.messages[0].id, 'msg-c1')
+  assert.equal(s.messages[5].isSummary, true)
 
   const [full] = readOpencodeDb(dbPath, { fullHistory: true })
   assert.equal(full.summary, undefined)
+  assert.equal(full.compactions, undefined)
   assert.equal(full.messages.length, 6) // 全量
 })
 
-test('import_opencode fullHistory：true 导入全量历史', async () => {
+test('import_opencode：压缩落原生检查点（日志全量、模型见摘要+保留窗口）', async () => {
   const dbPath = makeOpencodeDb([opencodeCompactedSession()])
   const { ctx, persistence } = makeCtx({})
   apply(ctx)
   const def = chatDef(ctx, 'opencode')
-  const value = await def.execute({ path: dbPath, fullHistory: true })
+  const value = await def.execute({ path: dbPath })
   assert.equal(value.imported, 1)
+  // multi 源的报告在 results 条目上（顶层只聚合计数）
+  assert.equal(value.results[0].compacted, true)
+  assert.equal(value.results[0].compactions, 1)
   const saved = persistence.sessions.get('import-ses-comp')
   assert.ok(saved)
-  assert.equal(saved.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').length, 2) // c1 + c3（c5 无正文被跳过）
-  assert.equal(saved.events.filter((e) => e.type === 'assistant/message').length, 3) // c2 + c4 + c6
+  // 全量日志：压缩前的问答与摘要消息都在事件里（后者只在 surface 检查点里可见）
+  assert.equal(saved.events.filter((e) => e.type === 'compaction/summary').length, 1)
+  const ck = saved.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.equal(ck.data.source.plugin, 'compact')
+  assert.equal(ck.data.content[0].text, '前面做过的所有事摘要。')
+
+  // fullHistory：不发检查点（模型看到全量）
+  const { ctx: ctx2, persistence: p2 } = makeCtx({})
+  apply(ctx2)
+  const def2 = chatDef(ctx2, 'opencode')
+  const v2 = await def2.execute({ path: dbPath, fullHistory: true })
+  assert.equal(v2.results[0].compacted, undefined)
+  assert.equal(v2.results[0].compactions, undefined)
+  const saved2 = p2.sessions.get('import-ses-comp')
+  assert.equal(saved2.events.some((e) => e.type.startsWith('compaction/')), false)
+  assert.equal(saved2.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').length, 2) // c1 + c3（c5 无正文被跳过）
+  assert.equal(saved2.events.filter((e) => e.type === 'assistant/message').length, 3) // c2 + c4 + c6
 })
 
 test('import_opencode 读不到 DB：失败大声抛错', async () => {
@@ -4384,7 +4403,7 @@ test('REQ-22 import_reasonix：同目录 <stem>.events.jsonl 自动合并，结�
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
 })
 
-test('REQ-22 import_claude compacted 参数：摘要导入只落尾部 + compacted 报告 + schema', async () => {
+test('REQ-22 import_claude 压缩：原生检查点 + compacted/compactions 报告 + schema', async () => {
   const lines = [
     JSON.stringify({ sessionId: 'sess-comp-002', type: 'user', message: { role: 'user', content: '问题1' } }),
     JSON.stringify({ sessionId: 'sess-comp-002', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答1' }] } }),
@@ -4395,17 +4414,22 @@ test('REQ-22 import_claude compacted 参数：摘要导入只落尾部 + compact
   const { ctx, persistence } = makeCtx({ 'D:\\demo\\claude\\projects\\p\\sess-comp-002.jsonl': lines })
   apply(ctx)
   const def = chatDef(ctx, 'claude')
-  // 参数进 schema
+  // 参数进 schema（历史别名，默认行为即尊重压缩）
   assert.equal(def.parameters.properties.compacted.type, 'boolean')
-  const value = await def.execute({ path: 'D:\\demo\\claude\\projects\\p\\sess-comp-002.jsonl', compacted: true })
+  // 默认导入即落原生压缩检查点
+  const value = await def.execute({ path: 'D:\\demo\\claude\\projects\\p\\sess-comp-002.jsonl' })
   assert.equal(value.status, 'imported')
   assert.equal(value.compacted, true)
+  assert.equal(value.compactions, 1)
   const saved = persistence.sessions.get('import-sess-comp-002')
-  const turns = saved.events.filter((e) => e.type === 'turn/start').length
-  assert.equal(turns, 1) // 只导摘要后的尾部
-  const asst = saved.events.find((e) => e.type === 'assistant/message')
-  assert.equal(asst.data.message.content[0].type, 'reasoning')
-  assert.equal(asst.data.message.content[0].text, '最终总结')
+  assert.equal(saved.events.filter((e) => e.type === 'turn/start').length, 2) // 全量历史留在日志里
+  assert.equal(saved.events.filter((e) => e.type === 'compaction/summary').length, 1)
+  const ck = saved.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.equal(ck.data.source.plugin, 'compact')
+  assert.equal(ck.data.content[0].text, '最终总结')
+  // 兼容别名：compacted:true 与默认一致
+  const value2 = await def.execute({ path: 'D:\\demo\\claude\\projects\\p\\sess-comp-002.jsonl', compacted: true, force: true })
+  assert.equal(value2.compacted, true)
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
 })
 

@@ -178,8 +178,10 @@ test('convertClaudeJsonl: 未回答的提问也成回合', () => {
   assert.equal(out.turns.length, 1)
   assert.equal(out.messages, 1)
   const types = out.events.map((e) => e.type)
-  // 首轮无 step（只有提问、没有回复）：无 step/start 可锚 → 环境变更声明不注入
-  assert.deepEqual(types, ['turn/start', 'step/start', 'system/message', 'step/end', 'user/message', 'turn/end'])
+  // 首轮无 step（只有提问、没有回复）：为 head 补一个只装 head 的空 step，环境变更声明与
+  // head 一起落在该 step 内——声明必须排在**所有会话节点之前**，否则压缩检查点（native
+  // compaction 的遮蔽范围是连续区间）会把迁移说明一并遮蔽掉。
+  assert.deepEqual(types, ['turn/start', 'step/start', 'system/message', 'user/message', 'step/end', 'user/message', 'turn/end'])
 })
 
 test('convertClaudeJsonl: 数组格式 user content（纯文本块）开新轮（issue #21 复现）', () => {
@@ -640,67 +642,138 @@ function codexCompactedRollout(over = {}) {
   ].join('\n')
 }
 
-test('convertCodexJsonl: compacted 默认只导最后一次压缩后的窗口，摘要作 reasoning 前置', () => {
-  const raw = codexCompactedRollout()
-  const full = convertCodexJsonl(raw, { sessionId: 'codex-comp-1', fullHistory: true })
-  assert.equal(full.compacted, undefined)
-  assert.equal(full.turns.length, 2) // 压缩前的「第一个任务」+ 压缩后的「新提问」
-  assert.equal(full.toolCalls, 2) // call_pre + call_post 都导
-  const fullTexts = full.events.filter((e) => e.type === 'assistant/message')
-    .flatMap((e) => e.data.message.content).map((c) => c.text)
-  assert.ok(fullTexts.includes('压缩前的回答') && fullTexts.includes('压缩后的回答'))
-  // fullHistory：压缩边界不切片、摘要也不前置（压缩前的正文照常导入）
-  assert.equal(full.events.some((e) => e.type === 'assistant/message'
-    && e.data.message.content.some((c) => c.type === 'reasoning' && c.text.startsWith('Another language model started'))), false)
+// 原生压缩事务的形状断言（宿主 @deepseek-ai/dsh-compaction 的 Surface contract 与
+// dsh-compaction/invariant 的校验项：start/summary/检查点/end 四件套 + 遮蔽范围与溯源一致）。
+function assertNativeCompaction(events) {
+  const starts = events.filter((e) => e.type === 'compaction/start')
+  const summaries = events.filter((e) => e.type === 'compaction/summary')
+  const ends = events.filter((e) => e.type === 'compaction/end')
+  const checks = events.filter((e) => e.type === 'user/message' && e.surfaceOp && typeof e.surfaceOp === 'object')
+  assert.equal(summaries.length, starts.length)
+  assert.equal(ends.length, starts.length)
+  assert.equal(checks.length, starts.length)
+  for (let i = 0; i < starts.length; i++) {
+    const id = starts[i].data.compactionId
+    assert.ok(typeof id === 'string' && id.length > 0)
+    assert.equal(starts[i].data.turn, null) // 独立事务：发生在两轮之间
+    assert.equal(summaries[i].data.compactionId, id)
+    assert.equal(ends[i].data.compactionId, id)
+    const s = summaries[i].data
+    assert.ok(Array.isArray(s.shadowedSeqs) && s.shadowedSeqs.length > 0, 'shadowedSeqs 非空（宿主不变式）')
+    assert.equal(s.shadowedRange.start, s.shadowedSeqs[0])
+    assert.equal(s.shadowedRange.end, s.shadowedSeqs[s.shadowedSeqs.length - 1])
+    assert.ok(Number.isInteger(s.shadowedTokenCount) && s.shadowedTokenCount >= 0)
+    assert.ok(typeof s.provider === 'string' && s.provider.length > 0)
+    assert.ok(typeof s.model === 'string' && s.model.length > 0)
+    assert.equal(s.summary[0].type, 'text')
+    const ck = checks[i]
+    assert.deepEqual(ck.surfaceOp, { op: 'replace', start: s.shadowedRange.start, end: s.shadowedRange.end })
+    // 溯源：必须包含每一个被遮蔽的 surface 节点（宿主 assertProvenance 的硬要求）
+    assert.deepEqual(ck.sourceEventSeqs, s.shadowedSeqs)
+    assert.deepEqual(ck.data.source, { kind: 'plugin', plugin: 'compact', compactionId: id })
+    assert.equal(ck.data.content[0].text, s.summary[0].text)
+    const seqs = [starts[i].seq, summaries[i].seq, ck.seq, ends[i].seq]
+    assert.deepEqual(seqs, [...seqs].sort((a, b) => a - b), '事务顺序 start → summary → 检查点 → end')
+  }
+  return starts.length
+}
 
+// 逐 surface 节点投影（宿主 deriveMessages 的口径）：返回模型实际看到的消息角色+文本。
+function derivedSurfaceMessages(events) {
+  const bySeq = new Map(events.map((e) => [e.seq, e]))
+  const surfaces = []
+  for (const ev of events) {
+    if (ev.surfaceOp === undefined) continue
+    if (ev.surfaceOp === 'append') { surfaces.push(ev.seq); continue }
+    const { start, end } = ev.surfaceOp
+    const si = surfaces.indexOf(start)
+    const ei = surfaces.indexOf(end)
+    if (si === -1 || ei === -1) throw new Error('replace 范围不在 surface 上')
+    surfaces.splice(si, ei - si + 1, ev.seq)
+  }
+  return surfaces.map((s) => {
+    const ev = bySeq.get(s)
+    const m = ev.data.message || ev.data
+    const text = (m.content || []).map((b) => b.text || b.type).join('|')
+    return m.role + ':' + text
+  })
+}
+
+test('convertCodexJsonl: 上下文压缩 → DSH 原生压缩检查点（日志保全量、模型只见摘要+之后）', () => {
+  const raw = codexCompactedRollout()
   const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-1', budget: 366000 })
   assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
   assert.equal(out.trimmed, undefined)
-  // 窗口 = 压缩后的产物 + 新提问：跨压缩点那一轮的提问从 replacement_history 取回
-  assert.equal(out.turns.length, 2)
-  assert.equal(out.turns[0].prompt, '确认到哪一步了？')
-  assert.equal(out.turns[1].prompt, '新提问')
-  assert.equal(out.toolCalls, 1) // 只导窗口内的 call_post
-  // 压缩前的正文不进会话（压缩前的回答 / 工具输出都不在事件里）
+  // 全量历史留在日志里（压缩只影响模型投影）
   const texts = out.events.filter((e) => e.type === 'assistant/message')
     .flatMap((e) => e.data.message.content).map((c) => c.text)
-  assert.ok(!texts.includes('压缩前的回答'))
-  assert.ok(!out.events.some((e) => e.data && e.data.callId === 'call_pre'))
-  assert.ok(texts.includes('压缩后的回答') && texts.includes('新回答'))
-  // 摘要作首个保留步骤的第一块 reasoning
-  const firstStep = out.events.find((e) => e.type === 'assistant/message')
-  assert.equal(firstStep.data.message.content[0].type, 'reasoning')
-  assert.match(firstStep.data.message.content[0].text, /^Another language model started to solve this problem/)
-  // 标题仍取全量记录的第一条提问（压缩只切正文，不切标题）
+  assert.ok(texts.includes('压缩前的回答') && texts.includes('压缩后的回答') && texts.includes('新回答'))
+  assert.equal(out.toolCalls, 2) // call_pre + call_post 都在
+  // 原生事务形状
+  assert.equal(assertNativeCompaction(out.events), 1)
+  const summary = out.events.find((e) => e.type === 'compaction/summary')
+  assert.match(summary.data.summary[0].text, /^Another language model started to solve this problem/)
+  // 被遮蔽范围 = 边界之前的全部会话 surface 节点（含压缩前的提问与工具结果）
+  const ck = out.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  const shadowedTypes = ck.sourceEventSeqs.map((s) => out.events[s].type)
+  assert.ok(shadowedTypes.includes('assistant/message') && shadowedTypes.includes('tool/result'))
+  // 压缩点之前的轮标 log-only；跨压缩点那一轮拆成「log-only 段 + 带检查点的空 prompt 段」
+  assert.deepEqual(out.turns.map((t) => ({ shadowed: t.shadowed === true, ck: !!t.compaction, steps: t.steps.length, prompt: t.prompt })),
+    [
+      { shadowed: true, ck: false, steps: 1, prompt: '第一个任务' },
+      { shadowed: false, ck: true, steps: 1, prompt: '' },
+      { shadowed: false, ck: false, steps: 1, prompt: '新提问' },
+    ])
+  // 模型看到的：protected head → 环境变更声明 → 检查点摘要 → 压缩后内容
+  const derived = derivedSurfaceMessages(out.events)
+  assert.equal(derived[0], 'system:', 'protected head 在 surface 第 0 位')
+  assert.ok(derived[1].startsWith('user:<system-reminder>'), '迁移声明不被遮蔽')
+  assert.equal(derived[2], 'user:' + summary.data.summary[0].text)
+  assert.ok(!derived.some((d) => d.includes('压缩前的回答')), '被遮蔽内容不进模型上下文')
+  assert.ok(derived.some((d) => d.includes('压缩后的回答')) && derived.some((d) => d.includes('新回答')))
+  // 标题仍取全量记录的第一条提问（压缩只影响投影，不影响标题）
   assert.equal(out.title, '第一个任务')
+  assert.equal(validateSessionEvents(out.events).ok, true)
   assertMessageOrderLegal(out.events)
   assertToolPairing(out.events)
 })
 
-test('convertCodexJsonl: 压缩信封没有摘要正文时不切片（不静默丢前半段）', () => {
+test('convertCodexJsonl: fullHistory 时不发压缩检查点（模型看到全量）', () => {
+  const raw = codexCompactedRollout()
+  const full = convertCodexJsonl(raw, { sessionId: 'codex-comp-1', fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.compactions, undefined)
+  assert.equal(full.events.some((e) => e.type.startsWith('compaction/')), false)
+  assert.equal(full.turns.length, 2) // 压缩前的「第一个任务」+ 压缩后的「新提问」
+  assert.equal(full.toolCalls, 2)
+  assert.ok(derivedSurfaceMessages(full.events).some((d) => d.includes('压缩前的回答')))
+})
+
+test('convertCodexJsonl: 压缩信封没有摘要正文时不发检查点（不静默丢前半段）', () => {
   const raw = codexCompactedRollout({ message: undefined, replacement_history: undefined })
   const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-1' })
   assert.equal(out.compacted, undefined)
+  assert.equal(out.events.some((e) => e.type.startsWith('compaction/')), false)
   assert.equal(out.turns.length, 2)
   assert.ok(out.events.some((e) => e.data && e.data.callId === 'call_pre')) // 压缩前内容仍在
 })
 
-test('convertCodexJsonl: 压缩后没有人类提问 → 用空 prompt 轮次兜住内容（不丢产物）', () => {
+test('convertCodexJsonl: 压缩后没有人类提问 → 空 prompt 轮承载检查点后的产物', () => {
   const raw = codexCompactedRollout({ replacement_history: [] })
   const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-1' })
   assert.equal(out.compacted, true)
-  // replacement_history 取不到提问 → 空 prompt 轮次承载压缩后的产物（pi retainedTail 同款兜底）
-  assert.equal(out.turns.length, 2)
-  assert.equal(out.turns[0].prompt, '')
-  assert.ok(out.messages >= 2)
-  const firstHuman = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user')
-  assert.equal(firstHuman.data.content[0].text, '') // 空 prompt 轮次（有内容兜底，不是空会话）
+  assert.equal(out.compactions, 1)
+  // 边界之后的产物（reasoning/assistant/工具）落在带检查点的空 prompt 轮上，不丢内容
+  assert.deepEqual(out.turns.map((t) => ({ shadowed: t.shadowed === true, ck: !!t.compaction, prompt: t.prompt })),
+    [{ shadowed: true, ck: false, prompt: '第一个任务' }, { shadowed: false, ck: true, prompt: '' }, { shadowed: false, ck: false, prompt: '新提问' }])
   assert.ok(out.events.some((e) => e.data && e.data.callId === 'call_post'))
+  assert.equal(assertNativeCompaction(out.events), 1)
   assertMessageOrderLegal(out.events)
   assertToolPairing(out.events)
 })
 
-test('convertCodexJsonl: 压缩后既无提问也无产物 → 0 轮显式给出原因与开关', () => {
+test('convertCodexJsonl: 压缩后什么都没有 → 仍留一个只装检查点的边界轮', () => {
   const j = (o) => JSON.stringify(o)
   const summary = 'Another language model started to solve this problem.'
   const raw = [
@@ -710,9 +783,14 @@ test('convertCodexJsonl: 压缩后既无提问也无产物 → 0 轮显式给出
   ].join('\n')
   const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-empty' })
   assert.equal(out.compacted, true)
-  assert.equal(out.turns.length, 0)
-  assert.match(out.skipReason, /压缩之后没有新回合/)
-  assert.match(out.skipReason, /fullHistory/)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  // 模型只看到 protected head + 迁移声明 + 检查点摘要（压缩前的历史仍在日志里）
+  const derived = derivedSurfaceMessages(out.events)
+  assert.equal(derived[0], 'system:')
+  assert.ok(derived[1].startsWith('user:<system-reminder>'))
+  assert.deepEqual(derived.slice(2), ['user:' + summary])
+  assert.equal(validateSessionEvents(out.events).ok, true)
 })
 
 test('convertCodexJsonl: 畸形行计数与会话 id 覆盖', () => {
@@ -1463,7 +1541,7 @@ test('REQ-22 convertReasonixJsonl: 追加式 WAL（checkpoint 后事件）晚到
   assert.equal(plain.turns.length, 1)
 })
 
-test('REQ-22 convertClaudeJsonl: compacted 只导最后一次摘要 + 尾部，摘要作 reasoning 前置', () => {
+test('REQ-22 convertClaudeJsonl: 旧格式 summary 记录 → 原生压缩检查点（全量留日志、模型见摘要+之后）', () => {
   const lines = [
     JSON.stringify({ sessionId: 'sess-comp-001', type: 'user', message: { role: 'user', content: '问题1' } }),
     JSON.stringify({ sessionId: 'sess-comp-001', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答1' }] } }),
@@ -1476,26 +1554,36 @@ test('REQ-22 convertClaudeJsonl: compacted 只导最后一次摘要 + 尾部，�
   ].join('\n')
   const full = convertClaudeJsonl(lines, { fileStem: 'sess-comp-001' })
   assert.equal(full.turns.length, 3)
-  const out = convertClaudeJsonl(lines, { fileStem: 'sess-comp-001', compacted: true })
-  assert.equal(out.compacted, true)
-  // 只保留最后一次 summary 之后的尾部（1 轮）
-  assert.equal(out.turns.length, 1)
-  const texts = out.events.filter((e) => e.type === 'assistant/message')
-    .map((e) => e.data.message.content.filter((b) => b.type === 'text').map((b) => b.text)[0])
-  assert.deepEqual(texts, ['收尾回答'])
-  // 摘要 reasoning 前置到首个保留轮
-  const firstAsst = out.events.find((e) => e.type === 'assistant/message')
-  assert.ok(firstAsst.data.message.content.some((b) => b.type === 'reasoning' && b.text === '最终总结：需求已完成'))
-  // 标题取最后一次 summary 的 title（custom-title 载体）
-  assert.equal(out.title, '最终标题')
+  assert.equal(full.compactions, 2) // 两条 summary 记录 = 两次压缩边界
+  assert.equal(full.compacted, true)
+  // 全量历史留在日志里（含压缩前的两轮）
+  const texts = full.events.filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => e.data.message.content).filter((b) => b.type === 'text').map((b) => b.text)
+  assert.deepEqual(texts, ['回答1', '继续回答', '收尾回答'])
+  // 原生事务：第二次检查点遮蔽「第一个检查点 + 其后的轮」
+  assert.equal(assertNativeCompaction(full.events), 2)
+  const summaries = full.events.filter((e) => e.type === 'compaction/summary')
+  assert.deepEqual(summaries.map((e) => e.data.summary[0].text), ['第一段总结', '最终总结：需求已完成'])
+  // 模型看到的：head → 迁移声明 → 最后一次检查点 → 压缩后内容
+  const derived = derivedSurfaceMessages(full.events)
+  assert.deepEqual(derived.map((d) => d.slice(0, 12)), ['system:', 'user:<system', 'user:最终总结：需求', 'user:收尾', 'assistant:收尾'])
+  assert.ok(!derived.some((d) => d.includes('回答1')), '被遮蔽内容不进模型上下文')
+  // 标题取最后一次 summary 的 summary 字段（标题载体扫描覆盖全量记录）
+  assert.equal(full.title, '最终总结：需求已完成')
   // 事件平衡（session/title 钉在最后，不破坏回合平衡）
-  const types = out.events.map((e) => e.type)
+  const types = full.events.map((e) => e.type)
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
-  // 无 summary 记录 → compacted 不生效（全量）
+  assert.equal(validateSessionEvents(full.events).ok, true)
+  // fullHistory：不发检查点（模型看到全量）
+  const noCk = convertClaudeJsonl(lines, { fileStem: 'sess-comp-001', fullHistory: true })
+  assert.equal(noCk.compacted, undefined)
+  assert.equal(noCk.events.some((e) => e.type.startsWith('compaction/')), false)
+  assert.equal(derivedSurfaceMessages(noCk.events).length, 8) // head + 声明 + 3 轮问答
+  // 无 summary 记录 → 无检查点（全量导入）
   const noSummary = convertClaudeJsonl([
     JSON.stringify({ sessionId: 'sess-comp-001', type: 'user', message: { role: 'user', content: '问题1' } }),
     JSON.stringify({ sessionId: 'sess-comp-001', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答1' }] } }),
-  ].join('\n'), { fileStem: 'sess-comp-001', compacted: true })
+  ].join('\n'), { fileStem: 'sess-comp-001' })
   assert.equal(noSummary.compacted, undefined)
   assert.equal(noSummary.turns.length, 1)
 })
@@ -1565,19 +1653,32 @@ test('convertPiJsonl: 树结构——只重建活动分支、branch_summary→re
   assertMessageOrderLegal(out.events)
 })
 
-test('convertPiJsonl: compaction 默认尊重（摘要+retainedTail+尾部），fullHistory 导全量', () => {
+test('convertPiJsonl: compaction → 原生压缩检查点（保留窗口起点为边界），fullHistory 不发', () => {
   const out = convertPiJsonl(load('pi-compaction.jsonl'), {})
-  assert.equal(out.turns.length, 2) // 第一个问题被压进摘要
-  assert.deepEqual(out.turns.map((t) => t.prompt), ['第二个问题', '第三个问题'])
-  const head = out.turns[0].steps[0].content
-  assert.equal(head[0].type, 'reasoning')
-  assert.ok(head[0].text.includes('The conversation history before this point was compacted'))
-  assert.ok(head[0].text.includes('用户问了两个问题，都已经回答。'))
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  // 三个问题都在日志里（全量），但「第一个问题」被检查点遮蔽
+  assert.deepEqual(out.turns.map((t) => t.prompt), ['第一个问题', '第二个问题', '第三个问题'])
+  assert.deepEqual(out.turns.map((t) => t.shadowed === true), [true, false, false])
+  assert.equal(out.turns[1].compaction.summary, '用户问了两个问题，都已经回答。')
+  assert.equal(assertNativeCompaction(out.events), 1)
+  // 摘要不再作 reasoning 块（改由检查点承载）
+  const reasoning = out.events.filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => e.data.message.content).filter((b) => b.type === 'reasoning')
+  assert.deepEqual(reasoning, [])
+  // 模型看到：head → 声明 → 摘要 → 保留窗口（第二个问题起）
+  const derived = derivedSurfaceMessages(out.events)
+  assert.equal(derived[2], 'user:用户问了两个问题，都已经回答。')
+  assert.deepEqual(derived.slice(3), ['user:第二个问题', 'assistant:第二个回答', 'user:第三个问题', 'assistant:第三个回答'])
+  assert.equal(validateSessionEvents(out.events).ok, true)
   assertMessageOrderLegal(out.events)
 
   const full = convertPiJsonl(load('pi-compaction.jsonl'), { fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.events.some((e) => e.type.startsWith('compaction/')), false)
   assert.equal(full.turns.length, 3) // 全量：三个问题都在
   assert.deepEqual(full.turns.map((t) => t.prompt), ['第一个问题', '第二个问题', '第三个问题'])
+  assert.equal(derivedSurfaceMessages(full.events).length, 8) // head + 声明 + 3 轮问答
   assertMessageOrderLegal(full.events)
 })
 
@@ -1944,32 +2045,40 @@ test('claude compacted：现代压缩载体，摘要作 reasoning、只留尾部
     user('继续问题'), asst('继续回答'),
   ].map((r) => JSON.stringify(r)).join('\n')
 
-  // 默认全量：压缩续接记录在 wire 上就是一条 user 消息，按轮导入（不特殊处理）
-  const full = convertClaudeJsonl(lines, { fileStem: 'sess-comp2-001' })
-  assert.equal(full.compacted, undefined)
-  assert.equal(full.turns.length, 5) // 3 条人类提问 + 2 条压缩续接记录
-  // compacted：只导最后一次摘要 + 尾部（压缩多次取最后一次）
-  const out = convertClaudeJsonl(lines, { fileStem: 'sess-comp2-001', compacted: true })
+  // 默认（尊重压缩）：全量记录留日志，两次边界各发一个原生检查点
+  const out = convertClaudeJsonl(lines, { fileStem: 'sess-comp2-001' })
   assert.equal(out.compacted, true)
-  assert.equal(out.turns.length, 1)
-  assert.equal(out.turns[0].prompt, '继续问题')
-  const reasoning = out.events.filter((e) => e.type === 'assistant/message')
-    .flatMap((e) => e.data.message.content).filter((c) => c.type === 'reasoning')
-  assert.deepEqual(reasoning.map((c) => c.text), [lastSummary])
-  // 标题载体在压缩边界**之前**（ai-title）也不随切片丢失
+  assert.equal(out.compactions, 2)
+  assert.equal(out.turns.length, 3) // 三条人类提问；isCompactSummary 记录不是人类提问
+  assert.deepEqual(out.turns.map((t) => t.prompt), ['问题1', '问题2', '继续问题'])
+  const summaries = out.events.filter((e) => e.type === 'compaction/summary')
+  assert.deepEqual(summaries.map((e) => e.data.summary[0].text), [firstSummary, lastSummary])
+  assert.equal(assertNativeCompaction(out.events), 2)
+  // 模型看到的是「最后一次摘要 + 压缩点之后的内容」；压缩前的两轮被遮蔽
+  const derived = derivedSurfaceMessages(out.events)
+  assert.equal(derived[2], 'user:' + lastSummary)
+  assert.ok(derived.some((d) => d.includes('继续回答')))
+  assert.ok(!derived.some((d) => d.includes('回答1') || d.includes('回答2')))
+  // 标题载体在压缩边界**之前**（ai-title）也不受影响（标题在全量记录上取）
   assert.equal(out.title, '压缩前的 AI 标题')
-  const dateEv = out.events.find((e) => e.type === 'session/title')
-  assert.equal(dateEv.data.title, '压缩前的 AI 标题')
+  const titleEv = out.events.find((e) => e.type === 'session/title')
+  assert.equal(titleEv.data.title, '压缩前的 AI 标题')
 
-  // 只有 compact_boundary、没有摘要正文 → 不切片（否则等于静默丢掉前半段）
+  // fullHistory：不发检查点
+  const full = convertClaudeJsonl(lines, { fileStem: 'sess-comp2-001', fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.events.some((e) => e.type.startsWith('compaction/')), false)
+  assert.equal(full.turns.length, 3)
+
+  // 只有 compact_boundary、没有摘要正文 → 不发检查点（不静默丢前半段）
   const boundaryOnly = [user('问题1'), asst('回答1'), boundary, user('问题2'), asst('回答2')]
     .map((r) => JSON.stringify(r)).join('\n')
-  const kept = convertClaudeJsonl(boundaryOnly, { fileStem: 'sess-comp2-001', compacted: true })
+  const kept = convertClaudeJsonl(boundaryOnly, { fileStem: 'sess-comp2-001' })
   assert.equal(kept.compacted, undefined)
   assert.equal(kept.turns.length, 2)
 })
 
-test('claude compacted：custom-title（/rename）在压缩边界之前时仍是压缩导入的标题', () => {
+test('claude compacted：custom-title（/rename）在压缩边界之前时仍是标题', () => {
   const lines = [
     { sessionId: 'sess-comp3-001', type: 'user', message: { role: 'user', content: '问题1' } },
     { sessionId: 'sess-comp3-001', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答1' }] } },
@@ -1978,9 +2087,10 @@ test('claude compacted：custom-title（/rename）在压缩边界之前时仍是
     { sessionId: 'sess-comp3-001', type: 'user', message: { role: 'user', content: '继续问题' } },
     { sessionId: 'sess-comp3-001', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '继续回答' }] } },
   ].map((r) => JSON.stringify(r)).join('\n')
-  const out = convertClaudeJsonl(lines, { fileStem: 'sess-comp3-001', compacted: true })
+  const out = convertClaudeJsonl(lines, { fileStem: 'sess-comp3-001' })
   assert.equal(out.compacted, true)
-  assert.equal(out.turns.length, 1)
+  assert.equal(out.compactions, 1)
+  assert.equal(out.turns.length, 2)
   assert.equal(out.title, '用户重命名')
 })
 
@@ -2369,12 +2479,71 @@ test('validateSessionEvents：宿主运行时/状态事件类型不再误报 unk
     'permission/preset', 'sandbox/mode', 'approval/policy', 'agent/inbox/spliced',
     'request/header', 'assistant/chunk',
     'todo/write', 'request/context', 'session/end-seed', 'tool/code-dispatch',
-    'compaction/start', 'plan/mode', 'team/task', 'tool-workflow/run-start',
+    'compaction/prune', 'plan/mode', 'team/task', 'tool-workflow/run-start',
     'web/deepseek-search-llm-request',
   ]
   const r = validateSessionEvents(runtimeTypes.map((type, i) => ev(i, type)))
   assert.equal(r.ok, true)
   assert.deepEqual(r.problems, [])
+})
+
+test('validateSessionEvents：原生压缩事务契约（括号配对 / 遮蔽范围 / 检查点溯源）', () => {
+  const out = convertCodexJsonl(codexCompactedRollout(), { sessionId: 'codex-comp-1' })
+  assert.equal(validateSessionEvents(out.events).ok, true)
+  const clone = () => JSON.parse(JSON.stringify(out.events))
+  const firstProblem = (events) => validateSessionEvents(events).problems[0]
+
+  // 遮蔽范围首尾与 shadowedSeqs 不一致
+  const rangeBad = clone()
+  const summary = rangeBad.find((e) => e.type === 'compaction/summary')
+  summary.data.shadowedRange = { start: summary.data.shadowedSeqs[1], end: summary.data.shadowedRange.end }
+  assert.equal(firstProblem(rangeBad).kind, 'compaction-shadow-range')
+
+  // shadowedSeqs 为空（宿主不变式要求非空）
+  const emptyShadow = clone()
+  emptyShadow.find((e) => e.type === 'compaction/summary').data.shadowedSeqs = []
+  assert.equal(firstProblem(emptyShadow).kind, 'compaction-shadow-empty')
+
+  // 检查点缺溯源（漏掉被遮蔽节点）
+  const noProv = clone()
+  const ck = noProv.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  ck.sourceEventSeqs = ck.sourceEventSeqs.slice(1)
+  assert.equal(firstProblem(noProv).kind, 'compaction-provenance-missing')
+
+  // 检查点标记与括号 compactionId 不一致 / source 不是 compact 标记
+  const wrongId = clone()
+  wrongId.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object').data.source.compactionId = 'other'
+  assert.equal(firstProblem(wrongId).kind, 'compaction-checkpoint-orphan')
+
+  // 未闭合的括号（只有 start）
+  const unclosed = clone().filter((e) => e.type !== 'compaction/end')
+  assert.ok(validateSessionEvents(unclosed).problems.some((p) => p.kind === 'compaction-unclosed'))
+
+  // 缺 summary 的 end
+  const orphanEnd = clone().filter((e) => e.type !== 'compaction/summary' && e.type !== 'user/message')
+  assert.ok(validateSessionEvents(orphanEnd).problems.some((p) => p.kind === 'compaction-end-orphan'))
+})
+
+test('trimTurns：原生压缩的受遮蔽前缀不计预算、不裁剪、不丢弃', () => {
+  // 受遮蔽前缀（log-only）即便超出预算也原样保留；预算只作用于检查点之后的有效段
+  const shadowedTurn = {
+    shadowed: true,
+    prompt: '被压掉的旧问题',
+    steps: [{ content: [{ type: 'text', text: 'A'.repeat(4000) }], toolCalls: [], toolResults: [] }],
+  }
+  const effectiveTurns = Array.from({ length: 6 }, (_, i) => ({
+    prompt: '有效问题' + i,
+    steps: [{ content: [{ type: 'text', text: 'B'.repeat(4000) }], toolCalls: [], toolResults: [] }],
+  }))
+  const turns = [shadowedTurn, { prompt: '', steps: [], compaction: { summary: '摘要' } }, ...effectiveTurns]
+  const { turns: out, trimmed } = trimTurns(turns, 1500)
+  assert.equal(out[0], shadowedTurn, '受遮蔽轮原样保留（连对象都不重建）')
+  assert.equal(out[1].compaction.summary, '摘要', '边界轮的检查点标记保留')
+  assert.ok(trimmed.droppedTurns > 0, '有效段仍按预算裁剪')
+  assert.ok(trimmed.originalTokens < 7000, 'originalTokens 只算有效段（不含被遮蔽的 4000 字符）')
+  // 受遮蔽轮不参与估算：把它的正文放大 10 倍，预算判断不变
+  const bigger = [{ ...shadowedTurn, steps: [{ content: [{ type: 'text', text: 'A'.repeat(40000) }], toolCalls: [], toolResults: [] }] }, ...turns.slice(1)]
+  assert.equal(trimTurns(bigger, 1500).trimmed.originalTokens, trimmed.originalTokens)
 })
 
 test('validateSessionEvents：原生会话 sourceEventSeqs/surfaceOp 语义不再误报（issue #20 附注）', () => {
@@ -2668,7 +2837,7 @@ test('synthesizeSession: 首个 surface 事件是首个 step 内的 system head�
 test('synthesizeSession: 首轮无 step 时 head 自补一个只装 head 的 step（否则没有可锚的 step）', () => {
   const out = convertClaudeJsonl(load('sess-empty-001.jsonl'), { sourcePath: 'D:\\demo\\proj\\sess-empty-001.jsonl' })
   assert.deepEqual(out.events.map((e) => e.type), [
-    'turn/start', 'step/start', 'system/message', 'step/end', 'user/message', 'turn/end',
+    'turn/start', 'step/start', 'system/message', 'user/message', 'step/end', 'user/message', 'turn/end',
   ])
   assert.equal(out.events[2].data.message.role, 'system')
   assert.equal(validateSessionEvents(out.events).ok, true)
