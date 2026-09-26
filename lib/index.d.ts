@@ -95,7 +95,7 @@ export interface ImportChatOptions extends ImportOptions {
   branch?: 'main' | 'all'
   /** 仅 opencode / mimocode / zcode：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
-  /** 仅 opencode / mimocode / pi：true 时导入全量历史（忽略对话压缩）；默认 false 尊重压缩。 */
+  /** 仅 opencode / mimocode / kilocode / teleagent / pi / codex：true 时导入全量历史（忽略对话压缩）；默认 false 尊重压缩。 */
   fullHistory?: boolean
   /** 仅 hermes：'tail' 只导 lineage 链尾（叶子会话）。 */
   lineage?: 'tail'

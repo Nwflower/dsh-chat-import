@@ -1649,6 +1649,40 @@ test('import_codex 分页幂等：重复导同一页跳过；新增一页后重�
   assert.deepEqual(prompts, ['第一问', '第二问', '第三问'])
 })
 
+test('import_codex fullHistory 入 args 指纹：换值重导走 argsChanged，不另建会话', async () => {
+  const pageA = PAG_DIR + `rollout-2026-09-14T10-54-33-${PAG_THREAD}.jsonl`
+  const pageB = PAG_DIR2 + `rollout-2026-09-15T19-55-00-${PAG_THREAD}_${PAG_PAGE_ID}.jsonl`
+  const tree = {
+    'D:\\demo\\codex-chain\\sessions': 'dir',
+    'D:\\demo\\codex-chain\\sessions\\2026': 'dir',
+    'D:\\demo\\codex-chain\\sessions\\2026\\09': 'dir',
+    [PAG_DIR.replace(/\\+$/, '')]: 'dir',
+    [PAG_DIR2.replace(/\\+$/, '')]: 'dir',
+    [pageA]: [
+      pagMeta(PAG_THREAD),
+      pagUser('第一问', '2026-09-14T10:55:00.000Z'),
+      pagAsst('答一', '2026-09-14T10:55:10.000Z'),
+    ].join('\n'),
+    [pageB]: [
+      pagMeta(PAG_THREAD, { history_mode: 'paginated', history_base: { thread_id: PAG_THREAD } }),
+      pagUser('第二问', '2026-09-15T19:56:00.000Z'),
+      pagAsst('答二', '2026-09-15T19:56:10.000Z'),
+    ].join('\n'),
+  }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'codex')
+
+  const first = await def.execute({ path: pageB })
+  assert.equal(first.alreadyImported, false)
+  assert.equal(persistence.sessions.size, 1)
+  // 换 fullHistory（压缩是否尊重）→ 转换产物会变 → 参数指纹变化 → argsChanged 跳过
+  const second = await def.execute({ path: pageB, fullHistory: true })
+  assert.equal(second.alreadyImported, true)
+  assert.equal(second.argsChanged, true)
+  assert.equal(persistence.sessions.size, 1)
+})
+
 test('import_codex 分页发现：同 thread 多页只出一条（标题取首页首问，修复同名条目）', async () => {
   const pageA = PAG_DIR + `rollout-2026-09-14T10-54-33-${PAG_THREAD}.jsonl`
   const pageB = PAG_DIR2 + `rollout-2026-09-15T19-55-00-${PAG_THREAD}_${PAG_PAGE_ID}.jsonl`

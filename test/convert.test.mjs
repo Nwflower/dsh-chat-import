@@ -602,6 +602,119 @@ test('convertCodexJsonl: event_msg 重复消息不重复计数、多轮正确切
   assert.equal(ends.length, 2)
 })
 
+// ---- Codex 上下文压缩（compacted 信封）：默认只导压缩后的窗口 ----
+
+// 合成 rollout：session_meta + 压缩前的整轮 + compacted 信封 + 压缩后跨轮产物 + 新提问。
+// 压缩点落在一轮工具执行中间（实测形态）：窗口首批产物属于压缩前就开着的那一轮。
+function codexCompactedRollout(over = {}) {
+  const summary = 'Another language model started to solve this problem and produced a summary of its thinking process. Summary: 前一段工作已完成 X。'
+  const compacted = {
+    timestamp: '2026-09-07T09:10:03.113Z', type: 'compacted',
+    payload: {
+      message: summary,
+      replacement_history: [
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '第一个任务' }] },
+        { type: 'message', role: 'developer', content: [{ type: 'input_text', text: '<environment_context>cwd</environment_context>' }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: '确认到哪一步了？' }] },
+        { type: 'message', role: 'user', content: [{ type: 'input_text', text: summary }] },
+      ],
+      window_number: 2,
+      ...over,
+    },
+  }
+  const j = (o) => JSON.stringify(o)
+  return [
+    j({ timestamp: '2026-09-07T04:22:51.704Z', type: 'session_meta', payload: { id: 'codex-comp-1', cwd: 'D:\\demo\\codex-comp', timestamp: '2026-09-07T04:22:50.722Z' } }),
+    j({ timestamp: '2026-09-07T04:23:00.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '第一个任务' }] } }),
+    j({ timestamp: '2026-09-07T04:23:01.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '压缩前的回答' }] } }),
+    j({ timestamp: '2026-09-07T04:23:02.000Z', type: 'response_item', payload: { type: 'function_call', name: 'shell', arguments: '{"cmd":"ls"}', call_id: 'call_pre' } }),
+    j({ timestamp: '2026-09-07T04:23:03.000Z', type: 'response_item', payload: { type: 'function_call_output', call_id: 'call_pre', output: '压缩前的工具输出' } }),
+    j(compacted),
+    // 压缩后：先有 reasoning / assistant / 工具产物（属于跨压缩点那一轮），最后才是新提问
+    j({ timestamp: '2026-09-07T09:10:04.000Z', type: 'response_item', payload: { type: 'reasoning', summary: [{ type: 'summary_text', text: '**继续之前的排查**' }] } }),
+    j({ timestamp: '2026-09-07T09:10:05.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '压缩后的回答' }] } }),
+    j({ timestamp: '2026-09-07T09:10:06.000Z', type: 'response_item', payload: { type: 'custom_tool_call', name: 'apply_patch', input: '{"path":"a.txt"}', call_id: 'call_post' } }),
+    j({ timestamp: '2026-09-07T09:10:07.000Z', type: 'response_item', payload: { type: 'custom_tool_call_output', call_id: 'call_post', output: '压缩后的工具输出' } }),
+    j({ timestamp: '2026-09-07T09:11:00.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '新提问' }] } }),
+    j({ timestamp: '2026-09-07T09:11:01.000Z', type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '新回答' }] } }),
+  ].join('\n')
+}
+
+test('convertCodexJsonl: compacted 默认只导最后一次压缩后的窗口，摘要作 reasoning 前置', () => {
+  const raw = codexCompactedRollout()
+  const full = convertCodexJsonl(raw, { sessionId: 'codex-comp-1', fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.turns.length, 2) // 压缩前的「第一个任务」+ 压缩后的「新提问」
+  assert.equal(full.toolCalls, 2) // call_pre + call_post 都导
+  const fullTexts = full.events.filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => e.data.message.content).map((c) => c.text)
+  assert.ok(fullTexts.includes('压缩前的回答') && fullTexts.includes('压缩后的回答'))
+  // fullHistory：压缩边界不切片、摘要也不前置（压缩前的正文照常导入）
+  assert.equal(full.events.some((e) => e.type === 'assistant/message'
+    && e.data.message.content.some((c) => c.type === 'reasoning' && c.text.startsWith('Another language model started'))), false)
+
+  const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-1', budget: 366000 })
+  assert.equal(out.compacted, true)
+  assert.equal(out.trimmed, undefined)
+  // 窗口 = 压缩后的产物 + 新提问：跨压缩点那一轮的提问从 replacement_history 取回
+  assert.equal(out.turns.length, 2)
+  assert.equal(out.turns[0].prompt, '确认到哪一步了？')
+  assert.equal(out.turns[1].prompt, '新提问')
+  assert.equal(out.toolCalls, 1) // 只导窗口内的 call_post
+  // 压缩前的正文不进会话（压缩前的回答 / 工具输出都不在事件里）
+  const texts = out.events.filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => e.data.message.content).map((c) => c.text)
+  assert.ok(!texts.includes('压缩前的回答'))
+  assert.ok(!out.events.some((e) => e.data && e.data.callId === 'call_pre'))
+  assert.ok(texts.includes('压缩后的回答') && texts.includes('新回答'))
+  // 摘要作首个保留步骤的第一块 reasoning
+  const firstStep = out.events.find((e) => e.type === 'assistant/message')
+  assert.equal(firstStep.data.message.content[0].type, 'reasoning')
+  assert.match(firstStep.data.message.content[0].text, /^Another language model started to solve this problem/)
+  // 标题仍取全量记录的第一条提问（压缩只切正文，不切标题）
+  assert.equal(out.title, '第一个任务')
+  assertMessageOrderLegal(out.events)
+  assertToolPairing(out.events)
+})
+
+test('convertCodexJsonl: 压缩信封没有摘要正文时不切片（不静默丢前半段）', () => {
+  const raw = codexCompactedRollout({ message: undefined, replacement_history: undefined })
+  const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-1' })
+  assert.equal(out.compacted, undefined)
+  assert.equal(out.turns.length, 2)
+  assert.ok(out.events.some((e) => e.data && e.data.callId === 'call_pre')) // 压缩前内容仍在
+})
+
+test('convertCodexJsonl: 压缩后没有人类提问 → 用空 prompt 轮次兜住内容（不丢产物）', () => {
+  const raw = codexCompactedRollout({ replacement_history: [] })
+  const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-1' })
+  assert.equal(out.compacted, true)
+  // replacement_history 取不到提问 → 空 prompt 轮次承载压缩后的产物（pi retainedTail 同款兜底）
+  assert.equal(out.turns.length, 2)
+  assert.equal(out.turns[0].prompt, '')
+  assert.ok(out.messages >= 2)
+  const firstHuman = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user')
+  assert.equal(firstHuman.data.content[0].text, '') // 空 prompt 轮次（有内容兜底，不是空会话）
+  assert.ok(out.events.some((e) => e.data && e.data.callId === 'call_post'))
+  assertMessageOrderLegal(out.events)
+  assertToolPairing(out.events)
+})
+
+test('convertCodexJsonl: 压缩后既无提问也无产物 → 0 轮显式给出原因与开关', () => {
+  const j = (o) => JSON.stringify(o)
+  const summary = 'Another language model started to solve this problem.'
+  const raw = [
+    j({ timestamp: '2026-09-07T04:22:51.704Z', type: 'session_meta', payload: { id: 'codex-comp-empty', cwd: 'D:\\demo\\codex-comp' } }),
+    j({ timestamp: '2026-09-07T04:23:00.000Z', type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text: '任务' }] } }),
+    j({ timestamp: '2026-09-07T09:10:03.113Z', type: 'compacted', payload: { message: summary, replacement_history: [] } }),
+  ].join('\n')
+  const out = convertCodexJsonl(raw, { sessionId: 'codex-comp-empty' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns.length, 0)
+  assert.match(out.skipReason, /压缩之后没有新回合/)
+  assert.match(out.skipReason, /fullHistory/)
+})
+
 test('convertCodexJsonl: 畸形行计数与会话 id 覆盖', () => {
   const raw = 'not json\n' + load('codex-simple.jsonl')
   const out = convertCodexJsonl(raw, { sessionId: 'custom-codex' })
