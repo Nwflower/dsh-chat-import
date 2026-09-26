@@ -3704,7 +3704,7 @@ test('export_claude 落盘：import → export 闭环、路径 <outputDir>/<slug
   assert.equal(value.slug, expectedSlug)
   assert.equal(value.cwd, hostAbs('D:/demo/proj'))
   assert.match(value.sessionId, /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)
-  assert.equal(value.recordCount, 5) // mode + permission-mode + user + ai-title + assistant（环境变更声明被跳过）
+  assert.equal(value.recordCount, 5) // mode + permission-mode + user + custom-title + assistant（环境变更声明被跳过）
   assert.equal(value.mapping.turns, 1)
   assert.equal(value.mapping.messages, 3) // 环境变更声明 + user + assistant（原样计数，导出时跳过）
   assert.equal(value.mapping.toolCalls, 0)
@@ -3730,14 +3730,14 @@ test('export_claude 落盘：import → export 闭环、路径 <outputDir>/<slug
   assert.equal(typeof user.message.content, 'string')
   assert.equal(user.cwd, hostAbs('D:/demo/proj'))
   const title = lines[3]
-  assert.equal(title.type, 'ai-title')
+  assert.equal(title.type, 'custom-title')
   const asst = lines[4]
   assert.equal(asst.type, 'assistant')
   assert.equal(asst.parentUuid, user.uuid)
   assert.equal(asst.message.stop_reason, 'end_turn')
 })
 
-test('export_claude 带标题会话：ai-title 放首个 user 后、assistant 前；返回 title', async () => {
+test('export_claude 带标题会话：custom-title 放首个 user 后、assistant 前；返回 title', async () => {
   const tree = { 'D:\\demo\\proj\\sess-title-001.jsonl': load('sess-title-001.jsonl') }
   const { ctx, writes } = makeCtx(tree)
   apply(ctx)
@@ -3745,18 +3745,18 @@ test('export_claude 带标题会话：ai-title 放首个 user 后、assistant �
 
   const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-title-001', outputDir: OUT })
-  assert.equal(value.recordCount, 5) // mode + permission-mode + user + ai-title + assistant
+  assert.equal(value.recordCount, 5) // mode + permission-mode + user + custom-title + assistant
   assert.equal(typeof value.title, 'string')
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
 
   const lines = writes[0].content.slice(0, -1).split('\n').map((l) => JSON.parse(l))
   const user = lines[2]
-  const ai = lines[3]
-  assert.equal(ai.type, 'ai-title')
-  assert.equal(ai.aiTitle, value.title)
-  assert.equal(Object.hasOwn(ai, 'uuid'), false)
-  assert.equal(Object.hasOwn(ai, 'parentUuid'), false)
-  assert.equal(lines[4].parentUuid, user.uuid) // assistant 链越过 ai-title
+  const title = lines[3]
+  assert.equal(title.type, 'custom-title')
+  assert.equal(title.customTitle, value.title)
+  assert.equal(Object.hasOwn(title, 'uuid'), false)
+  assert.equal(Object.hasOwn(title, 'parentUuid'), false)
+  assert.equal(lines[4].parentUuid, user.uuid) // assistant 链越过 custom-title
 })
 
 test('export_claude 工具会话：tool_use/tool_result 配对、sourceToolAssistantUUID、stop_reason', async () => {
@@ -3767,7 +3767,7 @@ test('export_claude 工具会话：tool_use/tool_result 配对、sourceToolAssis
 
   const def = exportDef(ctx, 'claude')
   const value = await def.execute({ sessionId: 'import-sess-tool-001', outputDir: OUT })
-  assert.equal(value.recordCount, 7) // mode + permission-mode + user + ai-title + assistant + tool_result + assistant
+  assert.equal(value.recordCount, 7) // mode + permission-mode + user + custom-title + assistant + tool_result + assistant
   assert.equal(value.mapping.toolCalls, 1)
   assert.equal(value.mapping.toolResults, 1)
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])

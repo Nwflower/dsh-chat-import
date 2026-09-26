@@ -309,7 +309,7 @@ test('assistant 图片块降级跳过并计数', () => {
   assert.deepEqual(lines[3].message.content, [{ type: 'text', text: '看到了' }])
 })
 
-test('session/title → ai-title：放首个 user 后、assistant 前；无 uuid/parentUuid', () => {
+test('session/title → custom-title：放首个 user 后、assistant 前；无 uuid/parentUuid', () => {
   const events = [
     titleEv(0, '项目问题讨论'),
     userMsg(1, '提问'),
@@ -320,11 +320,11 @@ test('session/title → ai-title：放首个 user 后、assistant 前；无 uuid
   assert.equal(out.recordCount, 5)
   const lines = parseLines(out.jsonl)
   assert.equal(lines[2].type, 'user')
-  assert.deepEqual(lines[3], { type: 'ai-title', aiTitle: '项目问题讨论', sessionId: SESSION_UUID })
+  assert.deepEqual(lines[3], { type: 'custom-title', customTitle: '项目问题讨论', sessionId: SESSION_UUID })
   assert.equal(Object.hasOwn(lines[3], 'uuid'), false)
   assert.equal(Object.hasOwn(lines[3], 'parentUuid'), false)
   const asst = lines[4]
-  assert.equal(asst.parentUuid, lines[2].uuid) // 链越过 ai-title
+  assert.equal(asst.parentUuid, lines[2].uuid) // 链越过 custom-title
 })
 
 test('title 入参优先于 session/title 事件', () => {
@@ -332,7 +332,7 @@ test('title 入参优先于 session/title 事件', () => {
   const out = serializeClaudeJsonl(input(events, { title: '入参标题' }), { uuid: uuidSeq() })
   const lines = parseLines(out.jsonl)
   assert.equal(out.title, '入参标题')
-  assert.equal(lines[3].aiTitle, '入参标题')
+  assert.equal(lines[3].customTitle, '入参标题')
 })
 
 test('timestamp 断言：event.time → ISO8601；promptId/version/gitBranch 透传', () => {
@@ -447,7 +447,7 @@ test('tailClaudeEvents：全半开 → 空；无 turn 包裹的续写事件保�
   assert.equal(t2.firstTurn, null)
 })
 
-test('serializeClaudeJsonlTail：无 mode/permission-mode/ai-title 头、首条 parentUuid=prevUuid、链连续、lastUuid', () => {
+test('serializeClaudeJsonlTail：无 mode/permission-mode/custom-title 头、首条 parentUuid=prevUuid、链连续、lastUuid', () => {
   const events = [userMsg(0, '续问'), asstMsg(1, 2, 1, [{ type: 'text', text: '续答' }])]
   const out = serializeClaudeJsonlTail({ meta: {}, events, sessionUuid: SESSION_UUID, cwd: 'D:\\demo\\proj', prevUuid: 'prev-000' }, { uuid: uuidSeq() })
   const lines = parseLines(out.jsonl)
@@ -459,7 +459,7 @@ test('serializeClaudeJsonlTail：无 mode/permission-mode/ai-title 头、首条 
   assert.equal(out.lastUuid, lines[1].uuid)
   assert.ok(!out.jsonl.includes('"type":"mode"'))
   assert.ok(!out.jsonl.includes('permission-mode'))
-  assert.ok(!out.jsonl.includes('ai-title'))
+  assert.ok(!out.jsonl.includes('custom-title'))
   // 记录 sessionId 与目标文件一致
   assert.equal(lines[0].sessionId, SESSION_UUID)
   assert.equal(lines[1].sessionId, SESSION_UUID)
