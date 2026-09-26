@@ -139,6 +139,41 @@ test('claude：上下文 token 数取最后一条 assistant 的 usage.input_toke
   assert.equal(sessions.find((s) => s.sessionId === 'sess-big').contextTokens, 888888) // >256KB 头不含尾部 assistant
 })
 
+test('claude：标题载体 custom-title > ai-title > 首问（尾部记录靠 readTail 取到）', async () => {
+  const root = join(HOME, '.claude', 'projects')
+  const slug = join(root, 'proj-a')
+  const filler = 'x'.repeat(300 * 1024) // 撑过 HEAD_MAX_BYTES：尾部记录头读不到
+  const withCustom = join(slug, 'sess-custom.jsonl')
+  const aiInTail = join(slug, 'sess-ai.jsonl')
+  const pasted = join(slug, 'sess-pasted.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [slug, { type: 'dir' }],
+    // 头：首问 + ai-title；尾：custom-title（重命名追加在尾部）
+    [withCustom, { type: 'file', text: [
+      j({ sessionId: 'sess-custom', type: 'user', message: { role: 'user', content: '首问' } }),
+      j({ sessionId: 'sess-custom', type: 'ai-title', aiTitle: 'AI 生成的标题' }),
+      j({ sessionId: 'sess-custom', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: filler }] } }),
+      j({ sessionId: 'sess-custom', type: 'custom-title', customTitle: '用户重命名' }),
+    ].join('\n') }],
+    // 无 custom-title、ai-title 也只在尾部（实测 9/62 份转录如此）
+    [aiInTail, { type: 'file', text: [
+      j({ sessionId: 'sess-ai', type: 'user', message: { role: 'user', content: '首问' } }),
+      j({ sessionId: 'sess-ai', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: filler }] } }),
+      j({ sessionId: 'sess-ai', type: 'ai-title', aiTitle: '尾部 AI 标题' }),
+    ].join('\n') }],
+    // 无任何标题记录、首问是粘贴信封 → 剥掉信封取正文（不把标记当标题）
+    [pasted, { type: 'file', text: [
+      j({ sessionId: 'sess-pasted', type: 'user', message: { role: 'user', content: '<pasted_content id="1b70">\n首页改造需求\n</pasted_content id="1b70">' } }),
+      j({ sessionId: 'sess-pasted', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '好' }] } }),
+    ].join('\n') }],
+  ])
+  const { sessions } = await discoverSessions({ path: root, format: 'claude', host: mockHost(files), imports: {} })
+  assert.equal(sessions.find((s) => s.sessionId === 'sess-custom').title, '用户重命名')
+  assert.equal(sessions.find((s) => s.sessionId === 'sess-ai').title, '尾部 AI 标题')
+  assert.equal(sessions.find((s) => s.sessionId === 'sess-pasted').title, '首页改造需求')
+})
+
 test('onEntry：逐条产出顺序与返回一致、状态标注与 query 过滤已应用（面板流式底座）', async () => {
   const root = join(HOME, '.claude', 'projects')
   const slug = join(root, 'proj-a')

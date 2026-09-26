@@ -39,7 +39,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 - `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改。
 - `sessionId`（可选）— 覆盖目标 DSH 会话 id（默认 `import-<源sessionId>`）。
 - `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
-- `import_claude({ compacted: true })` — 只导长会话的**最后一次压缩摘要 + 尾部**（摘要作前置 `reasoning` 块；标题取 summary 记录）。无 summary 记录时该参数不生效。
+- `import_claude({ compacted: true })` — 只导长会话的**最后一次压缩摘要 + 尾部**（摘要作前置 `reasoning` 块；压缩边界之前的 `/rename`、`ai-title` 仍照常作为标题）。压缩载体两代都认：现代 2.x 的 `compact_boundary` + `isCompactSummary` user 记录（摘要正文在这条记录里），以及旧格式 2.0.x 的 `summary` 记录；多次压缩取最后一次。找不到摘要正文时**不切片**（该参数不生效），不会静默丢掉前半段对话。
 - `import_hermes({ lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
 - `import_chat({ format: 'reasonix', path: '<sessions 目录>' })` — 目录导入默认使用 `lineageMode: 'canonical'`。只有现代 sidecar 把两个文件归入同一逻辑话题、无歧义的 `parent_id` 链明确证明祖先关系，而且祖先的完整语义消息序列是更长后代的真前缀时，才折叠恢复祖先。畸形输入、带 WAL 的检查点、完全相同副本、谱系链缺失及真实分叉叶全部保留。此模式不会替 Reasonix catalog 选择唯一活动叶；真实分支继续独立存在。`lineageMode: 'physical'` 可恢复每个 JSONL 一条会话。
 - **归档 / 删除 / 删工作区 → 自动忽略（不再重导）** — 归档会话写入忽略墓碑，取消归档自动解除。撤回 / 删除（retract / 清理）写入**永久**墓碑，重扫、`/import-all` 与自动同步一律跳过它。DSH 的归档仍保留会话与 id，但被忽略的源不再被当作「可重导」。删工作区会忽略**删除时**其名下已导入的会话，并登记工作区忽略——该工作区出现**新会话**或其中会话**取消归档**时自动恢复工作区（更早的墓碑保留）。查看与解除：`/ignores`、`/unignore <sessionId|sourcePath|all>`；`force: true` 可显式越权导入一次（不解除墓碑）。

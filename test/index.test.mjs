@@ -467,6 +467,29 @@ test('单文件导入：落盘、归组、返回值符合 schema', async () => {
   assert.equal(attached[0].id, 'import-sess-simple-001')
 })
 
+test('单文件导入：Claude custom-title（/rename）成为「Claude · 自定义标题」', async () => {
+  const file = 'D:\\demo\\proj\\sess-rename-001.jsonl'
+  const raw = [
+    JSON.stringify({ sessionId: 'sess-rename-001', type: 'user', cwd: hostAbs('D:/demo/proj'), message: { role: 'user', content: '第一个问题' } }),
+    JSON.stringify({ sessionId: 'sess-rename-001', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答' }] } }),
+    JSON.stringify({ sessionId: 'sess-rename-001', type: 'ai-title', aiTitle: 'AI 生成的标题' }),
+    JSON.stringify({ sessionId: 'sess-rename-001', type: 'custom-title', customTitle: '我自己起的标题' }),
+  ].join('\n')
+  const { ctx, persistence } = makeCtx({ [file]: raw })
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  const value = await def.execute({ path: file })
+  assert.equal(value.sessionId, 'import-sess-rename-001')
+  // 自定义标题（而非 ai-title / 首问）落成落盘会话的标题事件——DSH 列表显示的就是它
+  const saved = persistence.sessions.get('import-sess-rename-001')
+  assert.ok(saved)
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.equal(saved.events.at(-1).data.title, 'Claude · 我自己起的标题')
+  // dry-run 预览同源（转换层标题）
+  const preview = await def.execute({ path: file, preview: true })
+  assert.equal(preview.title, '我自己起的标题')
+})
+
 test('幂等：重复导入同一文件返回 alreadyImported 且不重复落盘', async () => {
   const simple = load('sess-simple-001.jsonl')
   const { ctx, persistence } = makeCtx({ 'D:\\demo\\proj\\sess-simple-001.jsonl': simple })

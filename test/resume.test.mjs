@@ -47,6 +47,21 @@ test('summarizeClaudeJsonl: 畸形行计数、无用户回合返回空 lastUserP
   assert.match(out.summary, /解析跳过 1 行/)
 })
 
+test('summarizeClaudeJsonl: 会话标题取 custom-title（/rename，后到者胜）> ai-title', () => {
+  const raw = [
+    JSON.stringify({ sessionId: 'sess-h2', type: 'user', message: { role: 'user', content: '问' }, timestamp: '2026-08-01T10:00:00.000Z' }),
+    JSON.stringify({ sessionId: 'sess-h2', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '答' }] }, timestamp: '2026-08-01T10:00:01.000Z' }),
+    JSON.stringify({ sessionId: 'sess-h2', type: 'ai-title', aiTitle: '生成标题' }),
+    JSON.stringify({ sessionId: 'sess-h2', type: 'custom-title', customTitle: '用户命名' }),
+  ].join('\n')
+  const out = summarizeClaudeJsonl(raw, { sessionId: 'sess-h2' })
+  assert.equal(out.title, '用户命名')
+  assert.match(out.summary, /会话标题：用户命名/)
+  // 无 custom-title 时退回 ai-title
+  const onlyAi = summarizeClaudeJsonl(raw.split('\n').slice(0, 3).join('\n'), { sessionId: 'sess-h2' })
+  assert.equal(onlyAi.title, '生成标题')
+})
+
 test('summarizeCodexJsonl: response_item 消息 + function_call 解析', () => {
   const raw = [
     JSON.stringify({ type: 'session_meta', timestamp: '2026-08-01T10:00:00.000Z', payload: { id: 'codex-1' } }),
