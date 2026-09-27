@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertKimiWire } from '../lib/convert/kimi.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -478,8 +479,7 @@ test('convertKimiWire: append_message 与 turn.prompt 同文本去重、不同�
 })
 
 // ── 上下文压缩：只保留最后一次压缩之后的模型视角（修复预算超限）──────────────
-
-test('convertKimiWire: 旧格式 CompactionBegin/End 截断——压缩前轮次丢弃、进行中轮保留续写', () => {
+test('convertKimiWire: 旧格式 CompactionBegin/End（wire 无摘要）→ 退化为切窗口并显式上报', () => {
   const out = convertKimiWire(wire([
     ev('TurnBegin', { user_input: '第一问' }),
     ev('StepBegin', { n: 1 }),
@@ -496,11 +496,14 @@ test('convertKimiWire: 旧格式 CompactionBegin/End 截断——压缩前轮次
     ev('TextPart', { text: '压缩后的回答' }),
     ev('TurnEnd'),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
-  assert.equal(out.compacted, true)
+  // 旧 wire 只有配对标记、摘要只写 context.jsonl 不进 wire → 无从还原源侧摘要：不发检查点
+  //（不虚构摘要正文），保持既有切窗口，并显式报名前段已丢
+  assert.equal(out.compacted, undefined)
+  assert.equal(out.compactions, undefined)
+  assert.equal(out.compactionSummaryMissing, true)
   assert.equal(out.turns.length, 1)
   const t = out.turns[0]
   assert.equal(t.prompt, '第二问') // 压缩前的轮次整体退出模型视角
-  // 旧 wire 只有标记无摘要（摘要只写 context.jsonl）→ 不虚构 reasoning 块
   assert.deepEqual(t.steps.map((s) => s.content.map((c) => c.text)), [['压缩后的回答']])
   assert.equal(out.toolCalls, 0) // 压缩前的调用随步骤退出
   assert.ok(!out.events.some((e) => JSON.stringify(e.data).includes('第一答')))
@@ -515,7 +518,8 @@ test('convertKimiWire: 旧格式 CompactionBegin 无 End（压缩失败）不成
     ev('CompactionBegin'),
     ev('TurnEnd'),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
-  assert.equal(out.compacted, undefined) // 全量导入
+  assert.equal(out.compacted, undefined)
+  assert.equal(out.compactionSummaryMissing, undefined)
   assert.equal(out.turns.length, 1)
   assert.equal(out.events.find((e) => e.type === 'assistant/message').data.message.content[0].text, '答')
 })
@@ -541,17 +545,20 @@ test('convertKimiWire: 旧格式多次压缩取最后一次截点（最终模型
     ev('TextPart', { text: '答三续' }),
     ev('TurnEnd'),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
-  assert.equal(out.compacted, true)
+  assert.equal(out.compactionSummaryMissing, true)
   assert.equal(out.turns.length, 1)
   assert.equal(out.turns[0].prompt, '问三')
   assert.deepEqual(out.turns[0].steps.map((s) => s.content.map((c) => c.text)), [['答三续']])
 })
 
-test('convertKimiWire: 新格式 context.apply_compaction——摘要前置 + 压缩后视角（append_message 驱动 wire）', () => {
+test('convertKimiWire: 新格式 context.apply_compaction → 原生压缩检查点（日志保全量）', () => {
   const out = convertKimiWire(newWire([
     newEv('config.update', { cwd: '/tmp/work' }),
+    newEv('turn.prompt', { input: [{ type: 'text', text: 'before compaction' }], origin: { kind: 'user' } }),
     newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: 'before compaction' }], toolCalls: [] } }),
-    newEv('context.append_message', { message: { role: 'assistant', content: [{ type: 'text', text: 'assistant reply' }], toolCalls: [] } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: 'assistant reply' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
     newEv('context.apply_compaction', { summary: 'compacted summary', compactedCount: 2, tokensBefore: 100, tokensAfter: 30, keptUserMessageCount: 1 }),
     newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: 'after compaction' }], toolCalls: [] } }),
     newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '1', step: 1 } }),
@@ -559,18 +566,26 @@ test('convertKimiWire: 新格式 context.apply_compaction——摘要前置 + �
     newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '1', step: 1, finishReason: 'end_turn' } }),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
   assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  // 压缩前的轮与步骤留在日志里（只标 log-only），不再从导入结果里消失
   assert.equal(out.turns.length, 2)
-  // keptUserMessageCount=1：压缩前的 verbatim user 消息保留，assistant 内容被压缩丢弃
+  assert.equal(out.turns[0].shadowed, true)
   assert.equal(out.turns[0].prompt, 'before compaction')
-  assert.equal(out.turns[0].steps.length, 1) // 摘要宿主步骤（首个保留轮无既有步骤）
-  assert.deepEqual(out.turns[0].steps[0].content, [{ type: 'reasoning', text: 'compacted summary' }])
-  assert.equal(out.turns[1].prompt, 'after compaction')
-  assert.equal(out.turns[1].steps[0].content[0].text, 'resumed')
-  assert.ok(!out.events.some((e) => JSON.stringify(e.data).includes('assistant reply')))
+  assert.deepEqual(out.turns[0].steps[0].content, [{ type: 'text', text: 'assistant reply' }])
+  assert.equal(out.turns[1].prompt, 'after compaction') // 截点落在轮之间 → 检查点挂到后续轮
+  assert.equal(out.turns[1].compaction.summary, 'compacted summary')
+  assert.ok(out.events.some((e) => JSON.stringify(e.data).includes('assistant reply')))
+  // 模型视角：声明 → 摘要检查点 → 截点之后的内容
+  const derived = derivedSurfaceMessages(out.events)
+  assert.equal(derived[0], 'system:')
+  assert.ok(derived[1].startsWith('user:<system-reminder>'))
+  assert.deepEqual(derived.slice(2), ['user:compacted summary', 'user:after compaction', 'assistant:resumed'])
+  assert.ok(!derived.some((d) => d.includes('assistant reply')), '压缩前内容不进模型视角')
   assertMessageOrderLegal(out.events)
 })
 
-test('convertKimiWire: 新格式轮中压缩——截点前步骤丢弃、摘要前置到保留步骤', () => {
+test('convertKimiWire: 新格式轮中压缩 → 跨界轮一分为二（截点前 log-only）', () => {
   const out = convertKimiWire(newWire([
     newEv('turn.prompt', { input: [{ type: 'text', text: '第一问' }], origin: { kind: 'user' } }),
     newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
@@ -584,14 +599,21 @@ test('convertKimiWire: 新格式轮中压缩——截点前步骤丢弃、摘要
     newEv('turn.ended', { turnId: 0, reason: 'completed' }),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
   assert.equal(out.compacted, true)
-  assert.equal(out.turns.length, 1)
-  const t = out.turns[0]
-  assert.equal(t.prompt, '第一问')
-  assert.equal(t.steps.length, 1)
-  assert.deepEqual(t.steps[0].content.map((c) => c.type), ['reasoning', 'text'])
-  assert.equal(t.steps[0].content[0].text, '摘要文本')
-  assert.equal(t.steps[0].content[1].text, '压缩后的回答')
-  assert.equal(out.toolCalls, 0) // 压缩前的调用随步骤退出
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  assert.equal(out.turns.length, 2)
+  // 前段：截点前那一轮（含其工具调用），log-only 但留在日志里
+  assert.equal(out.turns[0].shadowed, true)
+  assert.equal(out.turns[0].prompt, '第一问')
+  assert.equal(out.turns[0].steps.length, 1)
+  assert.equal(out.toolCalls, 1)
+  // 后段：边界轮（空 prompt，检查点即其 user 侧消息）
+  assert.equal(out.turns[1].prompt, '')
+  assert.equal(out.turns[1].compaction.summary, '摘要文本')
+  assert.deepEqual(out.turns[1].steps.map((s) => s.content.map((c) => c.text)), [['压缩后的回答']])
+  const derived = derivedSurfaceMessages(out.events)
+  assert.equal(derived[2], 'user:摘要文本')
+  assert.deepEqual(derived.slice(3), ['assistant:压缩后的回答'])
   assertToolPairing(out.events)
   assertMessageOrderLegal(out.events)
 })
@@ -605,7 +627,9 @@ test('convertKimiWire: 新格式 apply_compaction legacy 变体（summary 为 Co
     newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
   assert.equal(legacyMsg.compacted, true)
-  assert.equal(legacyMsg.turns[0].steps[0].content[0].text, '旧变体摘要') // 非 text 部件不进摘要
+  const summary = legacyMsg.events.find((e) => e.type === 'compaction/summary')
+  assert.equal(summary.data.summary[0].text, '旧变体摘要') // 非 text 部件不进摘要
+  assert.equal(assertNativeCompaction(legacyMsg.events), 1)
 
   const ctxFallback = convertKimiWire(newWire([
     newEv('turn.prompt', { input: [{ type: 'text', text: '问' }], origin: { kind: 'user' } }),
@@ -615,10 +639,10 @@ test('convertKimiWire: 新格式 apply_compaction legacy 变体（summary 为 Co
     newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
   assert.equal(ctxFallback.compacted, true)
-  assert.equal(ctxFallback.turns[0].steps[0].content[0].text, '降级摘要')
+  assert.equal(ctxFallback.events.find((e) => e.type === 'compaction/summary').data.summary[0].text, '降级摘要')
 })
 
-test('convertKimiWire: 压缩为最后一条记录——边界轮保留 prompt 与摘要宿主（kept-user 近似）', () => {
+test('convertKimiWire: 压缩为最后一条记录 → 边界轮只装检查点，压缩前内容留在日志', () => {
   const out = convertKimiWire(newWire([
     newEv('turn.prompt', { input: [{ type: 'text', text: '问' }], origin: { kind: 'user' } }),
     newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
@@ -628,21 +652,59 @@ test('convertKimiWire: 压缩为最后一条记录——边界轮保留 prompt �
     newEv('context.apply_compaction', { summary: '终局摘要', compactedCount: 2 }),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
   assert.equal(out.compacted, true)
-  assert.equal(out.turns.length, 1)
-  // 边界轮 prompt 保留（压缩保留最近 user 消息的近似），已被压掉的回答退出
+  assert.equal(out.compactions, 1)
+  assert.equal(out.turns.length, 2)
+  assert.equal(out.turns[0].shadowed, true)
   assert.equal(out.turns[0].prompt, '问')
-  assert.deepEqual(out.turns[0].steps[0].content, [{ type: 'reasoning', text: '终局摘要' }])
-  assert.ok(!out.events.some((e) => e.type === 'assistant/message' && e.data.message.content.some((c) => c.text === '答')))
+  assert.equal(out.turns[0].steps[0].content[0].text, '答') // 压缩前内容仍在日志里
+  assert.equal(out.turns[1].compaction.summary, '终局摘要')
+  assert.deepEqual(out.turns[1].steps, [])
+  assert.deepEqual(derivedSurfaceMessages(out.events).slice(2), ['user:终局摘要'])
   assertMessageOrderLegal(out.events)
 })
 
-test('convertKimiWire: 压缩先于首问且无后续内容 → 空 turns（导入层按 skipped 上报）', () => {
+test('convertKimiWire: 压缩先于首问且无后续内容 → 无可遮蔽节点，不造轮（导入层按无用户回合跳过）', () => {
   const out = convertKimiWire(newWire([
     newEv('context.apply_compaction', { summary: '开局即压缩', compactedCount: 1 }),
   ]), { sourcePath: SRC, kimiId: 'sess-001' })
-  assert.equal(out.compacted, true)
+  // 宿主不变式要求 shadowedSeqs 非空：没有可遮蔽节点就发不出检查点，也不虚构会话
+  assert.equal(out.compacted, undefined)
+  assert.equal(out.compactions, undefined)
   assert.equal(out.turns.length, 0)
   assert.equal(out.events.length, 0)
+})
+
+test('convertKimiWire: fullHistory 时不发检查点（模型看全量）', () => {
+  const recs = newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '第一问' }], origin: { kind: 'user' } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答一' } } }),
+    newEv('context.apply_compaction', { summary: '摘要文本', compactedCount: 2 }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 2 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答二' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 2, finishReason: 'end_turn' } }),
+  ])
+  const full = convertKimiWire(recs, { sourcePath: SRC, kimiId: 'sess-001', fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.compactions, undefined)
+  assert.equal(full.events.some((e) => e.type.startsWith('compaction/')), false)
+  assert.equal(full.turns.length, 1)
+  assert.deepEqual(full.turns[0].steps.map((s) => s.content.map((c) => c.text)), [['答一'], ['答二']])
+  // 旧格式无摘要时的切窗口同样被 fullHistory 关掉
+  const legacy = convertKimiWire(wire([
+    ev('TurnBegin', { user_input: '问一' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '答一' }),
+    ev('CompactionBegin'),
+    ev('CompactionEnd'),
+    ev('TurnBegin', { user_input: '问二' }),
+    ev('StepBegin', { n: 1 }),
+    ev('TextPart', { text: '答二' }),
+    ev('TurnEnd'),
+  ]), { sourcePath: SRC, kimiId: 'sess-001', fullHistory: true })
+  assert.equal(legacy.compactionSummaryMissing, undefined)
+  assert.equal(legacy.turns.length, 2)
+  assert.ok(legacy.events.some((e) => JSON.stringify(e.data).includes('答一')))
 })
 
 test('convertKimiWire: 压缩视角导入不再触发预算裁剪（修复前全量 pre-compaction 历史超预算）', () => {
@@ -655,7 +717,7 @@ test('convertKimiWire: 压缩视角导入不再触发预算裁剪（修复前全
     if (i === 20) recs.push(ev('CompactionBegin'), ev('CompactionEnd'))
   }
   const out = convertKimiWire(wire(recs), { sourcePath: SRC, kimiId: 'sess-001', budget: 3000 })
-  assert.equal(out.compacted, true)
+  assert.equal(out.compactionSummaryMissing, true) // 旧格式无摘要 → 切窗口（见上）
   assert.equal(out.turns.length, 21) // 压缩点后的 20 轮 + 边界轮 prompt（kept-user 近似）
   assert.equal(out.turns[0].prompt, '问题' + '字'.repeat(49) + '20')
   assert.equal(out.turns[0].steps.length, 0) // 边界轮已被压掉的回答退出

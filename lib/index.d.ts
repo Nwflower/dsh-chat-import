@@ -95,7 +95,7 @@ export interface ImportChatOptions extends ImportOptions {
   branch?: 'main' | 'all'
   /** 仅 opencode / mimocode / zcode：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
-  /** 仅 opencode / mimocode / kilocode / teleagent / pi / codex / claude：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。该开关进参数指纹，换值须重导。 */
+  /** 仅 opencode / mimocode / kilocode / teleagent / pi / codex / claude / kimi：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。该开关进参数指纹，换值须重导。 */
   fullHistory?: boolean
   /** 仅 hermes：'tail' 只导 lineage 链尾（叶子会话）。 */
   lineage?: 'tail'
@@ -168,6 +168,8 @@ export interface SingleImportResult {
   compacted?: boolean
   /** 原生压缩检查点数量（>0 才占键）。 */
   compactions?: number
+  /** 源压缩只有边界、没有摘要正文（Kimi 旧格式 wire）→ 该源退化为切窗口，前段历史不进日志。 */
+  compactionSummaryMissing?: boolean
   forceImported?: { previous: string; current: string }
   /** 宿主内存残留幽灵会话（retract 后工件已删）时重导自动另铸后缀新 id，
    * previous = 幽灵原 id、current = 新落盘 id。 */
@@ -196,6 +198,8 @@ export interface BatchItemResult {
   /** 同 SingleImportResult.compacted / compactions（批量条目）。 */
   compacted?: boolean
   compactions?: number
+  /** 同 SingleImportResult.compactionSummaryMissing（批量条目）。 */
+  compactionSummaryMissing?: boolean
   forceImported?: { previous: string; current: string }
   /** 同 SingleImportResult.staleGhost（批量条目）。 */
   staleGhost?: { previous: string; current: string }

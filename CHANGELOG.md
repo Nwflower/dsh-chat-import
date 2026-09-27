@@ -2,6 +2,18 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">问题修复</h3>
+
+- 修复 **`import_kimi` 的上下文压缩仍在切窗口**：Kimi 的压缩落点（新版 `context.apply_compaction`、旧版 `CompactionBegin/End` 配对守卫）此前按「切窗口」处理——截点之前的轮次与进行中轮截点前的步骤在导入时直接从会话里删掉，压缩前的历史永久消失（既不能回溯也不能导出回源）。新版载体带摘要，现在改为 **DSH 原生压缩检查点**：全量历史留在日志里，截点处发射原生 `compaction/*` 事务（摘要作检查点），跨截点那一轮**就地一分为二**（前段 log-only、后段作边界轮）；模型的投影 = 摘要 + 截点之后的内容，与源一致；一次会话压缩多次发多个链式检查点。旧版 wire 只有配对标记、摘要只写 `context.jsonl` 而不在 wire 里 → 无可还原的摘要，这种情况保持切窗口并新增 `compactionSummaryMissing: true` 显式报名（不虚构摘要正文）。`fullHistory: true` 时不发检查点（模型看全量），并进参数指纹（换值重导走 args-changed）。
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+- Fix **`import_kimi` still windowing the conversation at a compaction point**: Kimi's compaction markers (modern `context.apply_compaction`, legacy `CompactionBegin/End` pairs) used to be handled by *windowing* — the turns before the cut, plus the steps already built in the straddling turn, were deleted from the imported session, so the pre-compaction history was gone for good (neither replayable nor exportable back to the source). The modern carrier carries a summary, so it is now imported as a **native DSH compaction checkpoint**: the full history stays in the log, one native `compaction/*` transaction is emitted at the cut (the summary becomes the checkpoint), and the straddling turn is **split in two** (the earlier part is log-only, the later part becomes the boundary turn). The model sees the summary plus everything after the cut, matching the source; several compactions produce several chained checkpoints. The legacy wire carries only a marker pair with the summary written to `context.jsonl` (never into the wire) → there is no summary to restore, so that case keeps the window slice and now reports `compactionSummaryMissing: true` explicitly instead of inventing summary text. `fullHistory: true` emits no checkpoints (the model sees everything) and feeds the args fingerprint (changing it re-imports via args-changed).
+
 ## [0.19.4] - 2026-09-26
 
 [中文](#cn-0.19.4) | [English](#en-0.19.4)
