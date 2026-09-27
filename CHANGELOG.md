@@ -2,23 +2,31 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
-## [Unreleased]
+## [0.19.7] - 2026-09-27
 
-[中文](#cn-unreleased) | [English](#en-unreleased)
+[中文](#cn-0.19.7) | [English](#en-0.19.7)
 
-<h3 id="cn-unreleased">问题修复</h3>
+<h3 id="cn-0.19.7">新增功能</h3>
+
+- 新增 **导入结果透出转换层保真 / 降级计数**：`import_chat` 的返回值与渲染正文现在带上 `metaMessages`（isMeta 记录数）、`images`（以 `[image]` 占位导入的图片数）、`backendToolCalls`（Grok Build 后端工具调用数）、`droppedToolResultBlocks`（无法映射的结果块数）、`droppedMalformedOutputs`（Codex 工具输出里的未知块类型数）、`droppedMalformedArgs`（Codex 未能转成标准 JSON 的 `custom_tool_call` 参数数）——六个字段均为可选、>0 才占键，输出 schema（单文件与批量条目）、`SingleImportResult` / `BatchItemResult` 类型同步登记。渲染正文按「失败要大声」逐条列出（如「图片占位 294 张」「无法映射的结果块 1 个」），此前这些计数只停在转换器返回值、工具结果里看不到。
+
+<h3 id="cn-0.19.7">问题修复</h3>
 
 - 修复 **`import_claude` 把绝大多数工具结果导成空**：`tool_result.content` 实测 29494/33254 = **88.7% 是纯字符串**（shell 输出等），转换器此前只映射块数组，字符串内容全部落成空结果（本机 180 份转录实测 **24449 条空结果**）。现在三形态都落地：字符串 → 单文本块；数组逐块映射，其中 `image` 块以 `[image]` 占位并计入新字段 `images`（实测 294 张，base64 永不进日志）；缺失 → 空数组交由合成层兜底。未知块类型计数进新字段 `droppedToolResultBlocks`（不静默）。旧新对比：空结果 24449 → 1（仅剩的 1 条是 `tool_reference` 未知块，已计数上报）。
 - 修复 **`import_claude` 把一次响应拆成多个步骤**：Claude Code 按流式增量把一次 API 响应写成多条 assistant 记录（同一 `message.id`，thinking / text / tool_use 各占一行），转换器此前每行各成一步，正文与工具调用被切碎。现在同 id 且中间只隔元数据记录（`mode` / `last-prompt` / `ai-title` 等运行期旁路）的行并回同一步，content 块按到达顺序落在同一步内；间隔里出现 user / assistant 会话记录立即断开——同 id 跨会话记录重复出现实测 1868 对，属另一次真实消息，粘连会跨轮错并。旧新对比：本机 180 份转录步骤数 **56814 → 26858**（合并掉 29956 个碎片步），一次响应只投影一条 `assistant/message`。
 - 修复 **`import_codex` 把工具输出导成 JSON 转义串**：`function_call_output.output` 实测 968/1045 = **92.6% 是块数组**（`[{type:'input_text',text…}]`，偶含 `input_image`），转换器此前整体 `JSON.stringify`，导入后是一串转义 JSON、可读性全无。现在块数组逐块映射：文本块拼接为可读文本、`input_image` 以 `[image]` 占位（实测 25 张，data URL / base64 永不进日志）、未知块类型计数进新字段 `droppedMalformedOutputs`；`{"output":[…]}` 信封（字符串或对象）同样处理，纯字符串形态行为不变。旧新对比：转义串结果 **876 → 0**。
 
-<h3 id="en-unreleased">Bug Fixes</h3>
+<h3 id="en-0.19.7">New Features</h3>
+
+- Add **fidelity / degradation counters to import results**: `import_chat` results and rendered text now carry `metaMessages` (isMeta records), `images` (images imported as `[image]` placeholders), `backendToolCalls` (Grok Build backend tool calls), `droppedToolResultBlocks` (tool-result blocks that could not be mapped), `droppedMalformedOutputs` (unknown Codex tool-output block types) and `droppedMalformedArgs` (Codex `custom_tool_call` arguments that could not be converted to standard JSON). All six are optional and only present when > 0, and are registered in the output schema (single result and batch item) plus the `SingleImportResult` / `BatchItemResult` types. The rendered text lists them ("图片占位 294 张", "无法映射的结果块 1 个", …) so they are loud in the tool result instead of stopping at the converter's return value.
+
+<h3 id="en-0.19.7">Bug Fixes</h3>
 
 - Fix **`import_claude` importing the vast majority of tool results as empty**: 29494 of 33254 (88.7%) `tool_result.content` values in real local transcripts are plain strings (shell output and friends), while the converter only mapped block arrays — every string result landed as an empty result (24449 empty results measured across 180 local transcripts). All three shapes now land: a string becomes a single text block; an array maps block by block, with `image` blocks becoming `[image]` placeholders counted in the new `images` field (294 measured; base64 never enters the log); a missing value stays an empty array for the synthesizer to pad. Unknown block types are counted in the new `droppedToolResultBlocks` field instead of being swallowed. Old vs new on identical data: empty results 24449 → 1 (the remaining one is a `tool_reference` unknown block, counted loudly).
 - Fix **`import_claude` splitting one response into multiple steps**: Claude Code writes a single API response as several `assistant` records during streaming (one line each for thinking / text / tool_use, all sharing one `message.id`), and the converter used to turn every line into its own step, shredding the response text and its tool calls. Records with the same id separated only by metadata records (`mode` / `last-prompt` / `ai-title` and other runtime side channels) now merge back into one step with content blocks in arrival order; a `user` or `assistant` conversation record between them still breaks the group — the same id repeating across conversation records (1868 pairs measured) is a genuinely different message, and fusing those would merge separate turns. Old vs new on identical data: 56814 steps → **26858** across 180 local transcripts (29956 fragment steps merged away), one `assistant/message` per response.
 - Fix **`import_codex` importing tool output as escaped JSON**: 968 of 1045 (92.6%) `function_call_output.output` values are block arrays (`[{type:'input_text',text…}]`, occasionally with `input_image`), which the converter used to `JSON.stringify` wholesale, so the imported result was unreadable escape soup. Block arrays are now mapped block by block: text blocks join into readable text, `input_image` becomes an `[image]` placeholder (25 measured; data URLs / base64 never enter the log), and unknown block types are counted in the new `droppedMalformedOutputs` field; `{"output":[…]}` envelopes (string or object) get the same treatment, and plain-string outputs behave exactly as before. Old vs new on identical data: escaped-JSON results 876 → 0.
 
-**Full Changelog**: [v0.19.6...HEAD](https://github.com/Nwflower/dsh-chat-import/compare/v0.19.6...HEAD)
+**Full Changelog**: [v0.19.6...v0.19.7](https://github.com/Nwflower/dsh-chat-import/compare/v0.19.6...v0.19.7)
 
 ## [0.19.6] - 2026-09-26
 
