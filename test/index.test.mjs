@@ -467,6 +467,50 @@ test('单文件导入：落盘、归组、返回值符合 schema', async () => {
   assert.equal(attached[0].id, 'import-sess-simple-001')
 })
 
+// 保真 / 降级计数透出：这些计数原本只停在转换器返回值（工具结果里看不到），现在
+// attachConversionDetails 透传、输出 schema 允许、render 正文可见（失败要大声）。
+test('导入结果透出保真计数：metaMessages / images / droppedToolResultBlocks 合规且渲染可见', async () => {
+  const sid = 'sess-counters-001'
+  const recs = [
+    { sessionId: sid, type: 'user', message: { role: 'user', content: '跑命令' } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_1', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_str', name: 'Bash', input: {} }] } },
+    // 字符串 content 的 tool_result（真实占比 88.7%）：正文必须进日志
+    { sessionId: sid, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_str', content: 'stdout 正文' }] } },
+    { sessionId: sid, type: 'user', isMeta: true, message: { role: 'user', content: [{ type: 'text', text: '宿主回执' }] } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_2', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_img', name: 'Shot', input: {} }] } },
+    // 图片块 → [image] 占位，base64 不进日志
+    { sessionId: sid, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_img', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUg==' } }] }] } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_3', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_ref', name: 'X', input: {} }] } },
+    // 未知块类型 → 计数上报（不静默）
+    { sessionId: sid, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_ref', content: [{ type: 'tool_reference', tool_name: 'y' }] }] } },
+  ].map((r) => JSON.stringify(r)).join('\n')
+  const target = 'D:\\demo\\proj\\' + sid + '.jsonl'
+  const { ctx, persistence } = makeCtx({ [target]: recs })
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  const value = await def.execute({ path: target })
+
+  assert.equal(value.status, 'imported')
+  assert.equal(value.metaMessages, 1)
+  assert.equal(value.images, 1)
+  assert.equal(value.droppedToolResultBlocks, 1)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  // 字符串结果正文进日志、base64 不进
+  const saved = persistence.sessions.get('import-' + sid)
+  const flat = JSON.stringify(saved.events)
+  assert.ok(flat.includes('stdout 正文'), '字符串 tool_result 正文必须落盘')
+  assert.ok(flat.includes('[image]'), '图片以 [image] 占位落盘')
+  assert.ok(!flat.includes('iVBORw0KGgo'), 'base64 永不进日志')
+
+  // 渲染正文可见（不只在返回值里）
+  const text = def.output.render({ path: target }, value).map((b) => b.text).join('\n')
+  assert.ok(text.includes('isMeta 记录 1 条'))
+  assert.ok(text.includes('图片占位 1 张'))
+  assert.ok(text.includes('无法映射的结果块 1 个'))
+})
+
+
 test('单文件导入：Claude custom-title（/rename）成为「Claude · 自定义标题」', async () => {
   const file = 'D:\\demo\\proj\\sess-rename-001.jsonl'
   const raw = [

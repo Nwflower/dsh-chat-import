@@ -152,6 +152,18 @@ export interface SingleImportResult {
   skippedLines?: LineIssue[]
   secrets?: SecretLocation[]
   permissionCount?: number
+  /** isMeta 记录数（Claude：宿主写进转录的非提问内容，不开轮、不参与标题）。 */
+  metaMessages?: number
+  /** 以 [image] 占位导入的图片数（工具结果里的图片，base64 / data URL 永不进日志）。 */
+  images?: number
+  /** 只计数不映射的后端工具调用数（Grok Build 的 backend_tool_call）。 */
+  backendToolCalls?: number
+  /** 无法映射成内容块的工具结果块数（未知块类型，已计数上报）。 */
+  droppedToolResultBlocks?: number
+  /** 工具输出块数组里的未知块类型数（Codex）。 */
+  droppedMalformedOutputs?: number
+  /** 未能转成标准 JSON、原样保留的工具参数条数（Codex custom_tool_call）。 */
+  droppedMalformedArgs?: number
   skipReason?: string
   alreadyImported: boolean
   appendedTurns?: number
@@ -187,6 +199,13 @@ export interface BatchItemResult {
   skipped?: number
   reason?: string
   error?: string
+  /** 同 SingleImportResult 的保真 / 降级计数（批量条目）。 */
+  metaMessages?: number
+  images?: number
+  backendToolCalls?: number
+  droppedToolResultBlocks?: number
+  droppedMalformedOutputs?: number
+  droppedMalformedArgs?: number
   appendedTurns?: number
   appendedEvents?: number
   sourceShrunk?: boolean
