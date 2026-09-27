@@ -2,25 +2,25 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
-## [Unreleased]
+## [0.19.6] - 2026-09-26
 
-[中文](#cn-unreleased) | [English](#en-unreleased)
+[中文](#cn-0.19.6) | [English](#en-0.19.6)
 
-<h3 id="cn-unreleased">问题修复</h3>
+<h3 id="cn-0.19.6">问题修复</h3>
 
 - 修复 **`import_grokbuild` 在真实 `chat_format_version: 1` 转录上丢失几乎全部工具活动**：旧实现把 `tool_result` / `reasoning` / `backend_tool_call` 整类丢弃、assistant 行只读 content 块不读顶层 `tool_calls`——本机 6 个真实会话实测 **473 次工具调用无一进日志**。重写后按真实格式逐类落地：顶层 `tool_calls` 逐项进步骤（实测 473/473 调用与结果全配对，跨 step 晚到的结果按 `tool_call_id` 归位）；`reasoning` 行的明文摘要前置到下一 assistant 步骤（`encrypted_content` 密文永不读取）；`tool_result` 图片以 `[image]` 占位并新增计数字段 `images`（实测 33 张，base64 不进日志）；`backend_tool_call` 只计数（新字段 `backendToolCalls`，实测 1 次）不映射——其结果不在转录里，映射会破坏配对不变量；`synthetic_reason` 注入行（system_reminder / `<user_info>` 环境块）不再被当提问开轮（只含注入的会话正确导入为 0 轮）；`compaction_meta` 交接摘要导入为原生压缩检查点（provider 标签 `grok-build`），`prior_turn_interrupt: 'mid_turn_abort'` 把上一轮标 aborted；逐行 `model_id` 落到 `step.model`，会话级取 `current_model_id` 兜底。发现层同口径修标题兜底（跳过 synthetic 行、剥 `<user_query>` 信封），并新增 `GROK_HOME` 环境变量覆盖默认 `~/.grok` 根。
 - 修复 **`import_claude` 把 `isMeta` 记录当提问开轮**：Claude Code 把上下文回执、后台命令输出、图片占位、skill 正文、压缩续接提示等写成 `isMeta: true` 的 user 记录，此前一律开成新轮——本机 179 份转录实测 **198 条**，超一半落在一轮中间把对话切碎成假轮。现在 `isMeta` 记录永不开轮、不参与标题；文本按时间顺序前置到下一个 assistant 步骤 content 开头（搭在 content 块内部、不产生独立消息，不破坏 tool_calls 与 tool 消息的配对），会话末尾残余追加到最后一步，识别数计入新返回字段 `metaMessages`（实测 198/198 与独立统计一致）。
 - 修复 **`import_codex` 把 AGENTS.md 注入当首问**：首条 user 消息为 `[# AGENTS.md instructions for …, <environment_context>…]` 的 rollout 此前产出 0 步假轮、标题退化为 `# AGENTS.md instructions for D:\…`（本机 11 份实测全部中招）。现在注入块走公共注入前缀表过滤（与发现层面板同一真相源），全注入消息不开轮、标题取首个真实提问；`importSystemPrompt` 开启时 `# AGENTS.md` 块收进 systemPrompt。
 - 修复 **claude / codex / grokbuild 三源的步骤模型归属只记会话第一条**：会话中途换模型后所有步骤仍记成旧模型。现在每条 assistant 步骤带自己的 `step.model`（claude 取 `message.model`、codex 逐条 `turn_context` 更新、grokbuild 取 `model_id`），会话级仍取第一条兜底。
 
-<h3 id="en-unreleased">Bug Fixes</h3>
+<h3 id="en-0.19.6">Bug Fixes</h3>
 
 - Fix **`import_grokbuild` dropping nearly all tool activity on real `chat_format_version: 1` transcripts**: the old converter discarded `tool_result` / `reasoning` / `backend_tool_call` records wholesale and read only content blocks of assistant lines, never the top-level `tool_calls` — across 6 real local sessions, **all 473 tool calls were missing from the log**. The rewrite maps each record kind faithfully: top-level `tool_calls` become steps (473/473 calls paired with results, late arrivals re-attached by `tool_call_id`); plaintext `reasoning` summaries lead the next assistant step (`encrypted_content` is never read); `tool_result` images become `[image]` placeholders with a new `images` counter (33 measured locally; base64 never enters the log); `backend_tool_call` is only counted (new `backendToolCalls` field, 1 measured) — its results are not in the transcript, so mapping them would break the pairing invariant; `synthetic_reason` injection lines (system reminders / `<user_info>` environment blocks) no longer open turns (injection-only sessions correctly import as 0 turns); `compaction_meta` hand-off summaries import as native compaction checkpoints (provider tag `grok-build`); `prior_turn_interrupt: 'mid_turn_abort'` marks the previous turn aborted; per-line `model_id` lands on `step.model` with `current_model_id` as the session-level fallback. The discovery layer applies the same title fallback (skips synthetic lines, strips `<user_query>` envelopes), and a new `GROK_HOME` environment variable overrides the default `~/.grok` root.
 - Fix **`import_claude` opening a turn for every `isMeta` record**: Claude Code writes context receipts, background command output, image placeholders, skill bodies and post-compaction continuation prompts as `isMeta: true` user records, which used to each open a new turn — **198 such records across 179 local transcripts**, more than half landing mid-turn and shredding the conversation into fake turns. `isMeta` records now never open a turn and never become the title; their text is prepended, in arrival order, to the next assistant step's content (inside the content blocks — no standalone message, so tool_calls/tool pairing is undisturbed), leftovers at end of session append to the last step, and the recognized count is reported in the new `metaMessages` field (198/198 matching an independent count locally).
 - Fix **`import_codex` treating AGENTS.md injection as the first prompt**: rollouts whose first user message is `[# AGENTS.md instructions for …, <environment_context>…]` used to produce a 0-step fake turn and a title degenerating to `# AGENTS.md instructions for D:\…` (all 11 affected local rollouts). Injection blocks are now filtered through the shared injection prefix table (same source of truth as the discovery panel), an all-injection message opens no turn and the title falls to the first real prompt; with `importSystemPrompt` on, the `# AGENTS.md` block is kept in systemPrompt.
 - Fix **claude / codex / grokbuild attributing every step to the session's first model**: after a mid-session model switch all steps still carried the old model. Each assistant step now carries its own `step.model` (claude reads `message.model`, codex tracks every `turn_context`, grokbuild reads `model_id`); the session-level model remains the first record as fallback.
 
-**Full Changelog**: [v0.19.5...HEAD](https://github.com/Nwflower/dsh-chat-import/compare/v0.19.5...HEAD)
+**Full Changelog**: [v0.19.5...v0.19.6](https://github.com/Nwflower/dsh-chat-import/compare/v0.19.5...v0.19.6)
 
 ## [0.19.5] - 2026-09-26
 
