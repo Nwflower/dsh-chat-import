@@ -196,21 +196,22 @@ test('convertGrokbuildJson: thinking 块映射为 reasoning block', () => {
   assert.equal(asst.content[0].text, '先看日志')
 })
 
-test('convertGrokbuildJson: reasoning 与 system 记录过滤（filtered 计数、不产生事件）', () => {
+test('convertGrokbuildJson: system 记录过滤计 filtered；reasoning 不再计 filtered（明文前置）', () => {
   const out = convertGrokbuildJson(summaryJson(), chatLines([
     { type: 'system', content: 'You are a coding agent.' },
     { type: 'user', content: [{ type: 'text', text: '继续' }] },
-    { type: 'reasoning', content: [{ type: 'summary_text', text: 'encrypted' }] },
+    { type: 'reasoning', content: [{ type: 'summary_text', text: '旧形状的可读思考' }] },
     { type: 'assistant', content: [{ type: 'text', text: '好的' }] },
   ]))
   assert.equal(out.turns.length, 1)
-  assert.equal(out.filtered, 2) // system + reasoning
+  assert.equal(out.filtered, 1) // 只有 system；reasoning 的可读部分进对话，不再计 filtered
   assert.equal(out.skipped, 0)
   assert.equal(out.records, 4)
-  // 过滤记录不产生额外回合；无 reasoning 泄漏进 assistant 内容
   assert.equal(out.events.filter((e) => e.type === 'turn/start').length, 1)
+  // 兼容旧 content 块形状的 summary_text：归一到 reasoning 块并前置，不泄漏进文本
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
-  assert.ok(!asst.content.some((c) => c.type === 'reasoning'))
+  assert.deepEqual(asst.content.map((c) => c.type), ['reasoning', 'text'])
+  assert.equal(asst.content[0].text, '旧形状的可读思考')
 })
 
 test('convertGrokbuildJson: 标题回退链 generated_title > session_summary > 首问（REQ-27 截断）', () => {
@@ -395,3 +396,254 @@ test('convertGrokbuildJson: 畸形 summary.json 返回 skipReason（失败要大
   assert.equal(out.toolCalls, 0)
   assert.ok(out.skipReason.includes('malformed summary'))
 })
+// ── 真实 chat_format_version:1 行契约（顶层 tool_calls / summary 明文 / synthetic_reason）──
+
+test('convertGrokbuildJson: 顶层 tool_calls 多调用 → 多 tool/call；tool_result 行按 tool_call_id 归位（跨 step 晚到）', () => {
+  const out = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '并行读两个文件' }] },
+    { type: 'assistant', content: '先读 a 和 c', model_id: 'grok-4.6', tool_calls: [
+      { id: 'call-a', name: 'read_file', arguments: '{"target_file":"a.txt"}' },
+      { id: 'call-c', name: 'grep', arguments: '{"pattern":"x"}' },
+    ] },
+    { type: 'assistant', content: '再读 b', tool_calls: [
+      { id: 'call-b', name: 'read_file', arguments: '{"target_file":"b.txt"}' },
+    ] },
+    { type: 'tool_result', tool_call_id: 'call-b', content: 'B 内容' }, // 跨 step 晚到：挂回 step2
+    { type: 'tool_result', tool_call_id: 'call-a', content: 'A 内容' }, // 跨 step 晚到：挂回 step1
+    { type: 'tool_result', tool_call_id: 'call-c', content: '' },
+  ]))
+  assert.equal(out.turns.length, 1)
+  assert.equal(out.toolCalls, 3)
+  assert.equal(out.droppedToolResults, 0)
+  const calls = out.events.filter((e) => e.type === 'tool/call')
+  assert.deepEqual(calls.map((c) => [c.data.name, c.data.arguments]), [
+    ['read_file', '{"target_file":"a.txt"}'],
+    ['grep', '{"pattern":"x"}'],
+    ['read_file', '{"target_file":"b.txt"}'],
+  ])
+  const resultOf = (id) => out.events.find((e) => e.type === 'tool/result' && e.data.message.content[0].toolCallId === id)
+  assert.equal(resultOf('call-a').data.step, 1)
+  assert.equal(resultOf('call-c').data.step, 1)
+  assert.equal(resultOf('call-b').data.step, 2)
+  // tool-call 块同时进 assistant content（wire 适配器只从 content 块派生 tool_calls）
+  const asst = out.events.filter((e) => e.type === 'assistant/message').map((e) => e.data.message)
+  assert.deepEqual(asst[0].content.map((c) => c.type), ['text', 'tool-call', 'tool-call'])
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertGrokbuildJson: reasoning summary[] 明文前置到下一个 assistant 步骤；末尾残余补收尾步骤', () => {
+  const out = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '第一步' }] },
+    { type: 'reasoning', id: 'rs1', status: 'completed', summary: [{ type: 'summary_text', text: '先想' }], encrypted_content: 'CIPHERTEXT-ONE' },
+    { type: 'assistant', content: '做第一步', tool_calls: [{ id: 'call-x', name: 'run', arguments: '{}' }] },
+    { type: 'tool_result', tool_call_id: 'call-x', content: 'ok' },
+    { type: 'reasoning', id: 'rs2', status: 'completed', summary: [{ type: 'summary_text', text: '断了' }], encrypted_content: 'CIPHERTEXT-TWO' },
+  ]))
+  assert.equal(out.filtered, 0) // reasoning 不再计 filtered
+  assert.equal(out.events.filter((e) => e.type === 'assistant/message').length, 1) // 不虚增步骤
+  const asst = out.events.find((e) => e.type === 'assistant/message').data.message
+  assert.deepEqual(asst.content.map((c) => c.type), ['reasoning', 'text', 'tool-call', 'reasoning'])
+  assert.equal(asst.content[0].text, '先想')
+  assert.equal(asst.content[3].text, '断了') // 末尾残余落到最后一步（codex pendingReasoning 同款）
+  assert.ok(!JSON.stringify(out.events).includes('CIPHERTEXT'), 'encrypted_content 是密文，永不落日志')
+
+  // 该轮还没有任何步骤时，残余 reasoning 补一个收尾步骤承载
+  const solo = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '只想没答' }] },
+    { type: 'reasoning', id: 'rs3', status: 'completed', summary: [{ type: 'summary_text', text: '只有思考' }] },
+  ]))
+  const soloAsst = solo.events.find((e) => e.type === 'assistant/message')
+  assert.deepEqual(soloAsst.data.message.content, [{ type: 'reasoning', text: '只有思考' }])
+  assert.equal(solo.events.filter((e) => e.type === 'turn/start').length, 1)
+})
+
+test('convertGrokbuildJson: synthetic_reason 非空且 ≠human 不开轮计 filtered；<user_info> 无 synthetic_reason 也注入', () => {
+  const out = convertGrokbuildJson(summaryJson({ generated_title: undefined, session_summary: undefined }), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '<system-reminder>\nskills' }], synthetic_reason: 'system_reminder' },
+    { type: 'user', content: [{ type: 'text', text: '<user_info>\nOS: windows' }], synthetic_reason: 'compaction_meta' }, // 压缩后重注入环境块
+    { type: 'user', content: [{ type: 'text', text: '<user_info>\nOS: windows' }] }, // 无 synthetic_reason 的环境块
+    { type: 'user', content: [{ type: 'text', text: '真实提问' }] },
+    { type: 'assistant', content: '回答' },
+  ]))
+  assert.equal(out.turns.length, 1)
+  assert.equal(out.filtered, 3)
+  assert.equal(out.title, '真实提问')
+  const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').map((e) => e.data.content[0].text)
+  assert.deepEqual(users, ['真实提问'])
+})
+
+test('convertGrokbuildJson: compaction_meta 交接摘要 → 原生压缩检查点（前序轮 shadowed、provider=grok-build）', () => {
+  const out = convertGrokbuildJson(summaryJson({ current_model_id: 'grok-4.6' }), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '第一问' }] },
+    { type: 'assistant', content: '第一答' },
+    { type: 'user', content: [{ type: 'text', text: 'This session is being continued from a previous conversation that ran out of context. The summary below covers the earlier portion.' }], synthetic_reason: 'compaction_meta' },
+    { type: 'user', content: [{ type: 'text', text: '第二问' }] },
+    { type: 'assistant', content: '第二答', model_id: 'grok-4.6' },
+  ]))
+  assert.equal(out.turns.length, 2)
+  assert.equal(out.compacted, true)
+  assert.equal(out.turns[0].shadowed, true) // 边界前的轮是 log-only
+  assert.equal(out.turns[1].shadowed, undefined)
+  const summary = out.events.find((e) => e.type === 'compaction/summary')
+  assert.ok(summary, '发射 compaction/summary')
+  assert.equal(summary.data.provider, 'grok-build')
+  assert.equal(summary.data.model, 'grok-4.6') // summary.current_model_id 兜底
+  assert.match(summary.data.summary[0].text, /^This session is being continued/)
+  const ck = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'plugin' && e.data.source.plugin === 'compact')
+  assert.equal(ck.surfaceOp.op, 'replace')
+  assert.ok(Array.isArray(ck.sourceEventSeqs) && ck.sourceEventSeqs.length > 0)
+  // 边界轮的空 prompt 不再补发 user/message；两轮提问各一条
+  const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').map((e) => e.data.content[0].text)
+  assert.deepEqual(users, ['第一问', '第二问'])
+  assert.equal(out.filtered, 0)
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertGrokbuildJson: fullHistory 下压缩摘要行按普通 user 轮导入（不发检查点）', () => {
+  const raw = chatLines([
+    { type: 'user', content: [{ type: 'text', text: '第一问' }] },
+    { type: 'assistant', content: '第一答' },
+    { type: 'user', content: [{ type: 'text', text: 'This session is being continued from a previous conversation that ran out of context.' }], synthetic_reason: 'compaction_meta' },
+    { type: 'assistant', content: '第二答' },
+  ])
+  const out = convertGrokbuildJson(summaryJson(), raw, { fullHistory: true })
+  assert.equal(out.compacted, undefined)
+  assert.ok(!out.events.some((e) => e.type === 'compaction/start'))
+  assert.ok(!out.turns.some((t) => t.shadowed === true))
+  assert.equal(out.turns.length, 2)
+  const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').map((e) => e.data.content[0].text)
+  assert.equal(users.length, 2)
+  assert.match(users[1], /^This session is being continued/)
+})
+
+test('convertGrokbuildJson: <user_query> 三种包装（裸包装 / 中断 / 插话）剥出真实提问', () => {
+  const out = convertGrokbuildJson(summaryJson({ generated_title: undefined, session_summary: undefined }), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '<user_query>\n第一问\n</user_query>' }] },
+    { type: 'assistant', content: '答一' },
+    { type: 'user', content: [{ type: 'text', text: 'The user interrupted the previous turn:\n<user_query>\n第二问\n</user_query>\nMake sure to complete any unfinished tasks from previous turns.' }], prior_turn_interrupt: 'mid_turn_abort' },
+    { type: 'assistant', content: '答二' },
+    { type: 'user', content: [{ type: 'text', text: 'The user sent a message while you were working:\n<user_query>\n第三问\n</user_query>' }] },
+    { type: 'assistant', content: '答三' },
+  ]))
+  const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').map((e) => e.data.content[0].text)
+  assert.deepEqual(users, ['第一问', '第二问', '第三问'])
+  assert.equal(out.turns.length, 3)
+  // mid_turn_abort 把上一轮标 aborted（合成层映射为 turn/end 的 aborted）
+  const ends = out.events.filter((e) => e.type === 'turn/end')
+  assert.deepEqual(ends.map((e) => e.data.reason.kind), ['aborted', 'completed', 'completed'])
+})
+
+test('convertGrokbuildJson: tool_result images 计数 + [image] 占位（base64 不进日志）', () => {
+  const out = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '看图' }] },
+    { type: 'assistant', content: '', tool_calls: [{ id: 'call-img', name: 'read_file', arguments: '{"target_file":"x.png"}' }] },
+    { type: 'tool_result', tool_call_id: 'call-img', content: 'Read image file: x.png', images: [
+      { type: 'image', url: 'data:image/png;base64,QUJD' },
+      { type: 'image', url: 'data:image/png;base64,REVG' },
+    ] },
+  ]))
+  assert.equal(out.images, 2)
+  const result = out.events.find((e) => e.type === 'tool/result')
+  const content = result.data.message.content[0].content
+  assert.deepEqual(content.map((c) => c.type), ['text', 'text', 'text'])
+  assert.equal(content[0].text, 'Read image file: x.png')
+  assert.deepEqual(content.slice(1), [{ type: 'text', text: '[image]' }, { type: 'text', text: '[image]' }])
+  assert.ok(!JSON.stringify(out.events).includes('base64'), 'base64 永不落日志')
+  // 空 content + 有图：也不静默丢图
+  const onlyImages = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '再看' }] },
+    { type: 'assistant', content: '', tool_calls: [{ id: 'call-img2', name: 'read_file', arguments: '{}' }] },
+    { type: 'tool_result', tool_call_id: 'call-img2', content: '', images: [{ type: 'image', url: 'data:image/png;base64,QUJD' }] },
+  ]))
+  assert.equal(onlyImages.images, 1)
+  assert.deepEqual(onlyImages.events.find((e) => e.type === 'tool/result').data.message.content[0].content, [{ type: 'text', text: '[image]' }])
+  // 孤儿结果的图随结果一起丢弃，只计 droppedToolResults
+  const orphan = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '问' }] },
+    { type: 'tool_result', tool_call_id: 'ghost', content: 'x', images: [{ type: 'image', url: 'data:image/png;base64,QUJD' }] },
+  ]))
+  assert.equal(orphan.images, 0)
+  assert.equal(orphan.droppedToolResults, 1)
+})
+
+test('convertGrokbuildJson: backend_tool_call 只计数（不映射成 tool/call 破坏配对不变量）', () => {
+  const out = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '搜一下' }] },
+    { type: 'assistant', content: '搜', tool_calls: [{ id: 'call-s', name: 'web_search', arguments: '{"query":"x"}' }] },
+    { type: 'tool_result', tool_call_id: 'call-s', content: '结果' },
+    { type: 'backend_tool_call', kind: { tool_type: 'web_search', action: { type: 'search', query: 'x' } } },
+  ]))
+  assert.equal(out.backendToolCalls, 1)
+  assert.equal(out.toolCalls, 1)
+  assert.equal(out.filtered, 0) // 后端工具不是「被过滤的记录」
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertGrokbuildJson: model_id → step.model；无 model_id 用 summary.current_model_id 兜底', () => {
+  const out = convertGrokbuildJson(summaryJson({ current_model_id: 'grok-4.5', generated_title: undefined, session_summary: undefined }), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '问' }] },
+    { type: 'assistant', content: '答一', model_id: 'grok-4.6' },
+    { type: 'user', content: [{ type: 'text', text: '再问' }] },
+    { type: 'assistant', content: '答二' },
+  ]))
+  const models = out.events.filter((e) => e.type === 'assistant/message').map((e) => e.data.message.source.model)
+  assert.deepEqual(models, ['grok-4.6', 'grok-4.5'])
+  // 两者都没有 → provider 名兜底（既有口径）
+  const bare = convertGrokbuildJson(summaryJson({ generated_title: undefined, session_summary: undefined }), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '问' }] },
+    { type: 'assistant', content: '答' },
+  ]))
+  assert.equal(bare.events.find((e) => e.type === 'assistant/message').data.message.source.model, 'grokbuild')
+})
+
+test('convertGrokbuildJson: v0 行（无 type 有 role）走同一管线', () => {
+  const out = convertGrokbuildJson(summaryJson({ generated_title: undefined, session_summary: undefined }), chatLines([
+    { role: 'user', content: [{ type: 'text', text: 'v0 提问' }] },
+    { role: 'reasoning', summary: [{ type: 'summary_text', text: 'v0 思考' }] },
+    { role: 'assistant', content: 'v0 回答', tool_calls: [{ id: 'call-v0', name: 'run', arguments: '{"a":1}' }] },
+    { role: 'tool_result', tool_call_id: 'call-v0', content: 'v0 结果' },
+  ]))
+  assert.equal(out.turns.length, 1)
+  assert.equal(out.toolCalls, 1)
+  assert.equal(out.title, 'v0 提问')
+  const asst = out.events.find((e) => e.type === 'assistant/message').data.message
+  assert.deepEqual(asst.content.map((c) => c.type), ['reasoning', 'text', 'tool-call'])
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertGrokbuildJson: 未知 type 计入 filtered（schema 漂移不静默吞）', () => {
+  const out = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '问' }] },
+    { type: 'some_future_record', payload: {} },
+    { type: 'assistant', content: '答' },
+  ]))
+  assert.equal(out.filtered, 1)
+  assert.equal(out.records, 3)
+})
+test('convertGrokbuildJson: 压缩边界落在轮中间（摘要后直接是 assistant）→ 空 prompt 轮承载检查点', () => {
+  const out = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '第一问' }] },
+    { type: 'assistant', content: '第一答' },
+    { type: 'user', content: [{ type: 'text', text: 'This session is being continued from a previous conversation that ran out of context.' }], synthetic_reason: 'compaction_meta' },
+    { type: 'assistant', content: '边界后的半轮产物', tool_calls: [{ id: 'call-mid', name: 'run', arguments: '{}' }] },
+    { type: 'tool_result', tool_call_id: 'call-mid', content: 'mid ok' },
+    { type: 'user', content: [{ type: 'text', text: '第二问' }] },
+    { type: 'assistant', content: '第二答' },
+  ]))
+  assert.equal(out.turns.length, 3)
+  assert.equal(out.turns[1].prompt, '') // 承载轮：空 prompt，检查点即该轮 user 侧消息
+  assert.ok(out.turns[1].compaction)
+  assert.equal(out.toolCalls, 1) // 边界后的产物不丢
+  assert.equal(out.droppedToolResults, 0)
+  const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user').map((e) => e.data.content[0].text)
+  assert.deepEqual(users, ['第一问', '第二问']) // 承载轮不补发 user/message
+  assert.ok(out.events.some((e) => e.type === 'assistant/message' && e.data.message.content.some((c) => c.text === '边界后的半轮产物')))
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
+

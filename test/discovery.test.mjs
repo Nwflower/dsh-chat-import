@@ -360,6 +360,69 @@ test('grokbuild：summary.json 标题/时间、百分号编码目录名解码为
   assert.equal(b.cwd, null)
 })
 
+// grokbuild 标题兜底（真实 chat_format_version:1 行契约）：synthetic_reason 非空且 ≠'human'
+// 的行（压缩摘要 / system_reminder 注入）不是话题；真实提问包在 <user_query> 信封里要剥出
+// 正文；v0 行无 type 有 role。此前 Grok 源的标题兜底会把首个注入行当成标题。
+test('grokbuild：标题兜底跳过 synthetic_reason / 注入行，剥 <user_query> 信封（中断信封同样处理）', async () => {
+  const root = join(HOME, '.grok', 'sessions')
+  const proj = join(root, 'proj-title')
+  const sess = join(proj, 'grok-sess-title')
+  const files = new Map([
+    [root, { type: 'dir' }], [proj, { type: 'dir' }], [sess, { type: 'dir' }],
+    [join(sess, 'summary.json'), { type: 'file', text: j({
+      info: { id: 'grok-sess-title', cwd: 'D:/demo/grok-title' },
+      created_at: '2026-07-16T12:00:00Z',
+    }) }],
+    [join(sess, 'chat_history.jsonl'), { type: 'file', text: [
+      j({ type: 'user', content: [{ type: 'text', text: '<system-reminder>\nskills' }], synthetic_reason: 'system_reminder' }),
+      j({ type: 'user', content: [{ type: 'text', text: 'This session is being continued from a previous conversation that ran out of context.' }], synthetic_reason: 'compaction_meta' }),
+      j({ type: 'user', content: [{ type: 'text', text: '<user_info>\nOS Version: windows' }] }),
+      j({ type: 'user', content: [{ type: 'text', text: 'The user interrupted the previous turn:\n<user_query>\n真实提问\n</user_query>\nMake sure to complete any unfinished tasks from previous turns.' }], prior_turn_interrupt: 'mid_turn_abort' }),
+      j({ type: 'assistant', content: '好' }),
+    ].join('\n') }],
+  ])
+  const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host: mockHost(files), imports: {} })
+  assert.equal(total, 1)
+  assert.equal(sessions[0].title, '真实提问')
+})
+
+test('grokbuild：v0 行（role 无 type）标题兜底 + 剥 <user_query> 信封', async () => {
+  const root = join(HOME, '.grok', 'sessions')
+  const proj = join(root, 'proj-v0')
+  const sess = join(proj, 'grok-sess-v0')
+  const files = new Map([
+    [root, { type: 'dir' }], [proj, { type: 'dir' }], [sess, { type: 'dir' }],
+    [join(sess, 'summary.json'), { type: 'file', text: j({ info: { id: 'grok-sess-v0' }, created_at: '2026-07-16T12:00:00Z' }) }],
+    [join(sess, 'chat_history.jsonl'), { type: 'file', text: [
+      j({ role: 'user', content: [{ type: 'text', text: '<user_query>\nv0 提问\n</user_query>' }] }),
+      j({ role: 'assistant', content: 'v0 回答' }),
+    ].join('\n') }],
+  ])
+  const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host: mockHost(files), imports: {} })
+  assert.equal(total, 1)
+  assert.equal(sessions[0].title, 'v0 提问')
+})
+
+test('defaultRoots：GROK_HOME 非空时替代 ~/.grok 双根，空值回退', () => {
+  const prev = process.env.GROK_HOME
+  try {
+    process.env.GROK_HOME = join('mock-root', 'grok-home')
+    assert.deepEqual(defaultRoots({ home: HOME }).grokbuild, [
+      join('mock-root', 'grok-home', 'sessions'),
+      join('mock-root', 'grok-home', 'archived_sessions'),
+    ])
+    process.env.GROK_HOME = ''
+    assert.deepEqual(defaultRoots({ home: HOME }).grokbuild, [
+      join(HOME, '.grok', 'sessions'),
+      join(HOME, '.grok', 'archived_sessions'),
+    ])
+  } finally {
+    if (prev === undefined) delete process.env.GROK_HOME
+    else process.env.GROK_HOME = prev
+  }
+})
+
+
 test('openclaw：sessions.json displayName 标题、项目名（记录 cwd > agents/<agent> 布局）', async () => {
   const root = join(HOME, '.openclaw', 'agents')
   const sessDir = join(root, 'main', 'sessions')
