@@ -12,6 +12,7 @@ import { basename, dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { apply } from '../lib/index.mjs'
 import { convertZcodeJson, SESSION_FORMAT_VERSION } from '../lib/convert/index.mjs'
+import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 import { readZcodeDb, readZcodeTranscript } from '../lib/sources/zcode.mjs'
 import { resolveRegistryDir, loadImports } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
@@ -391,6 +392,41 @@ test('convertZcodeJson: compaction 摘要 → 前置 reasoning 块（只前置�
     .flatMap((e) => e.data.message.content)
     .filter((c) => c.type === 'reasoning')
   assert.equal(reasoning.length, 1)
+})
+
+test('convertZcodeJson: compaction 边界（keptMessageCount）→ 原生压缩检查点', () => {
+  const raw = JSON.stringify({
+    id: 'zcs-native',
+    summary: '此前对话的压缩摘要。',
+    compaction: { summary: '此前对话的压缩摘要。', carrierMessageId: 'm4', keptMessageCount: 1, summarizedMessageCount: 3 },
+    messages: [
+      { id: 'm1', role: 'user', parts: [{ type: 'text', text: '第一问' }] },
+      { id: 'm2', role: 'assistant', parts: [{ type: 'text', text: '第一答' }] },
+      { id: 'm3', role: 'user', parts: [{ type: 'text', text: '第二问' }] },
+      { id: 'm4', role: 'user', parts: [{ type: 'compaction', summary: { body: '此前对话的压缩摘要。' }, compactBoundary: { keptMessageCount: 1, summarizedMessageCount: 3 } }] },
+      { id: 'm5', role: 'user', parts: [{ type: 'text', text: '第三问' }] },
+      { id: 'm6', role: 'assistant', parts: [{ type: 'text', text: '第三答' }] },
+    ],
+  })
+  const out = convertZcodeJson(raw)
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  // 保留窗口起点 = 边界：m3（第二问）起的轮可见，之前的轮 log-only 但留在日志
+  assert.equal(out.turns[0].shadowed, true)
+  assert.equal(out.turns[1].compaction.summary, '此前对话的压缩摘要。')
+  assert.deepEqual(derivedSurfaceMessages(out.events).slice(2), ['user:此前对话的压缩摘要。', 'user:第二问', 'user:第三问', 'assistant:第三答'])
+  assert.ok(out.events.some((e) => JSON.stringify(e.data).includes('第一答')), '压缩前内容留在日志里')
+  // 摘要不再作 reasoning 块（由检查点承载）
+  const reasoning = out.events.filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => e.data.message.content).filter((c) => c.type === 'reasoning')
+  assert.deepEqual(reasoning, [])
+
+  // fullHistory：不发检查点，摘要退回 reasoning 块
+  const full = convertZcodeJson(raw, { fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.turns[0].steps[0].content[0].type, 'reasoning')
+  assert.equal(full.turns[0].steps[0].content[0].text, '此前对话的压缩摘要。')
 })
 
 test('convertZcodeJson: 非法 JSON / 无 messages 返回空并 skipped', () => {

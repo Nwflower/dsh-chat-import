@@ -5,6 +5,7 @@ import {
   convertCrushJson, parseCrushProjects, crushUserDataDir, crushRegistryPath, crushProjectDbPath,
 } from '../lib/convert/crush.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -121,17 +122,29 @@ test('image_url / shell_command / binary / 未知判别式只计数；只有签�
   assert.deepEqual(out.turns[0].steps[0].content, [{ type: 'text', text: '答' }])
 })
 
-test('自动摘要消息（is_summary_message=1）挂 reasoning 块，不当作普通 assistant 回合', () => {
-  const out = convertCrushJson(session([
+test('自动摘要消息（is_summary_message=1）→ 原生压缩检查点，不当作普通 assistant 回合', () => {
+  const messages = [
     msg('user', [text('第一件事'), finish()]),
     msg('assistant', [text('做完了'), finish('end_turn')]),
     msg('assistant', [text('此前在改 fetch 的重试。'), finish()], { isSummaryMessage: 1 }),
     msg('user', [text('第二件事'), finish()]),
     msg('assistant', [text('好的'), finish('end_turn')]),
-  ]), { createdAt: CREATED * 1000, crushId: SID })
+  ]
+  const out = convertCrushJson(session(messages), { createdAt: CREATED * 1000, crushId: SID })
   assert.equal(out.turns.length, 2) // 摘要消息没有开新轮
   assert.equal(out.compactionSummaries, 1)
-  const blocks = out.turns[0].steps[0].content.filter((b) => b.type === 'reasoning')
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  assert.equal(out.turns[0].shadowed, true)
+  assert.equal(out.turns[1].compaction.summary, '此前在改 fetch 的重试。')
+  assert.deepEqual(derivedSurfaceMessages(out.events).slice(2), ['user:此前在改 fetch 的重试。', 'user:第二件事', 'assistant:好的'])
+  assert.ok(out.events.some((e) => JSON.stringify(e.data).includes('做完了')), '压缩前内容留在日志里')
+
+  // fullHistory：不发检查点，摘要退回既有形态（reasoning 块）
+  const full = convertCrushJson(session(messages), { createdAt: CREATED * 1000, crushId: SID, fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  const blocks = full.turns[0].steps[0].content.filter((b) => b.type === 'reasoning')
   assert.deepEqual(blocks, [{ type: 'reasoning', text: 'Compaction summary:\n\n此前在改 fetch 的重试。' }])
 })
 

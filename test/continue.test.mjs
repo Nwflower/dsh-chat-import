@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertContinueJson, readContinueIndex } from '../lib/convert/continue.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -152,16 +153,31 @@ test('孤儿 tool 结果（无匹配调用）丢弃并计数，不挂最近一�
   assert.equal(out.events.filter((e) => e.type === 'tool/result').length, 0)
 })
 
-test('conversationSummary → 压缩边界以 reasoning 块保留（history 不裁剪，全文照导）', () => {
-  const out = convertContinueJson(session([
+test('conversationSummary → 原生压缩检查点（history 全量留日志，模型见摘要+之后）', () => {
+  const history = [
     user('第一件事'),
     assistant('做完了', { conversationSummary: '此前在改登录页。' }),
     user('第二件事'),
     assistant('好的'),
-  ]), { createdAt: TS })
-  assert.equal(out.turns.length, 2) // 压缩不裁剪：两轮都在
+  ]
+  const out = convertContinueJson(session(history), { createdAt: TS })
+  assert.equal(out.turns.length, 2) // 压缩不裁剪：两轮都在日志里
   assert.equal(out.compactionSummaries, 1)
-  const blocks = out.turns[0].steps[0].content.filter((b) => b.type === 'reasoning')
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  assert.equal(out.turns[0].shadowed, true)
+  assert.equal(out.turns[1].compaction.summary, '此前在改登录页。')
+  // 模型视角 = 声明 → 摘要检查点 → 压缩点之后的内容；压缩前内容不进模型视角但留在日志
+  assert.deepEqual(derivedSurfaceMessages(out.events).slice(2), ['user:此前在改登录页。', 'user:第二件事', 'assistant:好的'])
+  assert.ok(!derivedSurfaceMessages(out.events).some((d) => d.includes('做完了')))
+  assert.ok(out.events.some((e) => JSON.stringify(e.data).includes('做完了')))
+
+  // fullHistory：不发检查点，摘要退回既有形态（reasoning 块）
+  const full = convertContinueJson(session(history), { createdAt: TS, fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.compactionSummaries, 1)
+  const blocks = full.turns[0].steps[0].content.filter((b) => b.type === 'reasoning')
   assert.equal(blocks.length, 1)
   assert.match(blocks[0].text, /^Previous conversation summary:\n\n此前在改登录页。$/)
 })

@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertZedJson, zedFolderPaths, zedDataDir, zedThreadsDir, zedThreadsDbPath } from '../lib/convert/zed.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -111,19 +112,31 @@ test('v0.3.0：Mention / Image / RedactedThinking 只计数；Resume 与空 cont
   assert.deepEqual(out.turns[0].steps[0].content.filter((b) => b.type === 'text'), [{ type: 'text', text: '答' }])
 })
 
-test('v0.3.0：Compaction.Summary 挂 reasoning 块；ProviderNative 只计数', () => {
-  const out = convertZedJson(thread([
+test('v0.3.0：Compaction.Summary → 原生压缩检查点；ProviderNative 只计数', () => {
+  const messages = [
     userMsg(['第一件事']),
     agentMsg([{ Text: '做完了' }]),
     { Compaction: { Summary: '此前在改登录页。' } },
     userMsg(['第二件事']),
     agentMsg([{ Text: '好的' }]),
     { Compaction: { ProviderNative: { provider: 'anthropic', items: [{ opaque: true }] } } },
-  ]), { createdAt: TS_MS, zedId: ID })
+  ]
+  const out = convertZedJson(thread(messages), { createdAt: TS_MS, zedId: ID })
   assert.equal(out.turns.length, 2)
   assert.equal(out.compactionSummaries, 1)
   assert.equal(out.skippedBlocks, 1) // ProviderNative
-  const reasoning = out.turns[0].steps[0].content.filter((b) => b.type === 'reasoning')
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  assert.equal(out.turns[0].shadowed, true)
+  assert.equal(out.turns[1].compaction.summary, '此前在改登录页。')
+  assert.deepEqual(derivedSurfaceMessages(out.events).slice(2), ['user:此前在改登录页。', 'user:第二件事', 'assistant:好的'])
+  assert.ok(out.events.some((e) => JSON.stringify(e.data).includes('做完了')), '压缩前内容留在日志里')
+
+  // fullHistory：不发检查点，摘要退回既有形态（reasoning 块）
+  const full = convertZedJson(thread(messages), { createdAt: TS_MS, zedId: ID, fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  const reasoning = full.turns[0].steps[0].content.filter((b) => b.type === 'reasoning')
   assert.deepEqual(reasoning, [{ type: 'reasoning', text: 'Compaction summary:\n\n此前在改登录页。' }])
 })
 
