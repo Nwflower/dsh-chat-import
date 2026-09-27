@@ -979,6 +979,47 @@ function clineAssistant(blocks) {
   return { id: 'a1', role: 'assistant', content: blocks, ts: 1776879601000 }
 }
 
+test('import_cline 压缩侧车：原生压缩检查点 + compacted/compactions 报告', async () => {
+  const src = CLINE_DIR + CLINE_SID + '.messages.json'
+  const { ctx, persistence } = makeCtx({
+    [src]: clineSession([
+      clineUser('第一件事'),
+      clineAssistant([{ type: 'text', text: '做完了' }]),
+      clineUser('第二件事'),
+      clineAssistant([{ type: 'text', text: '好的' }]),
+    ]),
+    [CLINE_DIR + CLINE_SID + '.json']: clineManifest('压缩过的会话'),
+    // Cline 的 SessionCompactionState：source_message_count 条 canonical 消息被折叠进摘要，
+    // messages.json 仍保全量（侧车只给摘要与边界）
+    [CLINE_DIR + CLINE_SID + '.compaction.json']: JSON.stringify({
+      version: 1,
+      updated_at: '2026-04-22T17:42:10.123Z',
+      conversation_id: CLINE_SID,
+      source_message_count: 2,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Context summary:\n\n此前在改登录页。' }], metadata: { kind: 'compaction_summary', displayRole: 'system', userRunSpan: 1, summary: '此前在改登录页。', details: { readFiles: [], modifiedFiles: [] }, tokensBefore: 100, generatedAt: 1 } },
+        { role: 'user', content: [{ type: 'text', text: '第二件事' }] },
+        { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+      ],
+    }),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'cline')
+  const value = await def.execute({ path: src })
+  assert.equal(value.status, 'imported')
+  assert.equal(value.compacted, true)
+  assert.equal(value.compactions, 1)
+  const saved = persistence.sessions.get('import-' + CLINE_SID)
+  assert.ok(saved)
+  assert.equal(saved.events.filter((e) => e.type === 'compaction/summary').length, 1)
+  const ck = saved.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.equal(ck.data.source.plugin, 'compact')
+  assert.equal(ck.data.content[0].text, '此前在改登录页。')
+  // 全量历史留在日志里（压缩只影响模型投影）
+  assert.ok(saved.events.some((e) => JSON.stringify(e.data).includes('做完了')))
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+})
+
 test('import_cline 单文件导入：manifest 带出 cwd/标题/创建时间、落盘归组、schema 校验', async () => {
   const src = CLINE_DIR + CLINE_SID + '.messages.json'
   const { ctx, persistence, attached } = makeCtx({

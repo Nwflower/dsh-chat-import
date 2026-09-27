@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertClineJson } from '../lib/convert/cline.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -47,6 +48,37 @@ function session(messages, over = {}) {
     version: 1, updated_at: '2026-04-22T17:42:10.123Z', agent: 'lead', sessionId: SID, messages, ...over,
   })
 }
+
+test('压缩侧车（compaction.json 状态）→ 原生压缩检查点；fullHistory 时不发', () => {
+  const messages = [
+    user('第一件事'),
+    assistant([{ type: 'text', text: '做完了' }]),
+    user('第二件事'),
+    assistant([{ type: 'text', text: '好的' }]),
+  ]
+  // Cline 的 SessionCompactionState：source_message_count 条 canonical 消息被折叠进摘要，
+  // messages.json 仍保全量 → 转换器把前 N 条标 log-only、摘要进检查点
+  const args = { clineId: SID, compaction: { summary: '此前在改登录页。', sourceMessageCount: 2 } }
+  const out = convertClineJson(session(messages), args)
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(assertNativeCompaction(out.events), 1)
+  assert.equal(out.turns[0].shadowed, true)
+  assert.equal(out.turns[1].compaction.summary, '此前在改登录页。')
+  // 模型视角 = 摘要 + 保留窗口；压缩前内容留在日志里
+  assert.deepEqual(derivedSurfaceMessages(out.events).slice(2), ['user:此前在改登录页。', 'user:第二件事', 'assistant:好的'])
+  assert.ok(out.events.some((e) => JSON.stringify(e.data).includes('做完了')))
+
+  // fullHistory：不发检查点（模型看到全量历史）
+  const full = convertClineJson(session(messages), { ...args, fullHistory: true })
+  assert.equal(full.compacted, undefined)
+  assert.equal(full.events.some((e) => e.type.startsWith('compaction/')), false)
+
+  // 侧车不可解析 / 计数缺失 → 忽略（退回全量可见，不猜边界）
+  const noCount = convertClineJson(session(messages), { clineId: SID, compaction: { summary: '摘要' } })
+  assert.equal(noCount.compacted, undefined)
+  assert.equal(noCount.events.some((e) => e.type.startsWith('compaction/')), false)
+})
 
 test('简单轮次：user 文本块开轮、db 元数据经 args 落地、标题兜底首问', () => {
   const out = convertClineJson(session([

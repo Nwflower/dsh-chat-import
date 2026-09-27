@@ -8,6 +8,9 @@ import { zstdCompressSync } from 'node:zlib'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { convertDshJsonl } from '../lib/convert/dsh.mjs'
+import { convertCodexJsonl } from '../lib/convert/codex.mjs'
+import { validateSessionEvents } from '../lib/convert/core.mjs'
+import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 import { defaultRoots, discoverSessions } from '../lib/discovery.mjs'
 import { dshSessionLogVersion, isDshSessionFile, readDshText, decodeZstdText } from '../lib/sources/dsh.mjs'
 
@@ -35,6 +38,38 @@ test('convertDshJsonl 保留核心事件并重排 seq', () => {
   assert.ok(out.events.every((e) => e.type !== 'session/imported'))
   assert.ok(out.events.every((e) => Number.isFinite(e.seq)))
   assert.deepEqual(out.events.slice(0, 2).map((e) => e.type), ['turn/start', 'step/start'])
+})
+
+test('convertDshJsonl 保留原生压缩事务（重导压缩过的 DSH 会话不丢检查点）', () => {
+  // 真源：用 codex 压缩夹具生成一份带原生检查点的事件日志，再当作 DSH 日志重导
+  const codex = convertCodexJsonl(codexCompactedRollout(), { sessionId: 'codex-comp-1' })
+  const lines = [
+    { type: 'session', id: 'session-comp', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    ...codex.events,
+  ]
+  const out = convertDshJsonl(lines.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/session-comp.jsonl' })
+  assert.equal(out.compacted, true)
+  assert.equal(out.compactions, 1)
+  assert.equal(out.events.filter((e) => e.type === 'compaction/start').length, 1)
+  // 检查点：replace 范围与溯源都重映射到新 seq，source 仍是 compact 标记
+  const ck = out.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.equal(ck.surfaceOp.op, 'replace')
+  assert.ok(Number.isInteger(ck.surfaceOp.start) && Number.isInteger(ck.surfaceOp.end))
+  assert.deepEqual(ck.data.source, { kind: 'plugin', plugin: 'compact', compactionId: 'import:codex-comp-1:c1' })
+  const summary = out.events.find((e) => e.type === 'compaction/summary')
+  assert.deepEqual(summary.data.shadowedSeqs, ck.sourceEventSeqs)
+  assert.deepEqual(summary.data.shadowedRange, { start: ck.surfaceOp.start, end: ck.surfaceOp.end })
+  // 重排后的日志自带校验（括号配对 / 遮蔽范围 / 检查点溯源）
+  assert.deepEqual(validateSessionEvents(out.events), { ok: true, problems: [] })
+  assert.ok(out.events.some((e) => e.type === 'turn/start'))
+
+  // V4 形状：source.kind='plugin:compact' 读回来还原成 V3 形状（写 V4 时再改写）
+  const v4 = lines.map((l) => (l.type === 'user/message' && l.surfaceOp && typeof l.surfaceOp === 'object'
+    ? { ...l, data: { ...l.data, source: { kind: 'plugin:compact', compactionId: l.data.source.compactionId } } }
+    : l))
+  const out4 = convertDshJsonl(v4.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/session-comp.jsonl' })
+  assert.equal(out4.compactions, 1)
+  assert.equal(out4.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object').data.source.kind, 'plugin')
 })
 
 test('convertDshJsonl 净化旧日志：过滤标记事件、剥离词汇表外 envelope 键、密集重排 seq（issue #34）', () => {
