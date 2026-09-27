@@ -65,7 +65,7 @@
 | opencode | ✅ | ✅ | ✅ | — | ✅ | ✅ |
 | teleagent | ✅ | ✅ | ✅ | — | ✅ | ✅（样本 compaction 无 tail_start_id → 不裁剪，全量导入） |
 | zcode | ✅ | ✅ | ✅ | — | — | ✅ |
-| grokbuild | ✅ | ✅ | — | — | — | — |
+| grokbuild | ✅ | ✅（summary 明文可读；encrypted_content 密文不可读） | ✅ | — | ✅（tool_result 图片以 [image] 占位导入，base64 不入库） | ✅（compaction_meta 交接摘要进原生检查点） |
 | openclaw | ✅ | — | ✅ | — | — | — |
 | hermes | ✅ | ✅ | ✅ | — | — | — |
 | pi | ✅ | ✅ | ✅ | ✅（树形） | — | ✅ |

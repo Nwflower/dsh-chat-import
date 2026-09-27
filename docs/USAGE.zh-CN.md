@@ -39,7 +39,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 - `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改。
 - `sessionId`（可选）— 覆盖目标 DSH 会话 id（默认 `import-<源sessionId>`）。
 - `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
-- **上下文压缩 → DSH 原生压缩事件** — 源码工具的上下文压缩（Claude Code 的 `compact_boundary` / `isCompactSummary` user 记录与旧格式 `summary` 记录、Codex 的 `compacted` 信封、Pi 的 `compaction` 条目、opencode 的 `compaction` part + 摘要消息、Kimi 的 `context.apply_compaction`、Zed 的 `Compaction` 消息、Crush 的 `is_summary_message`、Continue 的 `conversationSummary`、zcode 的 `compaction` part + `compactBoundary`、Cline 的 `<id>.compaction.json` 压缩侧车）导入为 **DSH 原生压缩检查点**：日志照常保留**全量历史**（可回溯、可导出），同时在压缩边界发射一次原生 `compaction/start → compaction/summary → 检查点 user/message → compaction/end` 事务。模型的投影因此是「摘要检查点 + 压缩点之后的对话」，与源工具压缩后的真实上下文一致，压缩前的对话不再进模型上下文、也不会被预算裁剪吃掉（受遮蔽轮不计预算、不裁剪、不丢弃）。一次会话压缩多次就发多个检查点（链式遮蔽）。导入结果带 `compacted: true` 与 `compactions: <N>`（检查点数）。**重导 DSH 会话时也原样保留**源日志里的压缩事务（`import_chat({ format: 'dsh' | 'dsh4' })` 往返不丢检查点，V3/V4 的 `plugin:compact` 生产者标记双向归一）。压缩点之前没有可遮蔽内容（或源只有边界、没有摘要正文：Kimi 旧格式 wire）时发不出检查点——摘要退回既有形态（reasoning 块／可见文本）或按切窗口处理，并显式上报 `compactionSummaryMissing: true`，绝不虚构摘要。`fullHistory: true` 时不发检查点（模型看到全量历史）——该开关进参数指纹，换值须重导。
+- **上下文压缩 → DSH 原生压缩事件** — 源码工具的上下文压缩（Claude Code 的 `compact_boundary` / `isCompactSummary` user 记录与旧格式 `summary` 记录、Codex 的 `compacted` 信封、Pi 的 `compaction` 条目、opencode 的 `compaction` part + 摘要消息、Kimi 的 `context.apply_compaction`、Zed 的 `Compaction` 消息、Crush 的 `is_summary_message`、Continue 的 `conversationSummary`、zcode 的 `compaction` part + `compactBoundary`、Cline 的 `<id>.compaction.json` 压缩侧车、Grok Build 的 `compaction_meta` 交接摘要）导入为 **DSH 原生压缩检查点**：日志照常保留**全量历史**（可回溯、可导出），同时在压缩边界发射一次原生 `compaction/start → compaction/summary → 检查点 user/message → compaction/end` 事务。模型的投影因此是「摘要检查点 + 压缩点之后的对话」，与源工具压缩后的真实上下文一致，压缩前的对话不再进模型上下文、也不会被预算裁剪吃掉（受遮蔽轮不计预算、不裁剪、不丢弃）。一次会话压缩多次就发多个检查点（链式遮蔽）。导入结果带 `compacted: true` 与 `compactions: <N>`（检查点数）。**重导 DSH 会话时也原样保留**源日志里的压缩事务（`import_chat({ format: 'dsh' | 'dsh4' })` 往返不丢检查点，V3/V4 的 `plugin:compact` 生产者标记双向归一）。压缩点之前没有可遮蔽内容（或源只有边界、没有摘要正文：Kimi 旧格式 wire）时发不出检查点——摘要退回既有形态（reasoning 块／可见文本）或按切窗口处理，并显式上报 `compactionSummaryMissing: true`，绝不虚构摘要。`fullHistory: true` 时不发检查点（模型看到全量历史）——该开关进参数指纹，换值须重导。
 - `import_claude({ compacted: true })` — 历史参数（兼容别名）：Claude 的压缩导入自本版本起**默认即为原生压缩检查点**，无需该参数。
 - `import_codex({ fullHistory: true })` — Codex rollout 的上下文压缩默认导入为原生压缩检查点（`compacted` 信封的交接摘要进检查点，跨压缩点那一轮一分为二：边界前 log-only、边界后可见）；`fullHistory: true` 导全量、不发检查点。Codex 子代理 rollout 不是独立会话，始终跳过并给出原因。
 - `import_hermes({ lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
@@ -74,7 +74,7 @@ import_agents({ codexRoot: "~/.codex", apply: true })  // 显式包含 Codex 资
 
 ### scan_discover — 只读会话发现
 
-`scan_discover` 扫描全部已支持格式的已知数据根（包括 Cline 新版 sessions 与 VS Code globalStorage 旧版任务，以及 Windows 上的 Reasonix 桌面版与 Claude-3p 根），返回结构化会话索引（标题、项目、cwd、路径、导入状态，源目录为 git 仓库时附分支/dirty），供批导入前预览。VS Code 使用非标准 globalStorage 路径时可设置 `CLINE_LEGACY_GLOBAL_STORAGE_DIR`。零副作用：
+`scan_discover` 扫描全部已支持格式的已知数据根（包括 Cline 新版 sessions 与 VS Code globalStorage 旧版任务，以及 Windows 上的 Reasonix 桌面版与 Claude-3p 根），返回结构化会话索引（标题、项目、cwd、路径、导入状态，源目录为 git 仓库时附分支/dirty），供批导入前预览。VS Code 使用非标准 globalStorage 路径时可设置 `CLINE_LEGACY_GLOBAL_STORAGE_DIR`；Grok Build 的默认根 `~/.grok` 可用 `GROK_HOME` 覆盖。零副作用：
 
 ```
 scan_discover()
