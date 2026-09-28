@@ -2370,6 +2370,32 @@ test('validateSessionEvents：断 seq / 重复 seq / 缺 seq 均被报告', () =
   assert.ok(missing.problems.some((p) => p.kind === 'missing-seq'))
 })
 
+test('validateSessionEvents：图片块带内联 data（未落成附件）被点名', () => {
+  const ref = { attachmentId: 'sha256:abc', mediaType: 'image/png', bytes: 3, width: 1, height: 1 }
+  const okRefs = validateSessionEvents([
+    ev(0, 'turn/start'),
+    ev(1, 'user/message', { surfaceOp: 'append', data: { content: [{ type: 'image', attachment: ref }] } }),
+  ])
+  assert.ok(!okRefs.problems.some((p) => p.kind === 'inline-image-data'), 'attachment 引用形态合法')
+
+  const leaked = validateSessionEvents([
+    ev(0, 'turn/start'),
+    ev(1, 'user/message', { surfaceOp: 'append', data: { content: [{ type: 'image', data: 'aGVsbG8=', mediaType: 'image/png' }] } }),
+  ])
+  assert.equal(leaked.ok, false)
+  assert.ok(leaked.problems.some((p) => p.kind === 'inline-image-data' && p.seq === 1))
+
+  // tool-result 内层 content（V3 wrapper / V4 一级 content）里的图片块同样要被抓到
+  const nested = validateSessionEvents([
+    ev(0, 'turn/start'),
+    ev(1, 'tool/result', {
+      surfaceOp: 'append',
+      data: { message: { content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'image', data: 'AAAA', mediaType: 'image/png' }] }] } },
+    }),
+  ])
+  assert.ok(nested.problems.some((p) => p.kind === 'inline-image-data'))
+})
+
 test('validateSessionEvents：未知类型 / surface 缺 surfaceOp / sourceEventSeqs 指向非 call', () => {
   const unknown = validateSessionEvents([ev(0, 'bogus/event')])
   assert.ok(unknown.problems.some((p) => p.kind === 'unknown-type'))

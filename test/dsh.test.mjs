@@ -447,6 +447,32 @@ test('discoverSessions format=dsh 发现当前代次 session.v3.jsonl.zstd', asy
 // 兼容我们自己的历史产物：导入会话的日志里有插件注入的「环境变更声明」（V3 形状
 // source.kind='plugin'，V4 形状 kind='plugin:chat-import'）与 system head。重导这些会话时
 // 注入声明不是用户提问——否则标题与每轮 prompt 都会变成那段声明。
+test('convertDshJsonl：同一 turn 多条带图 user/message → 图片累积不互相覆盖', async () => {
+  const { convertDshJsonl } = await import('../lib/convert/index.mjs')
+  const ref = (n) => ({ attachmentId: 'sha256:img' + n, mediaType: 'image/png', bytes: 10, width: 1, height: 1 })
+  const lines = [
+    { type: 'session', version: 4, id: 'session-img-1', cwd: '/demo/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 1, data: { turn: 1 } },
+    { type: 'step/start', seq: 2, data: { turn: 1, step: 1 } },
+    // 两条 user/message 属于同一 turn（steer / 轮中插话）：文本都为空、各带一张图
+    { type: 'user/message', seq: 3, surfaceOp: 'append', data: { id: 'u1', role: 'user', content: [{ type: 'image', attachment: ref(1) }], source: { kind: 'user' } } },
+    { type: 'user/message', seq: 4, surfaceOp: 'append', data: { id: 'u2', role: 'user', content: [{ type: 'image', attachment: ref(2) }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 5, surfaceOp: 'append', data: { turn: 1, step: 1, stream: [], message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '好' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+    { type: 'step/end', seq: 6, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 7, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const out = convertDshJsonl(lines.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/demo/proj/session-img-1/session.v4.jsonl' })
+  assert.equal(out.turns.length, 1)
+  assert.deepEqual(out.turns[0].promptBlocks, [
+    { type: 'image', attachment: ref(1) },
+    { type: 'image', attachment: ref(2) },
+  ], '两条 user/message 的图片都留在同一轮的 IR 里（供预算估算与再合成）')
+  // dsh 源的事件是**原样透传**：两条 user/message 原样保留，各自的图片都还在
+  const userMsgs = out.events.filter((e) => e.type === 'user/message' && e.data && e.data.source && e.data.source.kind === 'user')
+  assert.equal(userMsgs.length, 2, '透传不合并用户消息')
+  assert.equal(userMsgs.reduce((n, e) => n + e.data.content.filter((b) => b.type === 'image').length, 0), 2)
+})
+
 test('convertDshJsonl：跳过本插件注入的环境变更声明（V3 / V4 两种 source 形状）', async () => {
   const { convertDshJsonl } = await import('../lib/convert/index.mjs')
   const lines = [

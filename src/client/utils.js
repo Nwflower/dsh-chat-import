@@ -81,9 +81,11 @@
     // reimported：重导另铸副本（用户在 DSH 里续聊过 / 旧记录无基线 / force），
     // 单独计数——它既不是「追加进已有会话」，也不是用户没见过的普通新增。
     function fmtImportResult(results, t) {
-      const c = { imported: 0, replaced: 0, reimported: 0, already: 0, appended: 0, skipped: 0, failed: 0 };
+      const c = { imported: 0, replaced: 0, reimported: 0, already: 0, appended: 0, skipped: 0, failed: 0, images: 0, imagesDegraded: 0 };
       for (const r of results || []) {
         if (r.status === "failed") { c.failed++; continue; }
+        c.images += r.images || 0;
+        c.imagesDegraded += r.imagesDegraded || 0;
         if (r.mode === "batch") {
           c.imported += r.imported || 0;
           c.reimported += r.reimported || 0;
@@ -107,6 +109,9 @@
       if (c.already) bits.push(t("result.already", { n: c.already }));
       if (c.skipped) bits.push(t("result.skipped", { n: c.skipped }));
       if (c.failed) bits.push(t("result.failed", { n: c.failed }));
+      // 图片：落成宿主附件与降级占位分开报（服务端 images / imagesDegraded，批量与单项同口径）
+      if (c.images) bits.push(t("result.images", { n: c.images }));
+      if (c.imagesDegraded) bits.push(t("result.imagesDegraded", { n: c.imagesDegraded }));
       return t("result.done", { bits: bits.length ? bits.join(t("result.separator")) : t("result.nochange") });
     }
 
