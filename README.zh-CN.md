@@ -83,7 +83,7 @@ dsh plugin --profile web add dsh-chat-import                    # npm 包
 ## 使用
 
 1. 通过GUI导入会话
-  从左侧栏底部的「导入会话」按钮打开导入窗口，选择你想导入的会话并一键导入。
+  从左侧栏底部的「导入会话」按钮打开导入窗口（使用 DSH Claude Style 主题时，这个按钮收在左下角的账号菜单里），选择你想导入的会话并一键导入。
 
   <table>
     <tr>
@@ -92,7 +92,7 @@ dsh plugin --profile web add dsh-chat-import                    # npm 包
     </tr>
   </table>
 
-  > 截图界面同时使用了作者的另外一个主题插件 [DSH Claude Style](https://github.com/Nwflower/dsh-claude-style) ：在DSH内复刻 Claude Code Desktop 的视觉和交互体验。如果你对默认主题不太习惯，不妨来尝试一下。
+  > 截图界面同时使用了作者的另外一个主题插件 [DSH Claude Style](https://github.com/Nwflower/dsh-claude-style) 的 DeepSeek 配色：在 DSH 内复刻 Claude Code Desktop 的视觉和交互体验，提供 Claude 与 DeepSeek 两套配色。如果你对默认主题不太习惯，不妨来尝试一下。截图中的工作区与会话均为示例数据。
 
 2. 通过Agent调用工具进行导入
 
