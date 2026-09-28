@@ -2,6 +2,22 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.22.1] - 2026-09-28
+
+[中文](#cn-0.22.1) | [English](#en-0.22.1)
+
+<h3 id="cn-0.22.1">问题修复</h3>
+
+- **与 DSH 0.2.0-rc.1 兼容**：`peerDependencies` 里 `@deepseek-ai/dsh-tools` 原先写死 `^0.1.0-rc.6`（等价于 `<0.2.0`），而宿主按「每个 `@deepseek-ai/dsh*` peer 范围都要匹配运行时版本」的规则检查（见 dsh-app-boot 文档），于是插件在 DSH 0.2.0-rc.1 上被标为不兼容、拒绝导入。范围放宽为 `>=0.1.0-rc.6 <0.3.0`：0.1.x 与 0.2.x 两条 rc 线都覆盖，0.3 起仍会被拦下（未验证的 API 代次不静默放行）。
+- 已验证新版宿主 API 面：从宿主 `app.asar` 读取 `@deepseek-ai/dsh-tools@0.2.0-rc.1`，我们仅有的两处依赖（`defineTool` 与 `TOOL_RUNTIME_SCHEDULER`）都在——`TOOL_RUNTIME_SCHEDULER` 仍是 `Symbol('@deepseek-ai/dsh-tools.scheduler')`，`defineTool` 与 0.1.0-rc.8 逐行同构（参数、选项名、校验一致）。加载时的 ABI 守卫报错文案同步改为新范围。
+
+<h3 id="en-0.22.1">Bug Fixes</h3>
+
+- **Compatible with DSH 0.2.0-rc.1**: the `peerDependencies` range for `@deepseek-ai/dsh-tools` was pinned to `^0.1.0-rc.6` (i.e. `<0.2.0`), while the host enforces that every `@deepseek-ai/dsh*` peer range matches its runtime version (see the dsh-app-boot docs) — so the plugin was flagged incompatible on DSH 0.2.0-rc.1 and refused import. The range is now `>=0.1.0-rc.6 <0.3.0`, covering both the 0.1.x and 0.2.x rc lines while still rejecting 0.3+ (unverified API generations are not silently allowed through).
+- Verified the new host API surface by reading `@deepseek-ai/dsh-tools@0.2.0-rc.1` out of the host's `app.asar`: both of our only two imports are present — `TOOL_RUNTIME_SCHEDULER` is still `Symbol('@deepseek-ai/dsh-tools.scheduler')`, and `defineTool` is line-for-line identical to 0.1.0-rc.8 (same parameters, option names and validation). The load-time ABI guard message now names the new range.
+
+**Full Changelog**: [v0.22.0...v0.22.1](https://github.com/Nwflower/dsh-chat-import/compare/v0.22.0...v0.22.1)
+
 ## [0.22.0] - 2026-09-28
 
 [中文](#cn-0.22.0) | [English](#en-0.22.0)
