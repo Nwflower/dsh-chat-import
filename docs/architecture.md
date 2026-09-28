@@ -20,7 +20,7 @@
 
 ## D2. 会话日志 append-only 契约
 
-- **背景**：导入的会话要成为「可继续的 DSH 会话」，就必须遵守宿主 sessionPersistence 的存储契约；改写历史会破坏增量同步与外部工具的续写假设。
+- **背景**：导入的会话要成为「可继续的 DSH 会话」，就必须遵守宿主 sessionPersistence 的存储契约；改写历史会破坏外部工具的续写假设。
 - **决定**：只 `create` + `append`，不改写历史；`seq` 从 0 连续；surface 事件带 `surfaceOp: 'append'`。
 - **代价**：纠错成本高（错了只能追加更正或 force 另建副本），所以转换层必须在写入前把输入清洗干净。
 - **重审条件**：宿主存储契约本身变更时。
@@ -51,7 +51,7 @@
 - **背景**：AI 辅助开发使代码增长快于人工维护速度；当前热点：`lib/discovery.mjs`（约 2390 行）、`lib/tools.mjs`（约 1660 行）、`lib/import-variants.mjs`（约 900 行）。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片。）
 - **决定**：治理方向不是「按行数强拆」，而是：
   - `discovery.mjs` 按**来源族**拆（每种来源的发现逻辑内聚，与 D3 的来源流水线对齐）；
-  - `tools.mjs` 按**工具分组**拆（import / export / sync / purge 各自的工具定义与 handler 同文件）；
+  - `tools.mjs` 按**工具分组**拆（import / export / purge 各自的工具定义与 handler 同文件）；
   - 拆分提案由体量停止线（AGENTS.md）或定期架构巡检触发，一次只拆一个文件，拆完门禁全绿再下一个。
 - **代价**：拆分期间 import 路径变动，需要全量测试护航（现有覆盖率护栏足够）。
 - **重审条件**：无；这是进行中的方向而非禁令。
@@ -98,5 +98,14 @@
 - **决定**：压缩导入为**宿主原生的压缩事务**，日志照常保全量历史。IR 加两个可选字段：`turns[i].compaction = { summary, provider, model }`（该轮**之前**有一次压缩）与 `turns[i].shadowed = true`（该轮已被后续压缩遮蔽，log-only）。`synthesizeSession` 在边界轮的 `turn/start` 之前发射 `compaction/start → compaction/summary → 带 surfaceOp:{op:'replace'} 的检查点 user/message → compaction/end`（独立事务，`turn: null`；`sourceEventSeqs` 覆盖全部被遮蔽的 surface 节点；checkpoint 标记 `{kind:'plugin',plugin:'compact',compactionId}` 照抄 `dsh-compaction` 的契约字面量——纯函数层不 import 宿主包）。protected head 与环境变更声明**不进**遮蔽范围（遮蔽范围是连续区间，故声明必须排在所有会话节点之前）。一次会话压缩多次就发多个链式检查点。预算裁剪只在检查点之后的「有效段」上工作：受遮蔽轮不估算、不裁剪、不丢弃。`fullHistory: true` 时不发检查点（模型看全量）并进参数指纹。
 - **决定（各源边界口径，2026-09 补）**：边界一律取「源侧模型仍看得见的内容起点」，按各源自己的事实定：Claude 的 `isCompactSummary` / 旧 `summary` 记录（轮之间）、Codex 的 `compacted` 信封（常在轮中间 → 跨界轮一分为二）、Pi 的 `retainedTail` / `firstKeptEntryId`、opencode 的 `tail_start_id`、Kimi 的 `context.apply_compaction`（截点含 turn/step，跨截点轮一分为二；旧格式 wire 无摘要 → 保持切窗口并上报 `compactionSummaryMissing`）、Zed 的 `Compaction` 消息（语义是「用摘要替换整段历史」）、Crush 的 `is_summary_message`、Continue 的 `conversationSummary`（边界在承载它的 item **之后**）、zcode 的 `compactBoundary.keptMessageCount`（缺它就退回摘要 reasoning 块，不猜）、Cline 的 `<id>.compaction.json`（`source_message_count` 条 canonical 消息被折叠）。**兜底**：边界之前没有可遮蔽节点时宿主不变式（`shadowedSeqs` 非空）不允许发检查点，合成层把摘要退回该轮首步的 reasoning 块（无步骤则补空步骤承载），摘要正文永不丢、绝不虚构。
 - **决定（DSH → DSH 往返，2026-09 补）**：`convertDshJsonl` 的 `DURABLE` 白名单含三类压缩事件，透传时**不**把检查点的 `surfaceOp:{op:'replace'}` 改写成 `append`，并把替换范围端点、`shadowedSeqs`/`shadowedRange`、`sourceEventSeqs` 用同一套映射重排（两遍映射口径一致）；V4 的 `source.kind='plugin:compact'` 读回来归一成 V3 的 `{kind:'plugin',plugin:'compact'}`（写 V4 时由 `shapeMessageSources` 再改写）。源日志畸形到端点无处映射时退回 `append`（摘要仍可见），残留括号由 `verify_session` 的 `compaction-*` 检查点名。
-- **代价**：日志体积等于源转录（几十 MB 级），投影缓存与 sync 的读放大随之而来；`compaction/summary` 的 `provider`/`model` 是**来源工具的**事实（Codex 写 `codex`、Claude 写 `claude-code`、Pi 写 `pi-coding-agent`、Kimi/Zed/Crush/Continue/zcode/Cline 各写自己的标签、opencode 系写 `provider` 标签），不是宿主模型的；导出方向暂不重建源工具的压缩记录（检查点消息按「插件注入」计入 `skippedInjections`，不静默）。
+- **代价**：日志体积等于源转录（几十 MB 级），投影缓存与全量读取的代价随之而来；`compaction/summary` 的 `provider`/`model` 是**来源工具的**事实（Codex 写 `codex`、Claude 写 `claude-code`、Pi 写 `pi-coding-agent`、Kimi/Zed/Crush/Continue/zcode/Cline 各写自己的标签、opencode 系写 `provider` 标签），不是宿主模型的；导出方向暂不重建源工具的压缩记录（检查点消息按「插件注入」计入 `skippedInjections`，不静默）。
 - **被推翻的旧决策**：无（此前压缩处理只在各源转换器里「切窗口」或「摘要作 reasoning 块」，从未写进本文档）。**重审条件**：宿主压缩事件契约（事件名 / `shadowedSeqs` 语义 / 检查点标记）变更，或 `deriveMessages` 不再折叠 replace 检查点时。
+
+---
+
+## D12. 去掉双向增量同步：只保留导入与导出（2026-09 定）
+
+- **背景**：双向同步（0.11/0.12 引入，`lib/sync-loop.mjs` + `sync-config.mjs` + `sync-panel.mjs` + `backfill.mjs` + `sync_to_claude` 工具 + 设置页「双向同步」分区）给插件装了第二张脸：入站按间隔巡检外部数据根并续写，出站在外部工具的转录文件里**追加/改写**（三闸守卫、CAS、预检回滚、水印）。它需要的配置（`sync.json` / `outbound.json`）、界面（同步页 + 设置分区）、工具与测试，体量接近导入本身的一半；而它改变的是**别的工具的**数据文件——这个权限面与「把聊天记录读进来」的风险等级不同，出问题的代价也不对称（导入错了是副本，写回错了是用户的源转录）。实际使用中它的价值集中在「我还在源工具里继续聊」这一种情形，而这条需求由「重新导入」即可覆盖（导入侧另有 D13 收口）。用户心智里重复导入一个对话 = 想要一份新的副本，而不是让插件悄悄改写已有会话。
+- **决定**：整个删除同步功能——`lib/sync-loop.mjs`、`lib/sync-config.mjs`、`lib/sync-panel.mjs`、`lib/backfill.mjs`、`sync_to_claude` 工具、`/api-import/sync` 路由、设置页同步分区与 `sync.*` i18n 键、`test/sync.test.mjs` 与 index 里的 REQ-36 用例。反向导出保留（`export_chat` 只写**新文件**：新 uuid + `createIfAbsent`，绝不碰源文件）。随之失效的死代码一并删除：`lib/export/claude.mjs` 的 `tailClaudeEvents` / `serializeClaudeJsonlTail` / `verifyClaudeJsonl`、`serializeCodexJsonlTail`、`lib/export/grokbuild.mjs` 整文件（它们只服务写回）；`lib/export/index.mjs`（`exports["./export.mjs"]` 子路径）相应收窄导出名。工具面 13 → 12。registry 里既有的 `writeback` 字段与 `exports` 映射不再有消费者，历史数据留原地作惰性残留（不静默删用户数据）。
+- **代价**：原先用写回把 DSH 续聊同步回 Claude Code / Codex / Grok 的用户失去该能力（`export_chat` 仍可导出成新文件，但不会再追加回源）；`$DSH_HOME/dsh-chat-import/sync.json`、`outbound.json` 成为惰性残留文件；`./export.mjs` 子路径的公开导出名减少（0.20.0 破坏性变更，CHANGELOG 点名）。
+- **重审条件**：若写回需求重现，应做成**独立插件**（自带配置、面板与定时器，并自主承担「改写外部工具文件」的风险），而不是把这个能力塞回导入器；本条不因「用户想要同步」而撤销。

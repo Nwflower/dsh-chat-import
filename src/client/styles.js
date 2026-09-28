@@ -204,7 +204,7 @@
       // 历史面板仍是两行式条目（沿用旧行样式）
       historyItem: { display: "flex", gap: "8px", alignItems: "flex-start", padding: "8px 10px", borderRadius: "8px", marginBottom: "2px" },
       itemMeta: { color: C.dimmer, fontSize: "12px", marginTop: "2px", display: "flex", gap: "8px", alignItems: "center", flexWrap: "wrap" },
-      // 行右侧槽位：默认放相对时间，悬停时换成导入 / 同步按钮——同一个槽位互斥，布局不跳
+      // 行右侧槽位：默认放相对时间，悬停时换成导入按钮——同一个槽位互斥，布局不跳
       rowSlot: {
         position: "relative", flex: "none", display: "flex", alignItems: "center",
         justifyContent: "flex-end", minWidth: "56px", marginLeft: "auto",
@@ -219,10 +219,6 @@
       importBtn: {
         flex: "none", background: C.accent, color: C.accentForeground, border: "none", borderRadius: "8px",
         padding: "2px 8px", fontSize: "12px", cursor: "pointer", whiteSpace: "nowrap",
-      },
-      syncBtn: {
-        flex: "none", background: "transparent", color: C.dim, border: "1px solid " + C.border,
-        borderRadius: "8px", padding: "2px 8px", fontSize: "12px", cursor: "pointer", whiteSpace: "nowrap",
       },
       status: { padding: "40px 16px", textAlign: "center", color: C.dimmer },
       error: { padding: "16px", textAlign: "center", color: C.error },

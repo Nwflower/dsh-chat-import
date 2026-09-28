@@ -34,7 +34,7 @@ export declare function exportClaudeSession(
   options?: { registryDir?: string },
 ): Promise<ExportChatResult>
 
-// ---------- 工具调用面（ToolSurface：apply 注册的 13 个工具） ----------
+// ---------- 工具调用面（ToolSurface：apply 注册的 12 个工具） ----------
 // import_chat 是 27 个聊天导入格式（25 个外部 Agent + DSH + local-jsonl）的统一分发入口：
 // format 必填（源枚举），专属参数（compacted / branch / sessionIds / fullHistory /
 // lineage / lineageMode / parseFormat）只对相应 format 生效。export_chat 是 DSH → Claude/Codex/Kimi
@@ -51,7 +51,6 @@ export interface ToolSurface {
   export_bundle(options: ExportBundleParams): Promise<ExportBundleResult>
   restore_bundle(options: RestoreBundleParams): Promise<RestoreBundleResult>
   verify_session(options: { sessionId: string }): Promise<VerifySessionResult>
-  sync_to_claude(options: SyncToClaudeParams): Promise<SyncToClaudeResult>
   list_imported_sessions(): Promise<ListImportedResult>
   retract_import(options: RetractParams): Promise<RetractResult>
   scan_discover(options?: ScanDiscoverParams): Promise<ScanDiscoverResult>
@@ -409,7 +408,7 @@ export interface VerifySessionResult {
   repairHints: Array<{ kind: string; hint: string }>
 }
 
-// ---------- sync_to_claude（反向同步增量写回） ----------
+// ---------- export_bundle / restore_bundle（interchange bundle） ----------
 
 export interface ExportBundleParams {
   /** 要导出的 DSH 会话 id（必填）。 */
@@ -487,53 +486,6 @@ export interface RestoreBundleResult {
     error?: string
     reason?: string
   }>
-}
-
-export interface SyncToClaudeParams {
-  /** 要写回的 DSH 会话 id（必须是由本插件导入的会话，带 session/imported 标记）。 */
-  sessionId: string
-  /** 写回目标 'source'（默认，导入源文件）| 'copy'（export_chat format=claude 导出的副本）。 */
-  target?: 'source' | 'copy'
-  /** true 时跳过三闸守卫并以当前文件重锚定，可能覆盖外部修改。 */
-  force?: boolean
-  /** true 时完整计算（含格式预检）但不写盘、不更新 registry。 */
-  dryRun?: boolean
-}
-
-export interface SyncToClaudeResult {
-  mode: 'single'
-  status: 'synced' | 'no-new-turns' | 'skipped'
-  sessionId: string
-  sourcePath: string
-  target: 'source' | 'copy'
-  filePath: string
-  appendedTurns?: number
-  appendedEvents?: number
-  appendedRecords?: number
-  conflictDetected?: 'source-modified-externally' | 'tail-mismatch' | 'write-version-mismatch'
-  sourceShrunk?: boolean
-  storedShrunk?: boolean
-  incompleteFinalTurn?: boolean
-  precheckFailed?: boolean
-  rollbackError?: string
-  reason?: string
-  precheck?: {
-    ok: boolean
-    recordCount?: number
-    lastUuid?: string
-    errors?: LineIssue[]
-  }
-  dryRun: boolean
-  writeback?: {
-    sessionUuid: string
-    filePath: string
-    lastWrittenSeq: number
-    lastWrittenTurn?: number
-    prevUuid?: string
-    lastSize: number
-    lastVersion: string
-    writtenAt: number
-  }
 }
 
 // ---------- list_imported_sessions / retract_import ----------

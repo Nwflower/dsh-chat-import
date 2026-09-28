@@ -1,5 +1,5 @@
 // tools-injection.test.mjs — 工具注入档位（injectTools）契约：
-// registerTools 默认注入 13 个工具并返回 reconcile；reconcile 三档对账——
+// registerTools 默认注入 12 个工具并返回 reconcile；reconcile 三档对账——
 // 'off'/false 注销全部、'minimal' 仅注入 import_chat 入口、'full'/true 重注册全部，
 // 且 IMPORT_SPECS（面板/命令依赖）恒被填充、与注入档位无关。
 // 另含描述长度护栏：工具常驻上下文成本（description + parameters）不得回肥。
@@ -24,12 +24,12 @@ function makeToolCtx() {
   return { ctx, registered, active: () => active }
 }
 
-test('registerTools：默认注入 13 个工具，IMPORT_SPECS 恒填充', () => {
+test('registerTools：默认注入 12 个工具，IMPORT_SPECS 恒填充', () => {
   const { ctx, registered, active } = makeToolCtx()
   const reconcile = registerTools(ctx, '.tools-injection-test')
   assert.equal(typeof reconcile, 'function')
-  assert.equal(registered.length, 13)
-  assert.equal(active(), 13)
+  assert.equal(registered.length, 12)
+  assert.equal(active(), 12)
   // IMPORT_SPECS 在注册期即被 makeImportChatTool 填充（面板 POST /api-import/import 与
   // /import 命令依赖），与工具是否注入无关——即使注入关闭也照常可用
   assert.ok(IMPORT_SPECS.has('claude'), 'IMPORT_SPECS 应登记 claude 面板来源')
@@ -46,7 +46,7 @@ test("reconcile('off')：注销全部工具，IMPORT_SPECS 原样保留；幂等
   assert.equal(toolCtx.active(), 0)
 })
 
-test("reconcile('minimal')：仅注入 import_chat 入口，其余 12 个不占常驻上下文", () => {
+test("reconcile('minimal')：仅注入 import_chat 入口，其余 11 个不占常驻上下文", () => {
   const toolCtx = makeToolCtx()
   const reconcile = registerTools(toolCtx.ctx, '.tools-injection-test')
   reconcile('minimal')
@@ -62,23 +62,23 @@ test("reconcile('minimal')：仅注入 import_chat 入口，其余 12 个不占�
   assert.equal(toolCtx.active(), 1)
 })
 
-test("reconcile('full')：重注册全部 13 个；三档往返与历史 boolean 兼容", () => {
+test("reconcile('full')：重注册全部 12 个；三档往返与历史 boolean 兼容", () => {
   const toolCtx = makeToolCtx()
   const reconcile = registerTools(toolCtx.ctx, '.tools-injection-test')
-  // minimal → full：注册集合从 1 回到 13
+  // minimal → full：注册集合从 1 回到 12
   reconcile('minimal')
   reconcile('full')
-  assert.equal(toolCtx.active(), 13)
+  assert.equal(toolCtx.active(), 12)
   reconcile('full')
-  assert.equal(toolCtx.active(), 13)
+  assert.equal(toolCtx.active(), 12)
   // 历史 boolean 兼容：true = 'full'，false = 'off'
   reconcile(false)
   assert.equal(toolCtx.active(), 0)
   reconcile(true)
-  assert.equal(toolCtx.active(), 13)
-  // 注册次数累计：初始 13 + minimal 1 + full 13 + full 13 + full(true) 13 = 53
+  assert.equal(toolCtx.active(), 12)
+  // 注册次数累计：初始 12 + minimal 1 + full 12 + full 12 + full(true) 12 = 49
   //（注销只减 active，不清 registered 记录）
-  assert.equal(toolCtx.registered.length, 53)
+  assert.equal(toolCtx.registered.length, 49)
 })
 
 test('描述长度护栏：每个工具 description ≤ 500 字符，全量档常驻 payload ≤ 15k 字符', () => {
@@ -99,7 +99,7 @@ test('描述长度护栏：每个工具 description ≤ 500 字符，全量档�
     total += desc + params
     assert.ok(desc <= 500, `工具 ${def.name} description ${desc} 字符超过 500 上限（本次瘦身基线）`)
   }
-  assert.equal(defs.length, 13)
+  assert.equal(defs.length, 12)
   // 上限随来源数量走：加一个来源（如 dsh4）本来就要多一行枚举说明。加入 dsh4 前
   // payload 已是 14,995（离 15k 只差 5 字符），所以这次按新增来源的实际成本上调到 15.3k，
   // 而不是把新来源的描述压成看不出来源差异的缩写。

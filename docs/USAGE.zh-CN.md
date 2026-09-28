@@ -44,7 +44,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 - `import_codex({ fullHistory: true })` — Codex rollout 的上下文压缩默认导入为原生压缩检查点（`compacted` 信封的交接摘要进检查点，跨压缩点那一轮一分为二：边界前 log-only、边界后可见）；`fullHistory: true` 导全量、不发检查点。Codex 子代理 rollout 不是独立会话，始终跳过并给出原因。
 - `import_hermes({ lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
 - `import_chat({ format: 'reasonix', path: '<sessions 目录>' })` — 目录导入默认使用 `lineageMode: 'canonical'`。只有现代 sidecar 把两个文件归入同一逻辑话题、无歧义的 `parent_id` 链明确证明祖先关系，而且祖先的完整语义消息序列是更长后代的真前缀时，才折叠恢复祖先。畸形输入、带 WAL 的检查点、完全相同副本、谱系链缺失及真实分叉叶全部保留。此模式不会替 Reasonix catalog 选择唯一活动叶；真实分支继续独立存在。`lineageMode: 'physical'` 可恢复每个 JSONL 一条会话。
-- **归档 / 删除 / 删工作区 → 自动忽略（不再重导）** — 归档会话写入忽略墓碑，取消归档自动解除。撤回 / 删除（retract / 清理）写入**永久**墓碑，重扫、`/import-all` 与自动同步一律跳过它。DSH 的归档仍保留会话与 id，但被忽略的源不再被当作「可重导」。删工作区会忽略**删除时**其名下已导入的会话，并登记工作区忽略——该工作区出现**新会话**或其中会话**取消归档**时自动恢复工作区（更早的墓碑保留）。查看与解除：`/ignores`、`/unignore <sessionId|sourcePath|all>`；`force: true` 可显式越权导入一次（不解除墓碑）。
+- **归档 / 删除 / 删工作区 → 自动忽略（不再重导）** — 归档会话写入忽略墓碑，取消归档自动解除。撤回 / 删除（retract / 清理）写入**永久**墓碑，重扫与 `/import-all` 一律跳过它。DSH 的归档仍保留会话与 id，但被忽略的源不再被当作「可重导」。删工作区会忽略**删除时**其名下已导入的会话，并登记工作区忽略——该工作区出现**新会话**或其中会话**取消归档**时自动恢复工作区（更早的墓碑保留）。查看与解除：`/ignores`、`/unignore <sessionId|sourcePath|all>`；`force: true` 可显式越权导入一次（不解除墓碑）。
 - **增量续写（重导）** — 重导同一源路径绝不改写已导入历史：未变文件跳过（`already-imported`，不重读）；增长文件只把**新增轮次** append 进同一会话（`appended`）；截断文件检测并上报（`sourceShrunk`）——需要完整新副本时用 `force: true`：
 
 ```
@@ -123,7 +123,7 @@ restore_bundle({ path: "D:\backup\bundle-dir", preview: true })      // dry-run
 verify_session({ sessionId: "import-019f5f27-…" })
 ```
 
-> 环境变更提示注入在首个 `step/start` 之后（`turn/start → step/start → 提示 → 该轮提问`）。它仍是模型看到的第一条消息，但日志里没有任何 surface 事件早于第一个 step——旧格式（v0–v2）日志若把提示写在首个 step 之前，宿主做 v2→v3 格式迁移时会 fail-closed 拒载（`surface before first step cannot acquire a system head`），会话打不开、导出/同步/校验也读不到。`verify_session` 会以 `surface-before-first-step` 点名这类存量会话，用 `force: true` 重导（或面板「刷新已导入」）即可按新注入位重写。
+> 环境变更提示注入在首个 `step/start` 之后（`turn/start → step/start → 提示 → 该轮提问`）。它仍是模型看到的第一条消息，但日志里没有任何 surface 事件早于第一个 step——旧格式（v0–v2）日志若把提示写在首个 step 之前，宿主做 v2→v3 格式迁移时会 fail-closed 拒载（`surface before first step cannot acquire a system head`），会话打不开、导出/校验也读不到。`verify_session` 会以 `surface-before-first-step` 点名这类存量会话，用 `force: true` 重导（或面板「刷新已导入」）即可按新注入位重写。
 >
 > 导入会话的日志以一条**空 `system/message` head** 开头（第一个 `step/start` 之后、任何其它 surface 事件之前）。宿主的 v3→v4 迁移要求 surface 的第一个事件是 `system/message`（protected head），否则宿主续聊写自己的系统提示词时整份日志被拒载（`system/message requires a protected first surface head`），由它 seed 出来的续聊会话同样打不开。`verify_session` 会以 `system-head-missing` 点名这类存量会话（0.20.0 之前导入的），用 `force: true` 重导即可拿到带 head 的新会话——head 必须是 surface 首事件，旧日志无法原地补写。
 
@@ -168,18 +168,9 @@ import_settings()                             // 列出建议
 /settings-suggest                             // 斜杠命令同款
 ```
 
-### sync_to_claude — 增量写回
-
-`sync_to_claude({ sessionId })` 把会话的**新增完整轮次**追加回其 Claude Code 文件——`target: "source"`（默认，写回导入源文件）或 `"copy"`（最近一次 `export_chat` `format: "claude"` 副本）。文件被外部修改或缩小时一律上报、绝不覆盖；`force: true` 越过外部修改重锚定（被覆盖的守卫仍会上报）：
-
-```
-sync_to_claude({ sessionId: "import-019f5f27-…" })
-sync_to_claude({ sessionId: "…", target: "copy", dryRun: true })
-```
-
 ### 浏览器面板 — 侧边栏发现与导入
 
-dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会话**按钮（样式对齐「设置」入口、图标用插件 logo；`sidebar.footer.action` 槽条目，与同槽其它条目共享那条 footer 行。同槽出现整宽条目——插件徽标、费用卡之类——时整行改为换行堆叠，各条目各占一整行；只是与更窄的入口抢同一行、放不下文字时，入口缩成 36×36 圆钮，文字保留在 tooltip / aria-label 里。两种情况下都不会被截断或遮挡）。插件**要求 dsh ≥ 0.1.5-rc.1**（`peerDependencies` 已抬门槛）：导入窗口**停靠进官方原生右侧栏**——插件在右侧栏注册「导入会话」tab 类型（guide 页有带图标 / 标题 / 一行描述的胶囊），点按钮即通过 `sidebarRight.openTab('chat-import')` 打开该 tab、中间的对话区保留。无回落链：没有官方右侧栏的老版本不再受客户端支持。窗口内**按工作区文件夹分组**列出发现的会话（各来源记录里的 `cwd`/项目名，缺省归入「(未分组)」），支持来源过滤——「全部来源」扫描全部格式的默认数据根，单选来源则只看该格式——每行只显示来源工具标、标题与相对时间（上下文 / 分支 / 导入状态收进悬停提示）；**点这一行的任意处即勾选**（键盘聚焦后用 Enter / 空格），行首工具标只作来源标识与选中态指示（选中时叠遮罩与勾），不再需要瞄准 22px 的方图；行内导入 / 同步按钮是唯一例外，点它只执行导入、不会连带勾选；单条导入 / 同步按钮默认隐藏，悬停（或键盘聚焦）该行时出现在时间的位置。搜索框按标题 / 工作区 / 路径过滤，列表**分页**展示（每页 500 / 2000 / **全部** 可选，默认 500；列表只挂载可视区那十几行，档位大小不影响渲染开销；选「全部」即不分页），跨页选择保留便于批量操作。扫描进度与分页信息合并在列表下方同一条状态栏：扫描中显示「已发现 N 个」，完成后显示页码与总数。
+dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会话**按钮（样式对齐「设置」入口、图标用插件 logo；`sidebar.footer.action` 槽条目，与同槽其它条目共享那条 footer 行。同槽出现整宽条目——插件徽标、费用卡之类——时整行改为换行堆叠，各条目各占一整行；只是与更窄的入口抢同一行、放不下文字时，入口缩成 36×36 圆钮，文字保留在 tooltip / aria-label 里。两种情况下都不会被截断或遮挡）。插件**要求 dsh ≥ 0.1.5-rc.1**（`peerDependencies` 已抬门槛）：导入窗口**停靠进官方原生右侧栏**——插件在右侧栏注册「导入会话」tab 类型（guide 页有带图标 / 标题 / 一行描述的胶囊），点按钮即通过 `sidebarRight.openTab('chat-import')` 打开该 tab、中间的对话区保留。无回落链：没有官方右侧栏的老版本不再受客户端支持。窗口内**按工作区文件夹分组**列出发现的会话（各来源记录里的 `cwd`/项目名，缺省归入「(未分组)」），支持来源过滤——「全部来源」扫描全部格式的默认数据根，单选来源则只看该格式——每行只显示来源工具标、标题与相对时间（上下文 / 分支 / 导入状态收进悬停提示）；**点这一行的任意处即勾选**（键盘聚焦后用 Enter / 空格），行首工具标只作来源标识与选中态指示（选中时叠遮罩与勾），不再需要瞄准 22px 的方图；行内导入按钮是唯一例外，点它只执行导入、不会连带勾选；单条导入按钮默认隐藏，悬停（或键盘聚焦）该行时出现在时间的位置。搜索框按标题 / 工作区 / 路径过滤，列表**分页**展示（每页 500 / 2000 / **全部** 可选，默认 500；列表只挂载可视区那十几行，档位大小不影响渲染开销；选「全部」即不分页），跨页选择保留便于批量操作。扫描进度与分页信息合并在列表下方同一条状态栏：扫描中显示「已发现 N 个」，完成后显示页码与总数。
 
 每行支持**单选导入**，复选框支持**多选导入**（「导入所选 (N)」）：面板调用与 `import_*` 工具完全相同的 host 导入管线，幂等跳过 / 增量续写 / force / 上下文预算语义完全一致；导入后自动刷新列表展示最新状态。多会话源（如 `conversations.json`、opencode/zcode/hermes 库）整源导入——opencode/zcode 只导所选 `sessionId`。
 
@@ -205,7 +196,7 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 
 **`/import-all [source] [path]`** 一键扫描默认数据根（或单一来源 / 显式路径）并批量导入所有未导入会话——同一管线，幂等跳过 / 增量续写，归档与已忽略源跳过，失败逐条上报。
 
-**`/ignores`** 列出忽略表（归档 / 删除 / 删工作区自动登记）；**`/ignore <sessionId|sourcePath>`** 手动忽略一个源；**`/unignore <sessionId|sourcePath|all>`** 解除忽略（`all` 清空）。被忽略的源在重扫、`/import-all` 与自动同步中一律跳过；`force: true` 可越权导入一次（不解除墓碑）。
+**`/ignores`** 列出忽略表（归档 / 删除 / 删工作区自动登记）；**`/ignore <sessionId|sourcePath>`** 手动忽略一个源；**`/unignore <sessionId|sourcePath|all>`** 解除忽略（`all` 清空）。被忽略的源在重扫与 `/import-all` 中一律跳过；`force: true` 可越权导入一次（不解除墓碑）。
 
 **`/attach-workspaces`** 按 imports registry 把已导入会话重新挂到 cwd 匹配的工作区——适合修复早期落在「未分组」或之前 workspace 挂载失败的导入；幂等，可重复执行。参数：`--mode auto|dedicated|per-project` 与 `--dir <path>`（dedicated 用）。
 
@@ -236,4 +227,4 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 设置页「会话导入」分区提供两个开关，经面板 fenced 路由读写（与 settingsScope 白名单无关）：
 
 - **导入系统提示词（默认开）**——把源会话的 system / developer 提示词作为「上下文注入」保留；关闭后仅保留环境变更声明。
-- **将本插件工具显式注入对话上下文（默认开）**——关闭后不再向对话内的 Agent 注入本插件的 13 个工具（可节省约 5k 上下文）；导入、导出、发现、撤回与双向同步等仍可通过 GUI「导入会话」面板与斜杠命令完成。
+- **将本插件工具显式注入对话上下文（默认开）**——关闭后不再向对话内的 Agent 注入本插件的 12 个工具（可节省约 5k 上下文）；导入、导出、发现与撤回等仍可通过 GUI「导入会话」面板与斜杠命令完成。

@@ -116,8 +116,7 @@ For full tool / command usage, see **[docs/USAGE.md](docs/USAGE.md)**.
 | Import | Sidebar panel "Import" tab | Import conversations from other agents, preserving reasoning, tool call results, and system prompts (optional) |
 | Retract Import | Sidebar panel "History" tab | View import history and delete sessions created by this plugin with one click |
 | Export | Context tool | Serialize DSH sessions back to external agents |
-| Sync | Sidebar panel "Sync" tab | Bidirectional incremental sync between external agents and DSH, off by default |
-| Ignore | Automatic + `/ignores` commands | Archive / delete / workspace-removal auto-registers the source so rescans and sync skip it; `/ignore`, `/unignore` manage the table |
+| Ignore | Automatic + `/ignores` commands | Archive / delete / workspace-removal auto-registers the source so rescans skip it; `/ignore`, `/unignore` manage the table |
 
 ## Docs
 

@@ -164,9 +164,6 @@
       }
     };
 
-    // 排除目录输入 → 绝对路径数组（逗号/换行分隔，去空白与空项）
-    const parseDirs = (text) => String(text || "").split(/[\n,]+/).map((s) => s.trim()).filter(Boolean);
-
     function Toggle({ on, onChange, colors }) {
       return React.createElement("button", {
         type: "button",

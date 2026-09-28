@@ -13,8 +13,7 @@ import { Buffer } from 'node:buffer'
 import { apply, readOpencodeDb, exportClaudeSession } from '../lib/index.mjs'
 import { discoverSessions } from '../lib/discovery.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
-import { resolveRegistryDir, loadImports, rememberImport, listPersistedIds, readSessionRecord, readSessionEvents, writeSession } from '../lib/imports.mjs'
-import { syncClaudeSession, evaluateWritebackGuards, readFileTailUuid } from '../lib/backfill.mjs'
+import { resolveRegistryDir, loadImports, listPersistedIds, readSessionRecord, readSessionEvents, writeSession } from '../lib/imports.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
 import { clearWorkspacePathCache, slugifyClaudeCwd } from '../lib/cwd-map.mjs'
 import { restampSession, sanitizeJsonValue, prepareHostMeta } from '../lib/import-core.mjs'
@@ -169,7 +168,7 @@ function makeCtx(tree, opts = {}) {
   const webRoutes = [] // webServer.register 捕获（REQ-41 路由断言）
   const entriesCache = new Map()
   const reads = { count: 0 }
-  const writes = [] // export_claude / sync_to_claude 的写盘记录（{ path, content, options }）
+  const writes = [] // export_claude 的写盘记录（{ path, content, options }）
   const versions = opts.versions || {}
   const services = opts.services || {}
   const versionOf = (path, v) => (versions[path] !== undefined ? versions[path] : contentVersion(v))
@@ -187,19 +186,8 @@ function makeCtx(tree, opts = {}) {
     },
     // REQ-16 导出写面：createIfAbsent 对已存在（tree 已 seed 或已写过）路径抛 EEXIST，
     // 模拟「新 uuid + createIfAbsent 不覆盖」双保险的第二道闸。
-    // REQ-36 写回写面：replaceIfVersion 只在观测版本上替换（失配抛 FS_STALE_VERSION，
-    // 模拟并发写者），返回 { operation, version, before, after }。
     async writeText(target, content, options) {
       const path = target.targetKey
-      if (options && options.kind === 'replaceIfVersion') {
-        const current = tree[path]
-        if (current === undefined || versionOf(path, current) !== options.version) {
-          throw Object.assign(new Error('FS_STALE_VERSION ' + path), { code: 'FS_STALE_VERSION' })
-        }
-        tree[path] = content
-        writes.push({ path, content, options })
-        return { operation: 'update', version: versionOf(path, content), before: current, after: content }
-      }
       if (options && options.kind === 'createIfAbsent' && tree[path] !== undefined) {
         throw Object.assign(new Error('EEXIST ' + path), { code: 'EEXIST' })
       }
@@ -322,15 +310,15 @@ function assertEnvelopeHygiene(events) {
   }
 }
 
-test('apply 注册十三个工具（import_chat 分发器 + import_agents + doctor + import_mcp + import_settings + scan_discover + export_chat 三合一 + sync_to_claude + REQ-33 识别/撤回 + REQ-56 bundle 导出/还原 + verify_session）', () => {
+test('apply 注册十二个工具（import_chat 分发器 + import_agents + doctor + import_mcp + import_settings + scan_discover + export_chat 三合一 + REQ-33 识别/撤回 + REQ-56 bundle 导出/还原 + verify_session）', () => {
   const { ctx, registered } = makeCtx({})
   apply(ctx)
-  assert.equal(registered.length, 13)
+  assert.equal(registered.length, 12)
   const names = registered.map((d) => d.name).sort()
-  assert.deepEqual(names, ['doctor', 'export_bundle', 'export_chat', 'import_agents', 'import_chat', 'import_mcp', 'import_settings', 'list_imported_sessions', 'restore_bundle', 'retract_import', 'scan_discover', 'sync_to_claude', 'verify_session'])
+  assert.deepEqual(names, ['doctor', 'export_bundle', 'export_chat', 'import_agents', 'import_chat', 'import_mcp', 'import_settings', 'list_imported_sessions', 'restore_bundle', 'retract_import', 'scan_discover', 'verify_session'])
   for (const def of registered) {
-    if (['doctor', 'import_mcp', 'import_settings', 'export_bundle', 'restore_bundle', 'sync_to_claude', 'scan_discover', 'list_imported_sessions', 'retract_import', 'verify_session'].includes(def.name)) {
-      // doctor / MCP / settings / bundle / 写回 / 发现 / 识别 / 撤回 / 校验工具：单对象输出 schema（非 oneOf）
+    if (['doctor', 'import_mcp', 'import_settings', 'export_bundle', 'restore_bundle', 'scan_discover', 'list_imported_sessions', 'retract_import', 'verify_session'].includes(def.name)) {
+      // doctor / MCP / settings / bundle / 发现 / 识别 / 撤回 / 校验工具：单对象输出 schema（非 oneOf）
       assert.equal(def.output.schema.type, 'object')
       assert.ok(!Array.isArray(def.output.schema.oneOf))
     } else if (def.name === 'export_chat') {
@@ -4589,408 +4577,6 @@ function exportDef(ctx, format) {
   return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
 }
 
-// ---- REQ-36 反向同步（增量写回） ----
-
-const LIVE_T = 1786000000000 // 固定毫秒时间戳（续聊事件）
-
-// 确定性 uuid 工厂（写回尾部记录）。
-function syncUuidSeq() {
-  let n = 0
-  return () => '11111111-2222-4333-8444-' + String(++n).padStart(12, '0')
-}
-
-// 合成带 mode/permission-mode 头的 Claude transcript（verify 预检要求首行 mode、
-// 文件名 stem = sessionId 才能通过 import 的 fileStem 判定）。uuid/parentUuid 链式。
-function claudeJsonl(n, sessionId = 'sync-sess-001') {
-  const lines = [
-    JSON.stringify({ type: 'mode', mode: 'normal', sessionId }),
-    JSON.stringify({ type: 'permission-mode', permissionMode: 'default', sessionId }),
-  ]
-  let prev = null
-  for (let i = 1; i <= n; i++) {
-    const u = 'u-' + i
-    const a = 'a-' + i
-    lines.push(JSON.stringify({
-      parentUuid: prev, type: 'user', sessionId, cwd: hostAbs('D:/demo/proj'),
-      message: { role: 'user', content: '问题' + i }, uuid: u,
-      timestamp: new Date(LIVE_T + i * 1000).toISOString(),
-    }))
-    lines.push(JSON.stringify({
-      parentUuid: u, type: 'assistant', sessionId,
-      message: { role: 'assistant', content: [{ type: 'text', text: '回答' + i }] }, uuid: a,
-      timestamp: new Date(LIVE_T + i * 1000 + 1).toISOString(),
-    }))
-    prev = a
-  }
-  return lines.join('\n') + '\n'
-}
-
-// 往已导入会话追加一个完整轮（turn 编号续源编号）；halfOpen 时不写 step/end + turn/end。
-async function appendTurn(persistence, id, turnNum, text, { halfOpen = false } = {}) {
-  const base = persistence.sessions.get(id).events.length
-  const turn = [
-    { type: 'turn/start', seq: base, time: LIVE_T, data: { turn: turnNum } },
-    { type: 'step/start', seq: base + 1, time: LIVE_T, data: { turn: turnNum, step: 1 } },
-    { type: 'user/message', seq: base + 2, time: LIVE_T, surfaceOp: 'append', data: { id: 'live:u' + turnNum, role: 'user', content: [{ type: 'text', text }], source: { kind: 'user' } } },
-    { type: 'assistant/message', seq: base + 3, time: LIVE_T, surfaceOp: 'append', data: { turn: turnNum, step: 1, id: 'live:a' + turnNum, role: 'assistant', content: [{ type: 'text', text: '回复' + text }], source: { kind: 'model', provider: 'dsh' } } },
-  ]
-  if (!halfOpen) {
-    turn.push({ type: 'step/end', seq: base + 4, time: LIVE_T, data: { turn: turnNum, step: 1 } })
-    turn.push({ type: 'turn/end', seq: base + 5, time: LIVE_T, data: { turn: turnNum, reason: { kind: 'completed' } } })
-  }
-  await persistence.append(id, turn)
-}
-
-test('REQ-36 快乐路径：导入 → DSH 续聊完整轮 → sync 写回源文件（无头/链接续/水印/再次 sync no-new-turns）', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  const imp = chatDef(ctx, 'claude')
-  const imported = await imp.execute({ path: src })
-  assert.equal(imported.status, 'imported')
-  assert.equal(imported.sessionId, 'import-sync-sess-001')
-  const baseEvents = persistence.sessions.get('import-sync-sess-001').events.length
-
-  // DSH 里继续聊了一轮（完整闭合）
-  await appendTurn(persistence, 'import-sync-sess-001', 2, 'DSH 继续问')
-
-  const syncDef = registeredDef(ctx, 'sync_to_claude')
-  const value = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001', target: 'source', uuid: syncUuidSeq() }, { registryDir: resolveRegistryDir() })
-  assert.equal(value.mode, 'single')
-  assert.equal(value.status, 'synced')
-  assert.equal(value.target, 'source')
-  assert.equal(value.filePath, src)
-  assert.equal(value.sourcePath, src)
-  assert.equal(value.appendedTurns, 1)
-  assert.equal(value.appendedEvents, 6)
-  assert.ok(value.appendedRecords > 0)
-  assert.equal(value.dryRun, false)
-  assert.equal(value.conflictDetected, undefined)
-  assert.deepEqual(validateJsonSchemaValue(syncDef.output.schema, value), [])
-
-  // 文件 = 旧内容 + 无头尾部；首条尾部记录 parentUuid = 旧文件尾 uuid
-  const oldContent = claudeJsonl(1)
-  const oldLines = oldContent.trimEnd().split('\n')
-  const newContent = tree[src]
-  assert.ok(newContent.startsWith(oldContent))
-  const allLines = newContent.trimEnd().split('\n')
-  assert.equal(allLines.length, oldLines.length + value.appendedRecords)
-  const tailStart = JSON.parse(allLines[oldLines.length])
-  assert.equal(tailStart.type, 'user') // 尾部无 mode/permission-mode 头
-  assert.equal(tailStart.parentUuid, JSON.parse(oldLines[oldLines.length - 1]).uuid) // 链续旧尾
-  assert.equal(tailStart.sessionId, 'sync-sess-001') // 与文件 sessionId 一致
-  const tailAsst = JSON.parse(allLines[oldLines.length + 1])
-  assert.equal(tailAsst.parentUuid, tailStart.uuid) // 尾部内链连续
-
-  // registry writeback：水印 = 已存事件数、prevUuid = 本次尾部最后一条记录 uuid
-  const reg = await loadImports(resolveRegistryDir())
-  const rec = reg.imports[src]
-  assert.ok(rec.writeback)
-  assert.equal(rec.writeback.filePath, src)
-  assert.equal(rec.writeback.sessionUuid, 'sync-sess-001')
-  assert.equal(rec.writeback.lastWrittenSeq, baseEvents + 6)
-  assert.equal(rec.writeback.lastWrittenTurn, 2)
-  assert.equal(rec.writeback.prevUuid, JSON.parse(allLines[allLines.length - 1]).uuid)
-  assert.equal(rec.writeback.lastSize, newContent.length)
-  assert.equal(rec.turns, 2) // 重转新文件轮数（REQ-24 幂等键）
-  assert.equal(rec.events, baseEvents + 6)
-
-  // 再次 sync → no-new-turns，文件不变
-  const second = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(second.status, 'no-new-turns')
-  assert.equal(second.incompleteFinalTurn, undefined)
-  assert.equal(tree[src], newContent)
-  assert.deepEqual(validateJsonSchemaValue(syncDef.output.schema, second), [])
-})
-
-test('REQ-36 半截轮不写：半开尾轮丢弃（incompleteFinalTurn），闭合后再同步写回', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-
-  // 半开轮（无 step/end + turn/end）
-  await appendTurn(persistence, 'import-sync-sess-001', 2, '半截提问', { halfOpen: true })
-  const before = tree[src]
-  const first = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(first.status, 'no-new-turns')
-  assert.equal(first.incompleteFinalTurn, true)
-  assert.equal(tree[src], before) // 半截轮不写
-
-  // 闭合半开轮
-  const s = persistence.sessions.get('import-sync-sess-001')
-  await persistence.append('import-sync-sess-001', [
-    { type: 'step/end', seq: s.events.length, time: LIVE_T, data: { turn: 2, step: 1 } },
-    { type: 'turn/end', seq: s.events.length + 1, time: LIVE_T, data: { turn: 2, reason: { kind: 'completed' } } },
-  ])
-  const second = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(second.status, 'synced')
-  assert.equal(second.appendedTurns, 1)
-  assert.equal(second.appendedEvents, 6)
-  const lines = tree[src].trimEnd().split('\n')
-  assert.equal(lines.length, claudeJsonl(1).trimEnd().split('\n').length + second.appendedRecords)
-})
-
-test('REQ-36 守卫：源文件被外部修改（size/version 变化）→ skipped + source-modified-externally', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  // 首同步：建立基线水印（no-new-turns，桥武装）
-  const arm = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(arm.status, 'no-new-turns')
-
-  // 外部修改：追加一行（size/version 都变）
-  tree[src] = tree[src] + JSON.stringify({ type: 'user', parentUuid: 'a-1', uuid: 'ext-1', sessionId: 'sync-sess-001', message: { role: 'user', content: '外部加的' } }) + '\n'
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.conflictDetected, 'source-modified-externally')
-  assert.equal(v.writeback.lastWrittenSeq, 9) // 导入记录事件数（含 system head 与 session/title，无标记）
-})
-
-test('REQ-36 守卫：源文件缩小 → skipped + sourceShrunk', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(2) }
-  const { ctx } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  const arm = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(arm.status, 'no-new-turns')
-
-  tree[src] = claudeJsonl(1) // 截断成 1 轮
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.sourceShrunk, true)
-})
-
-test('REQ-36 守卫：tail-mismatch（同尺寸同版本改链尾）→ 跳过；force 重锚定后写回', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  // 钉住版本：模拟「内容变了但 fs 版本不变」的外部修改（真实 fs version 是 opaque id）
-  const { ctx, persistence } = makeCtx(tree, { versions: { [src]: 'v-pinned' } })
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  const arm = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(arm.status, 'no-new-turns')
-
-  // 同长度篡改链尾：换掉最后一条 assistant 的 uuid（a-1 → x-1），size/version 不变
-  const tampered = claudeJsonl(1).replace('"uuid":"a-1"', '"uuid":"x-1"')
-  assert.equal(tampered.length, claudeJsonl(1).length)
-  tree[src] = tampered
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.conflictDetected, 'tail-mismatch')
-
-  // force：重锚定（prevUuid = 篡改后链尾 x-1）→ 新轮写回，冲突上报
-  await appendTurn(persistence, 'import-sync-sess-001', 2, 'force 后写回')
-  const forced = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001', force: true, uuid: syncUuidSeq() }, { registryDir: resolveRegistryDir() })
-  assert.equal(forced.status, 'synced')
-  assert.equal(forced.conflictDetected, 'tail-mismatch')
-  assert.equal(forced.appendedTurns, 1)
-  const lines = tree[src].trimEnd().split('\n')
-  const tailStart = JSON.parse(lines[lines.length - forced.appendedRecords])
-  assert.equal(tailStart.parentUuid, 'x-1') // 重锚定链尾
-  assert.equal(tailStart.sessionId, 'sync-sess-001')
-})
-
-test('REQ-36 CAS 竞态：写入瞬间版本失配 → write-version-mismatch，不覆盖', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  const arm = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(arm.status, 'no-new-turns')
-  await appendTurn(persistence, 'import-sync-sess-001', 2, '竞态提问')
-
-  // 模拟并发写者：writeText 委托前抢先改文件 → 观测版本失配
-  const origWrite = ctx.fs.writeText
-  ctx.fs.writeText = async (t, c, o) => {
-    if (o && o.kind === 'replaceIfVersion' && t.targetKey === src) {
-      tree[src] = tree[src] + JSON.stringify({ type: 'user', parentUuid: 'a-1', uuid: 'race-1', sessionId: 'sync-sess-001', message: { role: 'user', content: '并发写' } }) + '\n'
-    }
-    return origWrite(t, c, o)
-  }
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.conflictDetected, 'write-version-mismatch')
-  assert.ok(!tree[src].includes('竞态提问')) // 尾行未写入
-  const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 9) // 水印未推进（导入记录事件数，含 system head）
-})
-
-test('REQ-36 预检失败回滚：目标文件不符合严格布局（无 mode 头）→ 写后回滚，水印不推进', async () => {
-  // 用无 mode 头的旧式 fixture：首同步建立基线，续聊后写回 → 预检失败 → 回滚
-  const src = 'D:\\demo\\proj\\sess-simple-001.jsonl'
-  const tree = { [src]: load('sess-simple-001.jsonl') }
-  const { ctx, persistence, writes } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  const arm = await syncClaudeSession(ctx, { sessionId: 'import-sess-simple-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(arm.status, 'no-new-turns')
-  await appendTurn(persistence, 'import-sess-simple-001', 2, '预检失败提问')
-  const before = tree[src]
-  const wCount = writes.length
-
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sess-simple-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.precheckFailed, true)
-  assert.ok(v.precheck.errors.some((e) => /mode/.test(e.error)))
-  assert.equal(tree[src], before) // 回滚：文件恢复为写前内容
-  assert.equal(writes.length, wCount + 2) // 前向写 + 回滚写
-  const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback.lastWrittenSeq, 9) // 水印未推进（导入记录事件数，含 system head）
-})
-
-test('REQ-36 写回后重导幂等：sync 后 import_claude → already-imported 无重复 append', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  const imp = chatDef(ctx, 'claude')
-  await imp.execute({ path: src })
-  await appendTurn(persistence, 'import-sync-sess-001', 2, '续聊')
-  const sync = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(sync.status, 'synced')
-  const eventCount = persistence.sessions.get('import-sync-sess-001').events.length
-
-  const re = await imp.execute({ path: src })
-  assert.equal(re.status, 'already-imported')
-  assert.equal(re.alreadyImported, true)
-  assert.equal(persistence.sessions.get('import-sync-sess-001').events.length, eventCount)
-  assert.equal(persistence.sessions.size, 1)
-})
-
-test('REQ-36 非导入会话：无 session/imported 标记 → 报错', async () => {
-  const { ctx, persistence } = makeCtx({})
-  await seedSession(persistence, 'native-sess', { version: 0, id: 'native-sess', createdAt: 1786000000000, cwd: hostAbs('D:/demo/proj') }, [
-    mkEvent('user/message', 0, 1786000000000, { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }),
-    mkEvent('assistant/message', 1, 1786000000000, { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'hello' }], source: { kind: 'model', provider: 'dsh' } }, { surfaceOp: 'append' }),
-  ])
-  apply(ctx)
-  await assert.rejects(() => syncClaudeSession(ctx, { sessionId: 'native-sess' }, { registryDir: resolveRegistryDir() }), /非导入会话/)
-})
-
-test('REQ-36 多会话源：registry kind=multi → 报错暂不支持写回', async () => {
-  const tree = { 'D:\\demo\\chatgpt\\conversations.json': load('chatgpt-export.json') }
-  const { ctx } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'chatgpt').execute({ path: 'D:\\demo\\chatgpt\\conversations.json' })
-  await assert.rejects(() => syncClaudeSession(ctx, { sessionId: 'import-conv-001' }, { registryDir: resolveRegistryDir() }), /多会话源/)
-})
-
-test('REQ-36 copy target：export_claude 落 mapping → sync 写回副本；导出晚于 DSH 续聊不重复', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  // DSH 续聊一轮后再导出（导出副本已含该轮）
-  await appendTurn(persistence, 'import-sync-sess-001', 2, '导出前续聊')
-  const exp = await exportDef(ctx, 'claude').execute({ sessionId: 'import-sync-sess-001', outputDir: OUT })
-  const copyPath = exp.filePath
-  const copyBefore = tree[copyPath]
-  // export 后 registry 记录带 exports 映射（mapping 落库）
-  const reg1 = await loadImports(resolveRegistryDir())
-  assert.equal(reg1.imports[src].exports.length, 1)
-  assert.equal(reg1.imports[src].exports[0].filePath, copyPath)
-  assert.equal(reg1.imports[src].exports[0].sessionUuid, exp.sessionId)
-
-  // 首同步 target=copy：副本已含全部已存事件 → no-new-turns（基线 = 副本实测事件数，不重复写）
-  const first = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001', target: 'copy' }, { registryDir: resolveRegistryDir() })
-  assert.equal(first.status, 'no-new-turns')
-  assert.equal(tree[copyPath], copyBefore) // 无重复追加
-
-  // 再续一轮 → sync 写回副本，尾部链续副本原尾、sessionId 用导出 sessionUuid
-  await appendTurn(persistence, 'import-sync-sess-001', 3, '副本续聊')
-  const copyLines = copyBefore.trimEnd().split('\n')
-  const second = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001', target: 'copy', uuid: syncUuidSeq() }, { registryDir: resolveRegistryDir() })
-  assert.equal(second.status, 'synced')
-  assert.equal(second.filePath, copyPath)
-  assert.equal(second.appendedTurns, 1)
-  const lines = tree[copyPath].trimEnd().split('\n')
-  assert.equal(lines.length, copyLines.length + second.appendedRecords)
-  const tailStart = JSON.parse(lines[copyLines.length])
-  assert.equal(tailStart.parentUuid, JSON.parse(copyLines[copyLines.length - 1]).uuid)
-  assert.equal(tailStart.sessionId, exp.sessionId) // 记录 sessionId 与副本一致
-})
-
-test('REQ-36 dryRun：完整计算 + 预检但不写盘、不更新 registry', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  await appendTurn(persistence, 'import-sync-sess-001', 2, 'dry 续聊')
-  const before = tree[src]
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001', dryRun: true }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'synced')
-  assert.equal(v.dryRun, true)
-  assert.equal(v.appendedTurns, 1)
-  assert.equal(v.writeback.lastWrittenSeq, 15) // 将写入的水印（未持久化；含 system head 与 session/title）
-  assert.equal(tree[src], before) // 不写盘
-  const reg = await loadImports(resolveRegistryDir())
-  assert.equal(reg.imports[src].writeback, undefined) // 不更新 registry
-})
-
-test('REQ-36 源文件缺失：skipped + source-missing', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  delete tree[src]
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.reason, 'source-missing')
-})
-
-test('REQ-36 storedShrunk：DSH 日志比水印短 → 跳过', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  // 直接写 registry：伪造超前水印（lastSize/version 与 stat 一致、prevUuid 匹配 → 三闸通过）
-  const content = claudeJsonl(1)
-  const stat = { size: content.length, version: contentVersion(content) }
-  await rememberImport(resolveRegistryDir(), src, {
-    kind: 'single', dshId: 'import-sync-sess-001', turns: 1, events: 7, sizeBytes: stat.size, version: stat.version,
-    writeback: { sessionUuid: 'sync-sess-001', filePath: src, lastWrittenSeq: 999, lastWrittenTurn: 1, prevUuid: readFileTailUuid(content), lastSize: stat.size, lastVersion: stat.version, writtenAt: 0 },
-  })
-  const v = await syncClaudeSession(ctx, { sessionId: 'import-sync-sess-001' }, { registryDir: resolveRegistryDir() })
-  assert.equal(v.status, 'skipped')
-  assert.equal(v.storedShrunk, true)
-})
-
-test('REQ-36 守卫纯函数 evaluateWritebackGuards：三闸 + force 重锚定', () => {
-  const wb = { lastSize: 100, lastVersion: 'v1', prevUuid: 'tail-1' }
-  assert.deepEqual(evaluateWritebackGuards(wb, { size: 90, version: 'v1', fileTailUuid: 'tail-1' }), { ok: false, sourceShrunk: true })
-  assert.deepEqual(evaluateWritebackGuards(wb, { size: 110, version: 'v2', fileTailUuid: 'tail-1' }), { ok: false, conflictDetected: 'source-modified-externally' })
-  assert.deepEqual(evaluateWritebackGuards(wb, { size: 100, version: 'v1', fileTailUuid: 'tail-2' }), { ok: false, conflictDetected: 'tail-mismatch' })
-  assert.deepEqual(evaluateWritebackGuards(wb, { size: 100, version: 'v1', fileTailUuid: 'tail-1' }), { ok: true })
-  assert.deepEqual(evaluateWritebackGuards(wb, { size: 110, version: 'v2', fileTailUuid: 'tail-2', force: true }), { ok: true, reanchorPrevUuid: 'tail-2' })
-  assert.deepEqual(evaluateWritebackGuards(null, { size: 1, version: 'v', fileTailUuid: 'x' }), { ok: true })
-})
-
-test('REQ-36 工具入口：sync_to_claude execute 走 syncClaudeSession（schema 校验）', async () => {
-  const src = 'D:\\demo\\proj\\sync-sess-001.jsonl'
-  const tree = { [src]: claudeJsonl(1) }
-  const { ctx, persistence } = makeCtx(tree)
-  apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: src })
-  await appendTurn(persistence, 'import-sync-sess-001', 2, '工具入口')
-  const def = registeredDef(ctx, 'sync_to_claude')
-  const value = await def.execute({ sessionId: 'import-sync-sess-001', dryRun: true })
-  assert.equal(value.mode, 'single')
-  assert.equal(value.status, 'synced')
-  assert.equal(value.dryRun, true)
-  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
-})
-
 // ---- REQ-37 超长会话三层保护 + 预算自适应（mock 集成） ----
 
 // 合成超长 Claude transcript：N 轮，每轮 ~46 tokens（CJK）；giantAt 轮的回答换成
@@ -5382,29 +4968,27 @@ test('REQ-17 预览 → 正式导入：去掉 preview 后字段口径一致、�
 
 // ---- REQ-41 被动会话发现（Browser 面板数据源路由） ----
 
-test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-import/import，kind exact），工具计数不变（13 个）', () => {
+test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-import/import，kind exact），工具计数不变（12 个）', () => {
   const { ctx, webRoutes, registered } = makeCtx({})
   apply(ctx)
   const sessions = webRoutes.find((r) => r.path === '/api-import/sessions')
   const imp = webRoutes.find((r) => r.path === '/api-import/import')
-  const sync = webRoutes.find((r) => r.path === '/api-import/sync')
   assert.ok(sessions)
   assert.ok(imp)
-  assert.ok(sync)
   assert.equal(sessions.kind, 'exact')
   assert.equal(imp.kind, 'exact')
   assert.equal(typeof sessions.handler, 'function')
   assert.equal(typeof imp.handler, 'function')
-  // 只加路由，不加工具：import_chat 分流 18 来源 + import_agents + doctor + import_mcp + import_settings + scan/export_chat/sync/list/retract + bundle 导出/还原 + verify = 13，注册数不变
-  assert.equal(registered.length, 13)
+  // 只加路由，不加工具：import_chat 分流 18 来源 + import_agents + doctor + import_mcp + import_settings + scan/export_chat/list/retract + bundle 导出/还原 + verify = 12，注册数不变
+  assert.equal(registered.length, 12)
 })
 
-test('REQ-41 webServer 可选：headless（无 webServer）apply 不抛错、13 工具照常注册、无路由', () => {
+test('REQ-41 webServer 可选：headless（无 webServer）apply 不抛错、12 工具照常注册、无路由', () => {
   const { ctx, webRoutes, registered } = makeCtx({}, { noWebServer: true })
   apply(ctx)
   // 缺 webServer 只是不注册面板路由，导入工具不受影响（CI headless 冒烟场景）
   assert.equal(webRoutes.length, 0)
-  assert.equal(registered.length, 13)
+  assert.equal(registered.length, 12)
 })
 
 test('REQ-41 /api-import/sessions handler：合成夹具经 discoverSessions 返回会话、未知来源 400', async () => {

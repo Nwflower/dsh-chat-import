@@ -140,7 +140,7 @@ test('REQ-45 发现：Claude-3p 元数据 → cliSessionId 反查 jsonl 合并�
 
 test('REQ-45 import_reasonix 桌面版：标题走 .titles.json、cwd 走 slug 贪心解码', async () => {
   // 导入管线 = deriveArgs（titles + slug 解码）→ convertReasonixJsonl → 落盘；
-  // 只注册工具（registerTools），不跑完整 apply（避免 prompt-hint/sync-loop 等副作用）
+  // 只注册工具（registerTools），不跑完整 apply（避免 prompt-hint 等副作用）
   const norm = (p) => String(p).replace(/\\/g, '/')
   const root = 'C:\\Users\\alice\\AppData\\Roaming\\reasonix'
   const slug = 'c--users--alice--work'
