@@ -2,6 +2,22 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.22.2] - 2026-09-28
+
+[中文](#cn-0.22.2) | [English](#en-0.22.2)
+
+<h3 id="cn-0.22.2">其他变更</h3>
+
+- 本版是 0.19.7 之后第一个发布到 npm 的版本：0.20.0、0.21.0、0.22.0、0.22.1 只在仓库里归版、没有单独发布，它们的改动都随本版一起到达，内容见下方各节。
+- README 的导入面板截图换成 DSH Claude Style 的 DeepSeek 配色，工作区与会话均为示例数据；「使用」一节注明用 DSH Claude Style 主题时，「导入会话」按钮收在左下角的账号菜单里。
+
+<h3 id="en-0.22.2">Chores</h3>
+
+- This is the first release on npm since 0.19.7: 0.20.0, 0.21.0, 0.22.0 and 0.22.1 were versioned in the repository but never published on their own, so all of their changes arrive with this release — see the sections below.
+- The README's import panel screenshots now use the DeepSeek palette of DSH Claude Style, with sample workspaces and sessions; the Usage section notes that under the DSH Claude Style theme the "Import sessions" button sits in the account menu at the bottom left.
+
+**Full Changelog**: [v0.22.1...v0.22.2](https://github.com/Nwflower/dsh-chat-import/compare/v0.22.1...v0.22.2)
+
 ## [0.22.1] - 2026-09-28
 
 [中文](#cn-0.22.1) | [English](#en-0.22.1)
