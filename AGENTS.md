@@ -44,7 +44,7 @@ npm run build          # 发布面自检：client bundle 新鲜度 + files 完�
 - 只消费 host 公开服务（`sessionPersistence` / `fs` / `tools` / `workspaceRegistry`，可选 `webServer` / `commands`）。
 - 会话日志 append-only：只 `create` + `append`，不改写历史；`seq` 从 0 连续；surface 事件带 `surfaceOp: 'append'`。
 - 失败要大声：畸形行、疑似 secrets、降级项都要计数/上报，不静默吞掉。
-- 幂等：目标会话已存在即跳过；源增长时增量续写；`force: true` 才另建副本。
+- 重导语义（docs/architecture.md D13）：源未变即跳过（不重读）；源增长且 DSH 侧会话未被续聊 → 增量续写；已被续聊 → 另铸副本（旧会话收进 record.copies，绝不追加进用户的对话）。`force: true` 恒另建副本。
 - 测试描述行为而非背书正确性；fixtures 全部合成，不掺真实 transcript。
 - 跨平台路径：mock 树查找做分隔符归一；断言 `node:path` 结果时用同口径函数计算，不写死盘符。
 - 注释写契约和上下文，不叙述控制流；空 `catch` 必须说明吞掉了什么。

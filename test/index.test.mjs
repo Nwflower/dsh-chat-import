@@ -3521,7 +3521,7 @@ test('REQ-24 force:true：新 id 完整副本，旧会话原样保留', async ()
   const forced = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl', force: true })
   assert.equal(forced.status, 'imported')
   assert.equal(forced.sessionId, 'import-sess-incr-001-1')
-  assert.deepEqual(forced.forceImported, { previous: 'import-sess-incr-001', current: 'import-sess-incr-001-1' })
+  assert.deepEqual(forced.reimported, { previous: 'import-sess-incr-001', current: 'import-sess-incr-001-1', reason: 'forced' })
   // 两个会话都在：旧会话原样，新会话是完整副本（含 2 轮）
   assert.equal(persistence.sessions.size, 2)
   const copy = persistence.sessions.get('import-sess-incr-001-1')
@@ -3529,7 +3529,12 @@ test('REQ-24 force:true：新 id 完整副本，旧会话原样保留', async ()
   assert.ok(copy.events.every((e, i) => e.seq === i))
   assert.equal(copy.events.filter((e) => e.type === 'turn/start').length, 2)
   assert.deepEqual(persistence.sessions.get('import-sess-incr-001').events, oldEvents)
-  // registry 指向新 id；再 force 一次 → 从当前记录链式避让（import-sess-incr-001-1-1）
+  // registry 指向新 id 且把旧会话收进 copies（撤回/清理/体检仍能枚举到它）
+  const regAfterForce = await loadImports(resolveRegistryDir())
+  const recAfterForce = regAfterForce.imports['D:\\demo\\proj\\sess-incr-001.jsonl']
+  assert.equal(recAfterForce.dshId, 'import-sess-incr-001-1')
+  assert.deepEqual(recAfterForce.copies.map((c) => c.dshId), ['import-sess-incr-001'])
+  // 再 force 一次 → 从当前记录链式避让（import-sess-incr-001-1-1）
   const forced2 = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl', force: true })
   assert.equal(forced2.sessionId, 'import-sess-incr-001-1-1')
   assert.equal(persistence.sessions.size, 3)
@@ -3594,7 +3599,7 @@ test('REQ-24 legacy 回填：registry 丢失但会话在 → already-imported + 
   assert.equal(third.status, 'already-imported')
 })
 
-test('REQ-24 用户 DSH 续聊后 append：fromSeq 取 inspect 权威游标，seq 接在用户事件后', async () => {
+test('重导语义：用户已在 DSH 续聊过 → 不追加进他的会话，另铸副本并点名 continued-in-dsh', async () => {
   const tree = { 'D:\\demo\\proj\\sess-incr-001.jsonl': claudeTurns(2) }
   const { ctx, persistence } = makeCtx(tree)
   apply(ctx)
@@ -3603,7 +3608,7 @@ test('REQ-24 用户 DSH 续聊后 append：fromSeq 取 inspect 权威游标，se
   const saved1 = persistence.sessions.get('import-sess-incr-001')
   const base = saved1.events.length
 
-  // 用户在 DSH 里继续聊了 2 条消息（会话日志增长，registry 记录过期）
+  // 用户在 DSH 里继续聊了 2 条消息（会话日志增长，registry 的 storedEvents 基线过期）
   const chat = [
     { type: 'user/message', seq: base, time: Date.now(), surfaceOp: 'append', data: { id: 'live:u1', role: 'user', content: [{ type: 'text', text: 'DSH 里继续问' }], source: { kind: 'user' } } },
     { type: 'assistant/message', seq: base + 1, time: Date.now(), surfaceOp: 'append', data: { id: 'live:a1', role: 'assistant', content: [{ type: 'text', text: 'DSH 里继续答' }], source: { kind: 'model', provider: 'dsh' } } },
@@ -3612,19 +3617,92 @@ test('REQ-24 用户 DSH 续聊后 append：fromSeq 取 inspect 权威游标，se
 
   tree['D:\\demo\\proj\\sess-incr-001.jsonl'] = claudeTurns(3)
   const second = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
-  assert.equal(second.status, 'appended')
-  const saved2 = persistence.sessions.get('import-sess-incr-001')
-  assert.ok(saved2.events.every((e, i) => e.seq === i))
-  // 用户事件原样保留；续写从 base+2 开始
-  assert.equal(saved2.events[base].data.id, 'live:u1')
-  assert.equal(saved2.events[base + 1].data.id, 'live:a1')
-  assert.ok(saved2.events[base + 2].seq >= base + 2)
-  assert.equal(saved2.events.at(-1).type, 'turn/end')
-  assert.equal(saved2.events.at(-1).data.turn, 3)
-  assert.equal(saved2.events.filter((e) => e.type === 'turn/start').length, 3)
+  assert.equal(second.status, 'imported')
+  assert.equal(second.sessionId, 'import-sess-incr-001-1')
+  assert.deepEqual(second.reimported, { previous: 'import-sess-incr-001', current: 'import-sess-incr-001-1', reason: 'continued-in-dsh' })
+  // 用户那条会话一个字节都没被改写：他的两条消息仍在原位，轮次数不变
+  const kept = persistence.sessions.get('import-sess-incr-001').events
+  assert.equal(kept.length, base + 2)
+  assert.equal(kept[base].data.id, 'live:u1')
+  assert.equal(kept[base + 1].data.id, 'live:a1')
+  assert.equal(kept.filter((e) => e.type === 'turn/start').length, 2)
+  // 新副本是完整 3 轮的独立会话（seq 从 0 连续）
+  const copy = persistence.sessions.get('import-sess-incr-001-1')
+  assert.ok(copy.events.every((e, i) => e.seq === i))
+  assert.equal(copy.events.filter((e) => e.type === 'turn/start').length, 3)
+  assert.equal(copy.events.filter((e) => e.type === 'turn/end').at(-1).data.turn, 3)
 })
 
-test('REQ-24 显式 sessionId 变更：以新 id 建完整副本（force 副本语义），旧会话原样', async () => {
+test('重导语义：DSH 侧未续聊 → 仍走增量续写（seq 接在既有事件后，不新建会话）', async () => {
+  const tree = { 'D:\\demo\\proj\\sess-incr-001.jsonl': claudeTurns(2) }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
+  const base = persistence.sessions.get('import-sess-incr-001').events.length
+
+  tree['D:\\demo\\proj\\sess-incr-001.jsonl'] = claudeTurns(3)
+  const second = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
+  assert.equal(second.status, 'appended')
+  assert.equal(second.reimported, undefined)
+  const saved2 = persistence.sessions.get('import-sess-incr-001')
+  assert.ok(saved2.events.every((e, i) => e.seq === i))
+  assert.ok(saved2.events.length > base)
+  assert.equal(saved2.events.filter((e) => e.type === 'turn/start').length, 3)
+  // registry 的基线随续写推进（下次重导仍判为「未续聊」）
+  const reg = await loadImports(resolveRegistryDir())
+  const rec = reg.imports['D:\\demo\\proj\\sess-incr-001.jsonl']
+  assert.equal(rec.storedEvents, saved2.events.length)
+})
+
+test('重导语义：DSH 侧日志比基线短（被外部截短）→ 不写、跳过并报 storedShrunk', async () => {
+  const tree = { 'D:\\demo\\proj\\sess-incr-001.jsonl': claudeTurns(2) }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
+  const before = persistence.sessions.get('import-sess-incr-001').events.slice()
+
+  // 模拟工件被外部截短：日志变短但 registry 基线仍是导入时实测的长度
+  persistence.sessions.get('import-sess-incr-001').events = before.slice(0, Math.max(1, before.length - 3))
+  tree['D:\\demo\\proj\\sess-incr-001.jsonl'] = claudeTurns(3)
+  const second = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
+  assert.equal(second.status, 'already-imported')
+  assert.equal(second.storedShrunk, true)
+  assert.equal(second.sessionId, 'import-sess-incr-001')
+  // 没有新建会话，也没有写入
+  assert.equal(persistence.sessions.size, 1)
+  assert.equal(persistence.sessions.get('import-sess-incr-001').events.length, before.length - 3)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, second), [])
+})
+
+test('重导语义：旧记录没有 storedEvents 基线 → 保守另铸副本一次并回填基线', async () => {
+  const tree = { 'D:\\demo\\proj\\sess-incr-001.jsonl': claudeTurns(2) }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
+
+  // 模拟 0.20.0 之前的记录：有 turns 但没有 storedEvents（无法判断是否被续聊）
+  const regFile = join(resolveRegistryDir(), 'imports.json')
+  const saved = JSON.parse(readFileSync(regFile, 'utf8'))
+  delete saved.imports['D:\\demo\\proj\\sess-incr-001.jsonl'].storedEvents
+  writeFileSync(regFile, JSON.stringify(saved, null, 2) + '\n')
+
+  tree['D:\\demo\\proj\\sess-incr-001.jsonl'] = claudeTurns(3)
+  const second = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl' })
+  assert.equal(second.status, 'imported')
+  assert.equal(second.sessionId, 'import-sess-incr-001-1')
+  assert.equal(second.reimported.reason, 'baseline-missing')
+  // 副本落盘后回填了基线（下次重导不再无判据）
+  const reg = await loadImports(resolveRegistryDir())
+  const rec = reg.imports['D:\\demo\\proj\\sess-incr-001.jsonl']
+  assert.equal(rec.dshId, 'import-sess-incr-001-1')
+  assert.equal(typeof rec.storedEvents, 'number')
+  assert.equal(rec.storedEvents, persistence.sessions.get('import-sess-incr-001-1').events.length)
+})
+
+test('REQ-24 显式 sessionId 变更：以新 id 建完整副本（副本语义），旧会话原样', async () => {
   const tree = { 'D:\\demo\\proj\\sess-incr-001.jsonl': claudeTurns(2) }
   const { ctx, persistence } = makeCtx(tree)
   apply(ctx)
@@ -3635,7 +3713,7 @@ test('REQ-24 显式 sessionId 变更：以新 id 建完整副本（force 副本�
   const second = await def.execute({ path: 'D:\\demo\\proj\\sess-incr-001.jsonl', sessionId: 'custom-b' })
   assert.equal(second.status, 'imported')
   assert.equal(second.sessionId, 'custom-b')
-  assert.deepEqual(second.forceImported, { previous: 'custom-a', current: 'custom-b' })
+  assert.deepEqual(second.reimported, { previous: 'custom-a', current: 'custom-b', reason: 'session-id-changed' })
   assert.equal(persistence.sessions.size, 2)
   assert.ok(persistence.sessions.get('custom-a'))
   assert.ok(persistence.sessions.get('custom-b'))

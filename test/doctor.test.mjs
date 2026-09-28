@@ -24,6 +24,26 @@ test('collectImportedIds: single + multi 子表都收集', () => {
   assert.deepEqual(ids.sort(), ['import-a', 'import-c1', 'import-c2', 'import-legacy'].sort())
 })
 
+test('collectImportedIds: 重导另铸的历史副本也在内（single 与 multi 子项）', () => {
+  const registry = {
+    imports: {
+      'C:/a.jsonl': {
+        kind: 'single',
+        dshId: 'import-a-1',
+        copies: [{ dshId: 'import-a', turns: 2 }],
+      },
+      'C:/multi.jsonl': {
+        kind: 'multi',
+        conversations: { c1: { dshId: 'import-c1', copies: [{ dshId: 'import-c1-old' }] } },
+      },
+    },
+  }
+  assert.deepEqual(
+    collectImportedIds(registry).sort(),
+    ['import-a-1', 'import-a', 'import-c1', 'import-c1-old'].sort(),
+  )
+})
+
 test('collectImportedIds: 空/损坏条目跳过', () => {
   assert.deepEqual(collectImportedIds({ imports: { a: null, b: 123, c: {} } }), [])
 })

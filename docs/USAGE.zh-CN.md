@@ -6,7 +6,7 @@
 
 > **首次迁移分步流程**（与 [dsh-movein 首次迁移指南](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md) 的叙事对齐；其管配置，本插件管会话历史，可按需只用其一）：
 > ① **预览** - `scan_discover()` 或侧边栏面板查看可导入会话与导入状态徽标；或任一 `import_*` 传 `preview: true` 零副作用试跑。
-> ② **导入** - 去掉 `preview` 正式导入，按来源 / 工作区核对逐会话 `status`（重复导入行为见下文「增量续写」）。
+> ② **导入** - 去掉 `preview` 正式导入，按来源 / 工作区核对逐会话 `status`（重复导入行为见下文「重导同一源」）。
 > ③ **体检与撤回** - `doctor()` 只读体检；`retract_import` 撤回 registry 记录，或面板「历史」页删除本插件创建的会话（需确认）。
 
 > **注意**：导入会即时落盘。当目标代次等于宿主原生代次（面板「导入到」的默认项）时，新会话会即时出现在会话列表，无需刷新；只有显式选择非原生代次（如在 V4 宿主上产出 V3 日志）时，该代次不是宿主当前的内存形状，需刷新页面后才可见。
@@ -36,7 +36,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 <summary><b>导入参数与行为</b></summary>
 
 - `preview: true`（别名 `dryRun: true`）— **只读**运行：照常解析 / 读取 / 转换，但**零副作用**、不落盘。去掉该参数再调一次即正式导入。
-- `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改。
+- `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改（重导语义的完整说明见下文「重导同一源」）。
 - `sessionId`（可选）— 覆盖目标 DSH 会话 id（默认 `import-<源sessionId>`）。
 - `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
 - **上下文压缩 → DSH 原生压缩事件** — 源码工具的上下文压缩（Claude Code 的 `compact_boundary` / `isCompactSummary` user 记录与旧格式 `summary` 记录、Codex 的 `compacted` 信封、Pi 的 `compaction` 条目、opencode 的 `compaction` part + 摘要消息、Kimi 的 `context.apply_compaction`、Zed 的 `Compaction` 消息、Crush 的 `is_summary_message`、Continue 的 `conversationSummary`、zcode 的 `compaction` part + `compactBoundary`、Cline 的 `<id>.compaction.json` 压缩侧车、Grok Build 的 `compaction_meta` 交接摘要）导入为 **DSH 原生压缩检查点**：日志照常保留**全量历史**（可回溯、可导出），同时在压缩边界发射一次原生 `compaction/start → compaction/summary → 检查点 user/message → compaction/end` 事务。模型的投影因此是「摘要检查点 + 压缩点之后的对话」，与源工具压缩后的真实上下文一致，压缩前的对话不再进模型上下文、也不会被预算裁剪吃掉（受遮蔽轮不计预算、不裁剪、不丢弃）。一次会话压缩多次就发多个检查点（链式遮蔽）。导入结果带 `compacted: true` 与 `compactions: <N>`（检查点数）。**重导 DSH 会话时也原样保留**源日志里的压缩事务（`import_chat({ format: 'dsh' | 'dsh4' })` 往返不丢检查点，V3/V4 的 `plugin:compact` 生产者标记双向归一）。压缩点之前没有可遮蔽内容（或源只有边界、没有摘要正文：Kimi 旧格式 wire）时发不出检查点——摘要退回既有形态（reasoning 块／可见文本）或按切窗口处理，并显式上报 `compactionSummaryMissing: true`，绝不虚构摘要。`fullHistory: true` 时不发检查点（模型看到全量历史）——该开关进参数指纹，换值须重导。
@@ -45,11 +45,15 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 - `import_hermes({ lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
 - `import_chat({ format: 'reasonix', path: '<sessions 目录>' })` — 目录导入默认使用 `lineageMode: 'canonical'`。只有现代 sidecar 把两个文件归入同一逻辑话题、无歧义的 `parent_id` 链明确证明祖先关系，而且祖先的完整语义消息序列是更长后代的真前缀时，才折叠恢复祖先。畸形输入、带 WAL 的检查点、完全相同副本、谱系链缺失及真实分叉叶全部保留。此模式不会替 Reasonix catalog 选择唯一活动叶；真实分支继续独立存在。`lineageMode: 'physical'` 可恢复每个 JSONL 一条会话。
 - **归档 / 删除 / 删工作区 → 自动忽略（不再重导）** — 归档会话写入忽略墓碑，取消归档自动解除。撤回 / 删除（retract / 清理）写入**永久**墓碑，重扫与 `/import-all` 一律跳过它。DSH 的归档仍保留会话与 id，但被忽略的源不再被当作「可重导」。删工作区会忽略**删除时**其名下已导入的会话，并登记工作区忽略——该工作区出现**新会话**或其中会话**取消归档**时自动恢复工作区（更早的墓碑保留）。查看与解除：`/ignores`、`/unignore <sessionId|sourcePath|all>`；`force: true` 可显式越权导入一次（不解除墓碑）。
-- **增量续写（重导）** — 重导同一源路径绝不改写已导入历史：未变文件跳过（`already-imported`，不重读）；增长文件只把**新增轮次** append 进同一会话（`appended`）；截断文件检测并上报（`sourceShrunk`）——需要完整新副本时用 `force: true`：
+- **重导同一源** — 绝不改写已导入历史，按「DSH 侧这条会话还是不是导入时写下的样子」分三种情形：
+  - 源文件未变 → 跳过（`already-imported`，不重读）；
+  - 源文件增长，且你**没有**在 DSH 里聊过这条会话 → 只把**新增轮次** append 进同一会话（`appended`）；
+  - 源文件增长，但你**已经**在 DSH 里聊过它 → 另建一份**新副本**（`reimported.reason: 'continued-in-dsh'`），不往你自己的对话里追加；两条会话都保留。截断的文件检测并上报后跳过（`sourceShrunk` / `storedShrunk`）；基线字段出现之前的旧记录保守另建一次副本（`reason: 'baseline-missing'`）。`force: true` 恒以新 id 另存完整副本。
 
 ```
 import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
-// 未变化 → "already-imported" · 增长 → "appended"（只追加新轮次）
+// 未变化 → "already-imported" · 增长且未续聊 → "appended"（只追加新轮次）
+// 增长且你已在 DSH 续聊 → 新建副本，原会话一字不改
 ```
 
 </details>
@@ -172,7 +176,7 @@ import_settings()                             // 列出建议
 
 dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会话**按钮（样式对齐「设置」入口、图标用插件 logo；`sidebar.footer.action` 槽条目，与同槽其它条目共享那条 footer 行。同槽出现整宽条目——插件徽标、费用卡之类——时整行改为换行堆叠，各条目各占一整行；只是与更窄的入口抢同一行、放不下文字时，入口缩成 36×36 圆钮，文字保留在 tooltip / aria-label 里。两种情况下都不会被截断或遮挡）。插件**要求 dsh ≥ 0.1.5-rc.1**（`peerDependencies` 已抬门槛）：导入窗口**停靠进官方原生右侧栏**——插件在右侧栏注册「导入会话」tab 类型（guide 页有带图标 / 标题 / 一行描述的胶囊），点按钮即通过 `sidebarRight.openTab('chat-import')` 打开该 tab、中间的对话区保留。无回落链：没有官方右侧栏的老版本不再受客户端支持。窗口内**按工作区文件夹分组**列出发现的会话（各来源记录里的 `cwd`/项目名，缺省归入「(未分组)」），支持来源过滤——「全部来源」扫描全部格式的默认数据根，单选来源则只看该格式——每行只显示来源工具标、标题与相对时间（上下文 / 分支 / 导入状态收进悬停提示）；**点这一行的任意处即勾选**（键盘聚焦后用 Enter / 空格），行首工具标只作来源标识与选中态指示（选中时叠遮罩与勾），不再需要瞄准 22px 的方图；行内导入按钮是唯一例外，点它只执行导入、不会连带勾选；单条导入按钮默认隐藏，悬停（或键盘聚焦）该行时出现在时间的位置。搜索框按标题 / 工作区 / 路径过滤，列表**分页**展示（每页 500 / 2000 / **全部** 可选，默认 500；列表只挂载可视区那十几行，档位大小不影响渲染开销；选「全部」即不分页），跨页选择保留便于批量操作。扫描进度与分页信息合并在列表下方同一条状态栏：扫描中显示「已发现 N 个」，完成后显示页码与总数。
 
-每行支持**单选导入**，复选框支持**多选导入**（「导入所选 (N)」）：面板调用与 `import_*` 工具完全相同的 host 导入管线，幂等跳过 / 增量续写 / force / 上下文预算语义完全一致；导入后自动刷新列表展示最新状态。多会话源（如 `conversations.json`、opencode/zcode/hermes 库）整源导入——opencode/zcode 只导所选 `sessionId`。
+每行支持**单选导入**，复选框支持**多选导入**（「导入所选 (N)」）：面板调用与 `import_*` 工具完全相同的 host 导入管线，重导语义（未变跳过 / 未续聊续写 / 已续聊新建副本）/ force / 上下文预算语义完全一致；导入后自动刷新列表展示最新状态。多会话源（如 `conversations.json`、opencode/zcode/hermes 库）整源导入——opencode/zcode 只导所选 `sessionId`。
 
 面板顶部一行读作「**从** <来源> **导入到** <落点>」：左边选来源、右边选落点（品牌标只在下拉弹层里显示，触发器只留文本；来源行直接画该工具的官方品牌锁标——品牌标 + 字标，取自 @lobehub/icons，没有官方标的来源退回白卡标 + 文本）。搜索框按标题 / 工作区 / 路径过滤；工具栏末位是**两个筛选按钮**——「筛选：路径」（按工作区目录过滤，下拉带检索与路径副标题）与「筛选：时间」（24 小时 / 7 天 / 30 天 / 不筛选，四项短菜单不带检索框），两者都保持文字、窄面板下整体换行；已选条数只在底部主按钮「导入所选 (N)」上显示。列表下方是同一条状态栏：翻页只留左右图标（不套框），页码是「第 x / y 页」控件——点开在栏上方弹出**页码网格**，点数字直接跳页；只有一页（总数不足一档，默认档为 500）时整组不显示；总数不足 500 时连「每页」选择器一起隐藏，只剩总数。右侧是每页 500 / 2000 / 全部。
 
@@ -192,9 +196,9 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 
 ### `/import` 斜杠命令与 `/resume-*` 交接
 
-插件还注册了一个 **`/import <source> <path>`** 斜杠命令（在挂载了 dsh `commands` 服务的环境下可用）：直接在会话里输入即可导入，不占模型轮次——与 `import_*` 工具同一管线、同一幂等 / 增量 / force / 上下文预算语义。`<source>` 接受短名（`claude`、`codex`…）、客户端来源 id（`claude-code`）或工具全名（`import_claude`）；`<path>` 为 transcript 文件或会话目录 / 数据根（单文件导入 / 目录批量照常判定）。
+插件还注册了一个 **`/import <source> <path>`** 斜杠命令（在挂载了 dsh `commands` 服务的环境下可用）：直接在会话里输入即可导入，不占模型轮次——与 `import_*` 工具同一管线、同一重导 / force / 上下文预算语义。`<source>` 接受短名（`claude`、`codex`…）、客户端来源 id（`claude-code`）或工具全名（`import_claude`）；`<path>` 为 transcript 文件或会话目录 / 数据根（单文件导入 / 目录批量照常判定）。
 
-**`/import-all [source] [path]`** 一键扫描默认数据根（或单一来源 / 显式路径）并批量导入所有未导入会话——同一管线，幂等跳过 / 增量续写，归档与已忽略源跳过，失败逐条上报。
+**`/import-all [source] [path]`** 一键扫描默认数据根（或单一来源 / 显式路径）并批量导入所有未导入会话——同一管线：未变跳过、未续聊续写、已续聊另建副本，归档与已忽略源跳过，失败逐条上报。
 
 **`/ignores`** 列出忽略表（归档 / 删除 / 删工作区自动登记）；**`/ignore <sessionId|sourcePath>`** 手动忽略一个源；**`/unignore <sessionId|sourcePath|all>`** 解除忽略（`all` 清空）。被忽略的源在重扫与 `/import-all` 中一律跳过；`force: true` 可越权导入一次（不解除墓碑）。
 

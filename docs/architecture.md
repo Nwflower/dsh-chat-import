@@ -35,7 +35,7 @@
 ## D4. 失败要大声，幂等是底线
 
 - **背景**：导入器面对的是别人的数据，畸形行、编码问题、疑似 secrets 是常态；静默吞掉会让用户以为导入成功。
-- **决定**：畸形行、疑似 secrets、降级项全部计数/上报；目标会话已存在即跳过，源增长时增量续写，`force: true` 才另建副本。
+- **决定**：畸形行、疑似 secrets、降级项全部计数/上报；重复导入同一源时必须有确定答案而不是「看情况」（重导语义自 0.20.0 起由 D13 细化：未变跳过 / 未续聊续写 / 已续聊另建副本，`force: true` 恒另建副本）。
 - **代价**：上报通道（计数、警告列表）贯穿所有转换器签名，有点啰嗦——这是故意的。
 - **重审条件**：无。
 
@@ -78,7 +78,7 @@
 
 - **背景**：宿主 v3→v4 迁移器把 surface 的第一个 `system/message` 记为 protected head，之后每一步宿主的系统提示词都以它为替换锚点；若 surface 里已有别的 surface 事件而 head 尚未建立，迁移 fail-closed 拒载整份日志（`system/message requires a protected first surface head`）——导入会话此前从 `user/message` 起，宿主续聊写自己的系统提示词时就中招，由它 seed 出来的续聊会话同样打不开（原生会话因为创建时就写了 head 不受影响）。
 - **决定**：`synthesizeSession` 在首个 `step/start` 之后、任何其它 surface 事件之前写一条 `system/message`（`surfaceOp: 'append'`、`content: []`、`source.plugin = 'chat-import'`）——位置与内容都对齐宿主自己的 v2→v3 迁移器（它同样在第一个 step/start 处插一条空 head）。空内容只占住 surface 第 0 个节点，真正的系统提示词由宿主在下一步替换或归一化，导入不虚构提示词。
-- **代价**：导入会话多一条事件（`writeback.lastWrittenSeq` +1）；首轮没有 step 时补一个只装 head 的空 step；`SESSION_EVENT_TYPES` / surface 集合加入 `system/message`、`developer/message`，`verify_session` 新增 `system-head-missing` 点名存量旧形状（head 必须是 surface 首事件，旧日志只能 force 重导，无法原地补写）。
+- **代价**：导入会话多一条事件（`storedEvents` 基线 +1）；首轮没有 step 时补一个只装 head 的空 step；`SESSION_EVENT_TYPES` / surface 集合加入 `system/message`、`developer/message`，`verify_session` 新增 `system-head-missing` 点名存量旧形状（head 必须是 surface 首事件，旧日志只能 force 重导，无法原地补写）。
 - **重审条件**：宿主迁移器改为「缺 head 时自行插入」（v2→v3 就是这种语义）——那时本插桩可退化为可选。
 
 
@@ -109,3 +109,17 @@
 - **决定**：整个删除同步功能——`lib/sync-loop.mjs`、`lib/sync-config.mjs`、`lib/sync-panel.mjs`、`lib/backfill.mjs`、`sync_to_claude` 工具、`/api-import/sync` 路由、设置页同步分区与 `sync.*` i18n 键、`test/sync.test.mjs` 与 index 里的 REQ-36 用例。反向导出保留（`export_chat` 只写**新文件**：新 uuid + `createIfAbsent`，绝不碰源文件）。随之失效的死代码一并删除：`lib/export/claude.mjs` 的 `tailClaudeEvents` / `serializeClaudeJsonlTail` / `verifyClaudeJsonl`、`serializeCodexJsonlTail`、`lib/export/grokbuild.mjs` 整文件（它们只服务写回）；`lib/export/index.mjs`（`exports["./export.mjs"]` 子路径）相应收窄导出名。工具面 13 → 12。registry 里既有的 `writeback` 字段与 `exports` 映射不再有消费者，历史数据留原地作惰性残留（不静默删用户数据）。
 - **代价**：原先用写回把 DSH 续聊同步回 Claude Code / Codex / Grok 的用户失去该能力（`export_chat` 仍可导出成新文件，但不会再追加回源）；`$DSH_HOME/dsh-chat-import/sync.json`、`outbound.json` 成为惰性残留文件；`./export.mjs` 子路径的公开导出名减少（0.20.0 破坏性变更，CHANGELOG 点名）。
 - **重审条件**：若写回需求重现，应做成**独立插件**（自带配置、面板与定时器，并自主承担「改写外部工具文件」的风险），而不是把这个能力塞回导入器；本条不因「用户想要同步」而撤销。
+
+---
+
+## D13. 重导语义：未被续聊才续写，续聊过就另铸副本（2026-09 定）
+
+- **背景**：删掉同步（D12）之后，「重复导入同一个源」必须给出确定答案。此前的规则是「目标会话已存在即跳过，源增长时增量续写」（D4 原文），两种情形都会伤人：源文件增长时把**新增轮次追加进已有会话**，如果用户已经在那条会话里聊过天，导入的内容就混进了他自己的对话（时序上还插在他提问之前），事后无法拆开；而未变时静默跳过又让「我就是想再导一份」的用户没有出口。用户对「再导一次」的直觉是**想要一份新的**，但完全放弃增量导入会让 `/import-all`、面板批量导入这类批量入口每次运行都复制一遍历史源（`/import-all` 完全依赖导入侧的幂等闸，见 lib/command.mjs）。
+- **决定**：D4 的「幂等」保留，但把判据从「记录存在」换成「**这条 DSH 会话还是不是我上次写完的样子**」。registry 记录新增 `storedEvents`（我们落盘后**实测**的 DSH 日志长度，不是转换口径的 `events` 计数；create/replace 后读回一次，append 时按 `fromSeq + 尾部事件数` 直接推进，不额外读盘）。源增长时按实测长度分流：
+  - **等于**基线 → 纯镜像，续写尾部（`appended`，增量导入不变）；
+  - **大于**基线 → 用户在 DSH 里续聊过 → **另铸副本**（新 id，结果带 `reimported.reason: 'continued-in-dsh'`），旧会话原样不动；
+  - **小于**基线 → 日志被外部截短 → 不写，跳过并报 `storedShrunk`；
+  - **无基线**（0.20.0 之前的记录）→ 不可判定 → 保守另铸副本一次并在落盘后回填基线（`reason: 'baseline-missing'`）。
+  读不到日志长度（后端不可用）时既不追加也不复制，跳过并报 `appendedSkipped`。`force: true` / 显式 `sessionId` 变更仍恒另铸副本（`reason: 'forced'` / `'session-id-changed'`）。**另铸副本时旧会话进 `record.copies`**：撤回 / 清理 / 体检 / `/attach-workspaces` / 面板历史都经 `lib/imports.mjs` 的 `registryEntries` 统一展开（此前 8 处各自展开 registry，加 copies 必漏改，故一并收口）；删除单条副本只摘该条，删除主记录时把最新副本提升为主记录（会话还在，账也还在）。
+- **代价**：registry 记录多两个字段（`storedEvents` / `copies`），每次 create 多一次日志读回（append 路径不需要）；一次导入可能产出多条会话（用户显式重导的必然结果）；`reimported` 取代了原先只服务于 force 的 `forceImported` 字段（输出 schema 与类型面同步改名）。基线是「我们写完时的长度」，所以宿主若在 create 后自行追加事件（迁移 / 归一化）会把它判成「已续聊」，代价是**多建一份副本**——偏保守的方向，且结果里点名了原因。
+- **重审条件**：宿主提供「会话自上次写入后是否被改动」的一等信号（revision / 写入者标记）时，改用该信号替代日志长度比对。

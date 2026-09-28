@@ -13,6 +13,7 @@ import {
 import {
   listImportHistory, deleteImportedSession, purgeAllImports, collectRegistryTargets,
 } from '../lib/purge.mjs'
+import { hostAbs } from './_support/host-path.mjs'
 
 const T0 = 1710000000000
 
@@ -258,4 +259,64 @@ test('collectRegistryTargets：multi 子表展开', () => {
     b: { kind: 'multi', conversations: { x: { dshId: 's2' } }, sessions: { y: { dshId: 's3' } } },
   })
   assert.deepEqual(targets.map((t) => t.sessionId).sort(), ['s1', 's2', 's3'])
+})
+
+test('collectRegistryTargets：重导另铸的历史副本一并展开（清理也要管到它们）', () => {
+  const targets = collectRegistryTargets({
+    a: { kind: 'single', dshId: 's1-1', copies: [{ dshId: 's1' }] },
+    b: { kind: 'multi', conversations: { x: { dshId: 's2', copies: [{ dshId: 's2-old' }] } } },
+  })
+  assert.deepEqual(targets.map((t) => t.sessionId).sort(), ['s1', 's1-1', 's2', 's2-old'])
+})
+
+test('删除重导副本：只摘掉这一条，主记录与其它副本留在 registry（不连带失账）', async () => {
+  const dir = resolveRegistryDir()
+  const sourcePath = hostAbs('D:/demo/a.jsonl')
+  const persistence = makePersistence()
+  for (const id of ['copy-keep', 'copy-drop', 'main-keep']) {
+    persistence.sessions.set(id, { meta: { id }, events: [markerEvent(sourcePath)] })
+    mkdirSync(join(process.env.DSH_HOME, 'sessions', '_proj', id), { recursive: true })
+    writeFileSync(join(process.env.DSH_HOME, 'sessions', '_proj', id, 'session.jsonl'), '{"type":"x"}\n')
+  }
+  await rememberImport(dir, sourcePath, {
+    kind: 'single',
+    dshId: 'main-keep',
+    turns: 3,
+    events: 9,
+    importedAt: T0,
+    copies: [{ dshId: 'copy-drop', turns: 2, events: 6 }, { dshId: 'copy-keep', turns: 1, events: 3 }],
+  })
+  const ctx = makeCtx(persistence)
+  const res = await deleteImportedSession(ctx, dir, 'copy-drop')
+  assert.equal(res.sessionId, 'copy-drop')
+  const reg = await loadImports(dir)
+  const rec = reg.imports[sourcePath]
+  assert.equal(rec.dshId, 'main-keep')
+  assert.deepEqual(rec.copies.map((c) => c.dshId), ['copy-keep'])
+})
+
+test('删除主记录：把最新副本提升为主记录，其余副本保留（会话还在，账也还在）', async () => {
+  const dir = resolveRegistryDir()
+  const sourcePath = hostAbs('D:/demo/b.jsonl')
+  const persistence = makePersistence()
+  for (const id of ['main-drop', 'copy-new', 'copy-old']) {
+    persistence.sessions.set(id, { meta: { id }, events: [markerEvent(sourcePath)] })
+    mkdirSync(join(process.env.DSH_HOME, 'sessions', '_proj', id), { recursive: true })
+    writeFileSync(join(process.env.DSH_HOME, 'sessions', '_proj', id, 'session.jsonl'), '{"type":"x"}\n')
+  }
+  await rememberImport(dir, sourcePath, {
+    kind: 'single',
+    dshId: 'main-drop',
+    turns: 4,
+    events: 12,
+    importedAt: T0,
+    copies: [{ dshId: 'copy-new', turns: 3, events: 9, importedAt: T0 + 1 }, { dshId: 'copy-old', turns: 2, events: 6, importedAt: T0 }],
+  })
+  const ctx = makeCtx(persistence)
+  await deleteImportedSession(ctx, dir, 'main-drop')
+  const reg = await loadImports(dir)
+  const rec = reg.imports[sourcePath]
+  assert.equal(rec.dshId, 'copy-new')
+  assert.equal(rec.turns, 3)
+  assert.deepEqual(rec.copies.map((c) => c.dshId), ['copy-old'])
 })

@@ -77,25 +77,31 @@
       return bits.join(t("result.separator")) + (tail ? "\n" + tail : "");
     }
 
-    // 批量结果摘要（single/batch 混合计数；t 为 useTranslate 返回的翻译函数）
+    // 批量结果摘要（single/batch 混合计数；t 为 useTranslate 返回的翻译函数）。
+    // reimported：重导另铸副本（用户在 DSH 里续聊过 / 旧记录无基线 / force），
+    // 单独计数——它既不是「追加进已有会话」，也不是用户没见过的普通新增。
     function fmtImportResult(results, t) {
-      const c = { imported: 0, replaced: 0, already: 0, appended: 0, skipped: 0, failed: 0 };
+      const c = { imported: 0, replaced: 0, reimported: 0, already: 0, appended: 0, skipped: 0, failed: 0 };
       for (const r of results || []) {
         if (r.status === "failed") { c.failed++; continue; }
         if (r.mode === "batch") {
           c.imported += r.imported || 0;
+          c.reimported += r.reimported || 0;
           c.already += r.alreadyImported || 0;
           c.appended += r.appended || 0;
           c.skipped += r.skipped || 0;
           c.failed += r.failed || 0;
-        } else if (r.status === "imported") c.imported++;
-        else if (r.status === "replaced") c.replaced++;
+        } else if (r.status === "imported") {
+          if (r.reimported) c.reimported++;
+          else c.imported++;
+        } else if (r.status === "replaced") c.replaced++;
         else if (r.status === "already-imported") c.already++;
         else if (r.status === "appended") c.appended++;
         else c.skipped++;
       }
       const bits = [];
       if (c.imported) bits.push(t("result.imported", { n: c.imported }));
+      if (c.reimported) bits.push(t("result.reimported", { n: c.reimported }));
       if (c.replaced) bits.push(t("result.replaced", { n: c.replaced }));
       if (c.appended) bits.push(t("result.appended", { n: c.appended }));
       if (c.already) bits.push(t("result.already", { n: c.already }));

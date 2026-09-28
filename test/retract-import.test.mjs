@@ -238,6 +238,55 @@ test('list_imported_sessions：日志读不到时用 registry 兜底识别（读
   assert.equal(c.importedAt, T0)
 })
 
+test('list_imported_sessions：重导另铸的历史副本也上榜（副本与主记录同源同归属）', async () => {
+  const persistence = makePersistence()
+  seedSession(persistence, { id: 'import-main', events: balancedEvents(null, '主') })
+  seedSession(persistence, { id: 'import-main-1', events: balancedEvents(null, '副本') })
+  await rememberImport(resolveRegistryDir(), 'D:\\src\\m.jsonl', {
+    kind: 'single',
+    dshId: 'import-main-1',
+    turns: 3,
+    events: 9,
+    importedAt: T0,
+    copies: [{ dshId: 'import-main', turns: 2, events: 6, importedAt: T0 - 1000 }],
+  })
+
+  const { ctx } = makeCtx(persistence)
+  apply(ctx)
+  const value = await ctx.tools.registered('list_imported_sessions').execute({})
+  assert.equal(value.total, 2)
+  const main = value.sessions.find((s) => s.sessionId === 'import-main')
+  const copy = value.sessions.find((s) => s.sessionId === 'import-main-1')
+  assert.equal(main.sourcePath, 'D:\\src\\m.jsonl')
+  assert.equal(copy.sourcePath, 'D:\\src\\m.jsonl')
+  assert.equal(main.importedAt, T0 - 1000) // 副本保留自己的导入时间
+  assert.equal(copy.importedAt, T0)
+  assert.deepEqual(validateJsonSchemaValue(ctx.tools.registered('list_imported_sessions').output.schema, value), [])
+})
+
+test('retract_import：按历史副本的 sessionId 也能撤回该源（registry 反查含副本）', async () => {
+  const persistence = makePersistence()
+  seedSession(persistence, { id: 'import-main', events: balancedEvents(null) })
+  seedSession(persistence, { id: 'import-main-1', events: balancedEvents(null) })
+  await rememberImport(resolveRegistryDir(), 'D:\\src\\m.jsonl', {
+    kind: 'single',
+    dshId: 'import-main-1',
+    turns: 3,
+    events: 9,
+    importedAt: T0,
+    copies: [{ dshId: 'import-main', turns: 2, events: 6 }],
+  })
+
+  const { ctx } = makeCtx(persistence)
+  apply(ctx)
+  const value = await ctx.tools.registered('retract_import').execute({ sessionId: 'import-main' })
+  assert.equal(value.removed, true)
+  assert.equal(value.sourcePath, 'D:\\src\\m.jsonl')
+  assert.equal(value.wasRegistered, true)
+  const reg = await loadImports(resolveRegistryDir())
+  assert.equal(reg.imports['D:\\src\\m.jsonl'], undefined)
+})
+
 // ── retract_import ─────────────────────────────────────────────
 
 test('retract_import：移除 registry 记录、输出手动删除引导、零删除', async () => {

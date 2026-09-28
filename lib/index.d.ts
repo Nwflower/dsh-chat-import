@@ -169,6 +169,8 @@ export interface SingleImportResult {
   appendedEvents?: number
   appendedSkipped?: string
   sourceShrunk?: boolean
+  /** DSH 侧会话日志比上次落盘的水印短（被外部截短）→ 不写、跳过。 */
+  storedShrunk?: boolean
   changedInPlace?: boolean
   argsChanged?: boolean
   budgetChanged?: boolean
@@ -181,7 +183,10 @@ export interface SingleImportResult {
   compactions?: number
   /** 源压缩只有边界、没有摘要正文（Kimi 旧格式 wire）→ 该源退化为切窗口，前段历史不进日志。 */
   compactionSummaryMissing?: boolean
-  forceImported?: { previous: string; current: string }
+  /** 重导另铸副本：`previous` 原会话、`current` 新副本；`reason` 点名缘由
+   * （`continued-in-dsh` 该会话已在 DSH 续聊过 / `baseline-missing` 旧记录无基线 /
+   * `forced` 显式 force / `session-id-changed` 显式改 sessionId）。两个会话都保留。 */
+  reimported?: { previous: string; current: string; reason: 'continued-in-dsh' | 'baseline-missing' | 'forced' | 'session-id-changed' }
   /** 宿主内存残留幽灵会话（retract 后工件已删）时重导自动另铸后缀新 id，
    * previous = 幽灵原 id、current = 新落盘 id。 */
   staleGhost?: { previous: string; current: string }
@@ -208,6 +213,7 @@ export interface BatchItemResult {
   appendedTurns?: number
   appendedEvents?: number
   sourceShrunk?: boolean
+  storedShrunk?: boolean
   changedInPlace?: boolean
   argsChanged?: boolean
   budgetChanged?: boolean
@@ -218,7 +224,8 @@ export interface BatchItemResult {
   compactions?: number
   /** 同 SingleImportResult.compactionSummaryMissing（批量条目）。 */
   compactionSummaryMissing?: boolean
-  forceImported?: { previous: string; current: string }
+  /** 同 SingleImportResult.reimported（批量条目）。 */
+  reimported?: { previous: string; current: string; reason: 'continued-in-dsh' | 'baseline-missing' | 'forced' | 'session-id-changed' }
   /** 同 SingleImportResult.staleGhost（批量条目）。 */
   staleGhost?: { previous: string; current: string }
   validation?: ValidationReport
@@ -230,6 +237,8 @@ export interface BatchImportResult {
   imported: number
   alreadyImported: number
   appended: number
+  /** 其中「重导另铸副本」的条数（已含在 imported 里，单独点名便于解释新增会话）。 */
+  reimported?: number
   skipped: number
   failed: number
   missingFromSource?: string[]
