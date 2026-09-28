@@ -14,7 +14,7 @@ const item = (over = {}) => ({ format: 'claude', sourcePath: 'D:\\demo\\sess-1.j
 
 // 极小 ctx：导出器只用到 fs.writeText / fs.resolve 与 sessionPersistence（后者缺席时
 // 导出会以「sessionPersistence 不可用」失败，正是「导出失败」分支要覆盖的形态）。
-function fakeCtx({ persistence } = {}) {
+function fakeCtx({ persistence, attachments } = {}) {
   const writes = []
   return {
     writes,
@@ -24,7 +24,11 @@ function fakeCtx({ persistence } = {}) {
       async stat() { return undefined },
       async readText() { throw new Error('FS_NOT_FOUND') },
     },
-    get(service) { return service === 'sessionPersistence' ? persistence : undefined },
+    get(service) {
+      if (service === 'sessionPersistence') return persistence
+      if (service === 'attachments') return attachments
+      return undefined
+    },
   }
 }
 
@@ -91,6 +95,61 @@ test('批量形态：逐条展开转投，跳过/失败的条目不进转投（�
   assert.equal(out.files[0].sessionId, 'import-c')
   assert.equal(out.files[0].sourcePath, 'D:\\demo\\c')
   assert.equal(seen.length, 0)
+})
+
+test('转投的图片口径：能承载图片的目标落附件并点名撤回后不可回收的张数', async () => {
+  const store = new Map()
+  const sessionId = 'import-sess-img'
+  store.set(sessionId, {
+    meta: { id: sessionId, version: 4, createdAt: 1785000000000, cwd: 'D:\\demo\\proj', isSeeded: false, delegationDepth: 0 },
+    events: [
+      { type: 'user/message', seq: 0, time: 1785000000001, data: { id: 'u', role: 'user', content: [{ type: 'text', text: '看图' }], source: { kind: 'user' } } },
+      { type: 'assistant/message', seq: 1, time: 1785000000002, data: { turn: 0, step: 1, stream: [], message: { id: 'a', role: 'assistant', content: [{ type: 'image', attachment: { attachmentId: 'sha256:i', mediaType: 'image/png', bytes: 3, width: 1, height: 1 } }] } } },
+    ],
+  })
+  const persistence = {
+    async list() { return [...store.values()].map((s) => s.meta) },
+    async readFrom(id) { const s = store.get(id); if (!s) throw new Error('unknown'); return { meta: s.meta, events: s.events } },
+  }
+  const registryDir = mkdtempSync(join(tmpdir(), 'dsh-transfer-img-'))
+  // 先让会话进 registry，撤回才可能成功
+  const { rememberImport } = await import('../lib/imports.mjs')
+  await rememberImport(registryDir, 'D:\\demo\\sess-img.jsonl', { kind: 'single', dshId: sessionId, turns: 1, events: 2 })
+
+  // claude 目标：能承载图片 → 落附件（storeImages 不传 false），撤回后点名孤儿字节
+  const claudeCtx = fakeCtx({
+    persistence,
+    // 附件服务：导出方向把引用读回字节（readImage），目标格式才拿得到 base64
+    attachments: { async readImage() { return { data: Buffer.from('abc') } } },
+  })
+  const seen = []
+  const claudeOut = await transferDiscoveryItem(claudeCtx, item({ target: 'claude', cwd: 'D:\\demo\\proj' }), {
+    registryDir,
+    importItem: async (_ctx, _format, _path, _ids, opts) => {
+      seen.push(opts.storeImages)
+      return { mode: 'single', status: 'imported', sessionId, images: 1 }
+    },
+  })
+  assert.equal(seen[0], true, 'claude 目标落图片')
+  assert.equal(claudeOut.transferred, 1)
+  assert.equal(claudeOut.purged, 1)
+  assert.equal(claudeOut.attachmentsOrphaned, 1, '撤回后不可回收的图片张数要点名')
+  assert.equal(claudeOut.files[0].attachmentsOrphaned, 1)
+  // 图片确实写进了目标格式（attachment 引用被读成 base64）
+  assert.match(claudeCtx.writes[0].content, /"type":"image"/)
+
+  // kimi 目标：wire 只能指自有 blob → 不落附件（省下撤回后无法回收的字节）
+  const kimiCtx = fakeCtx({ persistence })
+  const kimiSeen = []
+  const kimiOut = await transferDiscoveryItem(kimiCtx, item({ target: 'kimi' }), {
+    registryDir,
+    importItem: async (_ctx, _format, _path, _ids, opts) => {
+      kimiSeen.push(opts.storeImages)
+      return { mode: 'single', status: 'imported', sessionId, images: 0, imagesDegraded: 1 }
+    },
+  })
+  assert.equal(kimiSeen[0], false, 'kimi 目标不落图片')
+  assert.equal(kimiOut.attachmentsOrphaned, undefined, '没有落图就没有孤儿字节')
 })
 
 test('导出成功但撤回失败 → 保留会话并把原因带到结果（kept + purgeError，不静默）', async () => {
