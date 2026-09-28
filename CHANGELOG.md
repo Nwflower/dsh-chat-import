@@ -2,6 +2,46 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.21.0] - 2026-09-28
+
+[中文](#cn-0.21.0) | [English](#en-0.21.0)
+
+<h3 id="cn-0.21.0">新增功能</h3>
+
+- **图片导入为宿主附件，不再一律降级成 `[image]` 文本**：中间结构新增 `image` 块（与宿主 `ContentBlockMap` 的 `text/reasoning/image/tool-call/tool-result` 对齐），落盘前经宿主附件服务（`ctx.attachments`）把字节存成不可变对象，会话日志里只留 `attachmentId` 引用——**base64 永不进日志**。本机真实数据实测：抽样 40 个 Claude 会话落成 297 张（43MB），Codex 25 张，grokbuild 33 张。已是附件引用的会话（`dsh`/`dsh4` 源、导出再导入）原样带过，不重复存。结果新增 `images`（落成附件张数）与 `imagesDegraded`（仍以占位导入的张数）；`storeImages: false` 或环境变量 `DSH_IMPORT_STORE_IMAGES=0` 可只留占位、不写附件存储（单会话上限 500 张，超出部分降级并计数）。
+- **反向导出把图片写回目标格式**：`export_claude` 产出 Claude 的 `{type:'image', source:{type:'base64',…}}`，`export_codex` 产出 `{type:'input_image', image_url:'data:…'}`；读不回字节的块以 `[image]` 占位导出并计入 `degradations` 的 `attachment-skipped`。`export-md` 在 Markdown 里标注附件引用与展示名。
+- 转换层新增 `lib/convert/image.mjs`（图片来源 → IR 图片块：媒体类型归一、data URL 解析、魔数嗅探、上限保护）与宿主层 `lib/attachments.mjs`（落地 / 解引用 / 读回），`docs/INTERCHANGE.md` 的中间结构一节补齐 `image` / `promptBlocks` / `model` / `aborted` / `compaction` / `shadowed` 字段与两种图片块状态。
+
+<h3 id="cn-0.21.0">问题修复</h3>
+
+- **用户提问里的图片不再静默丢弃**：Claude / Codex / Pi 的提问消息此前只取 `text` 块拼 prompt，同一条消息里的图片连计数都没有（本机 Claude 样本里就有「两张截图 + 一句话」的提问）——现在图片进 `turns[i].promptBlocks`，合成的 `user/message` 同时带文本与图片块。
+- **助手消息里的图片与 Kimi 工具结果里的媒体不再静默丢弃**：Claude 助手消息的 `image` 块、Codex 助手消息的图片、Kimi `ToolResult.return_value.output` 里的 `image_url`（`blobref:` 引用，插件取不到字节）此前直接跳过，现在有字节的落成附件、取不到字节的以占位导入并计入 `imagesDegraded`。
+- 图片字节不再被复制进日志文本：源转录正文里本来含 base64 文本（如工具结果的 2KB 预览）时，那是源内容；导入产出的图片块只走附件引用，落盘前统一替换并校验。
+
+<h3 id="cn-0.21.0">其他变更</h3>
+
+- `eslint.config.mjs` 声明 `Buffer` 为只读全局（Node 全局此前未登记，新增的 base64 编解码代码因此报 `no-undef`）。
+- 导出降级的 `attachment-skipped` 计数口径扩展为「未知块类型 + 读不回字节的图片」（`lib/convert/interchange.mjs` 新增 `unavailableImages` 汇入口）。
+
+<h3 id="en-0.21.0">New Features</h3>
+
+- **Images are imported as host attachments instead of collapsing to `[image]` text**: the intermediate structure gained an `image` block (matching the host's `ContentBlockMap`: `text/reasoning/image/tool-call/tool-result`), and before writing, the host attachment service (`ctx.attachments`) stores the bytes as immutable objects while the session log keeps only an `attachmentId` reference — **base64 never reaches the log**. Measured on this machine's real data: 40 sampled Claude sessions yield 297 stored images (43MB), Codex 25, grokbuild 33. Sessions that already carry attachment refs (`dsh`/`dsh4` sources, re-imported exports) pass through unchanged and are never stored twice. Results gained `images` (blocks stored as attachments) and `imagesDegraded` (blocks still imported as placeholders); `storeImages: false` or `DSH_IMPORT_STORE_IMAGES=0` keeps placeholders only and writes nothing to the attachment store (500 images per session, the excess degrades and is counted).
+- **Reverse export writes images back into the target format**: `export_claude` emits Claude's `{type:'image', source:{type:'base64',…}}`, `export_codex` emits `{type:'input_image', image_url:'data:…'}`; blocks whose bytes cannot be read are exported as `[image]` placeholders and counted under `attachment-skipped` in `degradations`. `export-md` marks the attachment reference and display name in Markdown.
+- The converter layer gained `lib/convert/image.mjs` (image source → IR image block: media-type normalization, data-URL parsing, magic-byte sniffing, size guard) and the host layer `lib/attachments.mjs` (materialize / dereference / read back); the exchange-format docs now spell out `image` / `promptBlocks` / `model` / `aborted` / `compaction` / `shadowed` and both image-block states.
+
+<h3 id="en-0.21.0">Bug Fixes</h3>
+
+- **Images inside user prompts are no longer dropped silently**: Claude / Codex / Pi prompt messages used to keep only `text` blocks when building the prompt, without even counting the images in the same message (one sampled Claude session opens with two screenshots plus one sentence) — images now go into `turns[i].promptBlocks` and the synthesized `user/message` carries both text and image blocks.
+- **Images in assistant messages and media in Kimi tool results are no longer dropped silently**: Claude assistant `image` blocks, Codex assistant images and Kimi's `image_url` entries inside `ToolResult.return_value.output` (a `blobref:` reference the plugin cannot resolve) used to be skipped outright; blocks with bytes now become attachments, and blocks without bytes are imported as placeholders counted in `imagesDegraded`.
+- Image bytes are no longer copied into log text: when a source transcript itself contains base64 text (such as a 2KB tool-output preview) that stays source content, while image blocks produced by the import only ever reach the log as attachment references, substituted and verified before writing.
+
+<h3 id="en-0.21.0">Chores</h3>
+
+- `eslint.config.mjs` declares `Buffer` as a read-only global (the Node global was not registered, so the new base64 code flagged `no-undef`).
+- The export degradation counter `attachment-skipped` now covers "unknown block types plus images whose bytes cannot be read" (new `unavailableImages` input in `lib/convert/interchange.mjs`).
+
+**Full Changelog**: [v0.20.0...v0.21.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.20.0...v0.21.0)
+
 ## [0.20.0] - 2026-09-27
 
 [中文](#cn-0.20.0) | [English](#en-0.20.0)
