@@ -16,6 +16,16 @@ test('blocksToMarkdown: text / thinking / tool_use / tool-result', () => {
   assert.match(md, /📦 Tool result: file body/)
 })
 
+test('blocksToMarkdown: 图片块标注附件引用与展示名（字节不内联）', () => {
+  const md = blocksToMarkdown([
+    { type: 'text', text: '看图' },
+    { type: 'image', attachment: { attachmentId: 'sha256:abc', mediaType: 'image/png', bytes: 3, width: 1, height: 1, name: 'shot.png' } },
+    { type: 'image', attachment: { attachmentId: 'sha256:def', mediaType: 'image/png', bytes: 3, width: 1, height: 1 } },
+  ])
+  assert.match(md, /🖼 \[shot\.png\]\(sha256:abc\)/)
+  assert.match(md, /🖼 \[image\]\(sha256:def\)/, '没有名字时用 image 兜底')
+})
+
 test('sessionJsonlToMarkdown: 渲染会话头、用户、助手与工具调用', () => {
   const lines = [
     { type: 'session', version: 0, id: 'import-abc', createdAt: 1786000000000, cwd: 'D:\\demo\\proj' },

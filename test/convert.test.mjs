@@ -1676,15 +1676,18 @@ test('convertOpencodeJson: reasoning + tool/call + tool/result（error 标记、
   assertMessageOrderLegal(out.events)
 })
 
-test('convertOpencodeJson: file/patch/subtask → text 块，结构块跳过，空 output 工具仍配对', () => {
+test('convertOpencodeJson: file/patch/subtask → 内容块，结构块跳过，空 output 工具仍配对', () => {
   const out = convertOpencodeJson(load('opencode-extras.json'))
   assert.equal(out.turns.length, 1)
   assert.equal(out.toolCalls, 1)
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
   const texts = asst.content.filter((c) => c.type === 'text').map((c) => c.text)
-  assert.ok(texts.includes('[image: diagram.png]'))
+  // file part 带内联字节（data URL）→ IR image 块（宿主层落成附件），不再是文本占位
+  assert.deepEqual(asst.content.filter((c) => c.type === 'image'),
+    [{ type: 'image', data: 'AAAA', mediaType: 'image/png' }])
   assert.ok(texts.includes('[patch: 2 files]'))
   assert.ok(texts.includes('[subtask: npm test — 跑测试]'))
+  assert.equal(out.imagesDegraded, undefined, '有字节：没有降级')
   // step-start / step-finish / compaction 不产生任何内容块
   assert.ok(!asst.content.some((c) => c.type === 'step-start' || c.type === 'step-finish' || c.type === 'compaction'))
   // 工具 state 无 output → 仍发 result（空文本），保持 call/result 配对

@@ -153,8 +153,10 @@ export interface SingleImportResult {
   permissionCount?: number
   /** isMeta 记录数（Claude：宿主写进转录的非提问内容，不开轮、不参与标题）。 */
   metaMessages?: number
-  /** 以 [image] 占位导入的图片数（工具结果里的图片，base64 / data URL 永不进日志）。 */
+  /** 落成宿主附件的图片数（经 ctx.attachments 存成不可变对象，日志里只有引用）。 */
   images?: number
+  /** 未能落地、以 [image] 文本占位导入的图片数（服务缺席 / 类型不收 / 超限 / 源无字节）。 */
+  imagesDegraded?: number
   /** 只计数不映射的后端工具调用数（Grok Build 的 backend_tool_call）。 */
   backendToolCalls?: number
   /** 无法映射成内容块的工具结果块数（未知块类型，已计数上报）。 */
@@ -206,6 +208,7 @@ export interface BatchItemResult {
   /** 同 SingleImportResult 的保真 / 降级计数（批量条目）。 */
   metaMessages?: number
   images?: number
+  imagesDegraded?: number
   backendToolCalls?: number
   droppedToolResultBlocks?: number
   droppedMalformedOutputs?: number

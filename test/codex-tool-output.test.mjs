@@ -59,8 +59,8 @@ test('codex function_call_output: 对象信封 {output:[块数组]} → 同样�
   assert.deepEqual(resultOf(out).content, [{ type: 'text', text: '文件已写入' }])
 })
 
-// ── 2. 图片只占位、只计数，base64 不进日志 ──
-test('codex function_call_output: input_image → [image] 占位，data URL 不进日志', () => {
+// ── 2. 图片：有内联字节 → IR image 块（宿主层落附件）；无字节 → 占位 + 计数 ──
+test('codex function_call_output: input_image 的 data URL → IR image 块（字节进 IR，由宿主层落地）', () => {
   const dataUrl = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUg=='
   const out = convertCodexJsonl(session('codex-out-4', [
     { type: 'input_text', text: '截图如下' },
@@ -69,17 +69,28 @@ test('codex function_call_output: input_image → [image] 占位，data URL 不�
 
   assert.deepEqual(resultOf(out).content, [
     { type: 'text', text: '截图如下' },
-    { type: 'text', text: '[image]' },
+    { type: 'image', data: 'iVBORw0KGgoAAAANSUhEUg==', mediaType: 'image/png' },
   ])
-  const serialized = JSON.stringify(out.events)
-  assert.ok(!serialized.includes('iVBORw0KGgo'), 'base64 永不进日志')
-  assert.ok(!serialized.includes('data:image/png'), 'data URL 永不进日志')
+  assert.equal(out.imagesDegraded, undefined, '没有降级发生')
 })
 
-test('codex function_call_output: 只有图片时仍产出 [image] 占位（不是空结果）', () => {
+test('codex function_call_output: 只有图片时仍产出图片块（不是空结果）', () => {
   const out = convertCodexJsonl(session('codex-out-5', [{ type: 'input_image', image_url: 'data:image/png;base64,AAAA' }]), { sessionId: 'codex-out-5' })
 
-  assert.deepEqual(resultOf(out).content, [{ type: 'text', text: '[image]' }])
+  assert.deepEqual(resultOf(out).content, [{ type: 'image', data: 'AAAA', mediaType: 'image/png' }])
+})
+
+test('codex function_call_output: 无字节的图片 → [image] 占位 + imagesDegraded 计数', () => {
+  const out = convertCodexJsonl(session('codex-out-5b', [
+    { type: 'input_text', text: '远程图' },
+    { type: 'input_image', image_url: 'https://example.com/a.png' },
+  ]), { sessionId: 'codex-out-5b' })
+
+  assert.deepEqual(resultOf(out).content, [
+    { type: 'text', text: '远程图' },
+    { type: 'text', text: '[image]' },
+  ])
+  assert.equal(out.imagesDegraded, 1)
 })
 
 test('codex function_call_output: 未知块类型计数（droppedMalformedOutputs），不静默', () => {

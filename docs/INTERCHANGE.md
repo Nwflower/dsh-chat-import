@@ -21,13 +21,19 @@
   "model": "claude-opus-4-7",           // 源模型（可选）
   "turns": [
     {
-      "prompt": "用户提问",
+      "prompt": "用户提问",              // 提问的文本投影（标题、空轮判定用它）
+      "promptBlocks": [                 // 可选：提问带图时的完整内容块（缺省 = 单个 text 块）
+        { "type": "text", "text": "看这张截图" },
+        { "type": "image", "data": "<base64>", "mediaType": "image/png", "name": "shot.png" }
+      ],
       "steps": [
         {
+          "model": "claude-opus-4-7",   // 可选：该步自己的模型（中途换模型时逐步骤记名）
           "content": [
             { "type": "text", "text": "助手正文" },
             { "type": "reasoning", "text": "推理" },
-            { "type": "tool-call", "id": "call-1", "name": "read", "arguments": "{\"path\":\"a\"}" }
+            { "type": "tool-call", "id": "call-1", "name": "read", "arguments": "{\"path\":\"a\"}" },
+            { "type": "image", "data": "<base64>", "mediaType": "image/jpeg" }
           ],
           "toolCalls": [
             { "id": "call-1", "name": "read", "arguments": "{\"path\":\"a\"}" }
@@ -36,47 +42,59 @@
             { "toolCallId": "call-1", "content": [{ "type": "text", "text": "…" }], "isError": false }
           ]
         }
-      ]
+      ],
+      "aborted": false,                 // 可选：该轮被中断
+      "compaction": { "summary": "…", "provider": "claude-code", "model": "…" },  // 可选：本轮之前有源侧压缩
+      "shadowed": false                 // 可选：该轮已被后续压缩遮蔽（log-only）
     }
   ]
 }
 ```
 
-- `content` 块类型与 DSH 会话事件同构：`text` / `reasoning` / `tool-call` / `tool-result`
+- `content` 块类型与 DSH 会话事件同构：`text` / `reasoning` / `image` / `tool-call` / `tool-result`
   （`tool-result` 块出现在 `toolResults[].content` 内，或作为消息 content 块）。
 - 回合模型：一条用户提问 = 一个 `turn`；一条助手消息（含其工具调用与结果）= 一个 `step`。
 - 配对不变量：每个 `toolCalls[].id` 必须有对应 `toolResults[].toolCallId`（缺失时
   `synthesizeSession` 兜底补发空结果——`sourceEventSeqs` 关联仍成立）。
-- 序列化：`serializeInterchange(converted)` 从转换输出产出文档；校验：
-  `validateInterchange(doc)` 返回 `{ ok, problems }`（problems 封顶 20 条）。
+- 图片块有两种状态：**待落地** `{ type:'image', data:<base64>, mediaType, name? }`（转换层
+  从源转录拿到字节时产出）与**已是引用** `{ type:'image', attachment:{ attachmentId, … } }`
+  （DSH 源回灌 / 导出再导入时带过来）。落盘前 `lib/attachments.mjs` 经宿主 `ctx.attachments`
+  把待落地块存成不可变对象、替换为引用；**base64 永不进会话日志**（宿主的 `ImageBlock`
+  只认引用）。宿主没有该服务 / 类型不收（第一版只收 PNG/JPEG/WebP/GIF）/ 超限 / 源只给引用
+  （如 Kimi 的 `blobref:`）时，该块降级为 `[image]` 文本并计入 `imagesDegraded`。
+- 该 IR 是**进程内契约**（无版本号、不落盘）：改它需同步各转换器与 `synthesizeSession`。
+  对外可交换的格式是 §4 的便携 bundle（有 `version` 与双层指纹）。
 
 ## 2. 各源能力矩阵
 
 描述「源格式能记录什么」；缺能力 = 该源固有的有损项，不是插件缺陷。
 
-| 源 | toolResults | reasoning | cwd | branches | attachments | compacted |
-| --- | --- | --- | --- | --- | --- | --- |
-| claude | ✅ | ✅ | ✅ | — | ✅ | — |
-| codex | ✅ | ✅（summary 可读；密文不可读） | ✅ | — | ✅ | — |
-| chatgpt | ✅（无结构化参数） | — | — | ✅（mapping DAG） | ✅ | — |
-| cursor | —（导入器补空结果） | — | — | — | — | — |
-| gemini | ✅ | ✅ | ✅ | — | — | — |
-| reasonix | ✅ | ✅ | ✅ | — | — | — |
-| opencode | ✅ | ✅ | ✅ | — | ✅ | ✅ |
-| teleagent | ✅ | ✅ | ✅ | — | ✅ | ✅（样本 compaction 无 tail_start_id → 不裁剪，全量导入） |
-| zcode | ✅ | ✅ | ✅ | — | — | ✅ |
-| grokbuild | ✅ | ✅（summary 明文可读；encrypted_content 密文不可读） | ✅ | — | ✅（tool_result 图片以 [image] 占位导入，base64 不入库） | ✅（compaction_meta 交接摘要进原生检查点） |
-| openclaw | ✅ | — | ✅ | — | — | — |
-| hermes | ✅ | ✅ | ✅ | — | — | — |
-| pi | ✅ | ✅ | ✅ | ✅（树形） | — | ✅ |
-| kimi | ✅ | ✅ | ✅ | — | — | — |
-| workbuddy | ✅ | ✅ | ✅ | — | — | — |
-| continue | ✅ | ✅ | ✅ | — | — | ✅（history 不裁剪，摘要挂 reasoning 块） |
-| cline | ✅ | ✅ | ✅ | — | — | ✅（compaction 侧车不改写主转写） |
-| goose | ✅ | ✅ | ✅ | — | — | — |
-| zed | ✅ | ✅ | ✅ | — | — | ✅（Compaction 摘要挂 reasoning 块） |
-| crush | ✅ | ✅ | ✅ | — | — | ✅（自动摘要消息挂 reasoning 块） |
-| dsh | ✅ | ✅ | ✅ | — | ✅ | — |
+| 源 | toolResults | reasoning | images | cwd | branches | attachments | compacted |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| claude | ✅ | ✅ | ✅（提问 / 助手 / 工具结果内的 base64 截图） | ✅ | — | ✅ | — |
+| codex | ✅ | ✅（summary 可读；密文不可读） | ✅（`input_image` 的 data URL） | ✅ | — | ✅ | — |
+| chatgpt | ✅（无结构化参数） | — | — | — | ✅（mapping DAG） | ✅ | — |
+| cursor | —（导入器补空结果） | — | — | — | — | — | — |
+| gemini | ✅ | ✅ | — | ✅ | — | — | — |
+| reasonix | ✅ | ✅ | — | ✅ | — | — | — |
+| opencode | ✅ | ✅ | ✅（带内联字节的 file part） | ✅ | — | ✅ | ✅ |
+| teleagent | ✅ | ✅ | — | ✅ | — | ✅ | ✅（样本 compaction 无 tail_start_id → 不裁剪，全量导入） |
+| zcode | ✅ | ✅ | ✅（带内联字节的 file part） | ✅ | — | — | ✅ |
+| grokbuild | ✅ | ✅（summary 明文可读；encrypted_content 密文不可读） | ✅（`images[]` 的 data URL） | ✅ | — | ✅ | ✅（compaction_meta 交接摘要进原生检查点） |
+| openclaw | ✅ | — | — | ✅ | — | — | — |
+| hermes | ✅ | ✅ | — | ✅ | — | — | — |
+| pi | ✅ | ✅ | ✅（带字节的 image 块） | ✅ | ✅（树形） | — | ✅ |
+| kimi | ✅ | ✅ | —（只有自有 blob 存储的 `blobref:` 引用，插件取不到字节 → 占位 + 计数） | ✅ | — | — | — |
+| workbuddy | ✅ | ✅ | — | ✅ | — | — | — |
+| continue | ✅ | ✅ | — | ✅ | — | — | ✅（history 不裁剪，摘要挂 reasoning 块） |
+| cline | ✅ | ✅ | — | ✅ | — | — | ✅（compaction 侧车不改写主转写） |
+| goose | ✅ | ✅ | — | ✅ | — | — | — |
+| zed | ✅ | ✅ | —（`item.Image` 无内联字节 → 占位 + 计数） | ✅ | — | — | ✅（Compaction 摘要挂 reasoning 块） |
+| crush | ✅ | ✅ | — | ✅ | — | — | ✅（自动摘要消息挂 reasoning 块） |
+| dsh | ✅ | ✅ | ✅（原生附件引用原样带过，不重复存） | ✅ | — | ✅ | — |
+
+「—」= 该源固有缺能力（不是插件缺陷）；`images` 列的 ✅ 指该源能提供图片字节、导入后由
+宿主附件服务持久化（能否落成取决于宿主是否提供 `ctx.attachments`，见 §3 的 `attachment-skipped`）。
 
 ## 3. 降级规则表
 
@@ -91,7 +109,7 @@
 | `reasoning-encrypted` | reasoning | skip-placeholder | 推理内容不可见（Codex 密文 `encrypted_content`，可读的 summary 仍照常导入）→ 密文部分无内容可导入 |
 | `cwd-missing` | cwd | text-fallback | 无工作目录（ChatGPT / Grok Build）→ 回退源目录归组 |
 | `branch-collapsed` | branches | text-fallback | 目标会话无分支概念 → 分支会话只导主线程 |
-| `attachment-skipped` | attachments | skip-placeholder | 非文本内容块无法表达 → 跳过并计数 |
+| `attachment-skipped` | attachments | skip-placeholder | 图片拿不到字节（宿主无 `ctx.attachments`、类型不收、超上限、源只有引用如 Kimi 的 `blobref:`）→ 该块以 `[image]` 文本占位并计入 `imagesDegraded`（导出方向读不回字节时同样计此项） |
 | `compacted-unavailable` | compacted | text-fallback | 无压缩摘要 → 超长会话由预算三层保护被动截断 |
 | `injection-skipped` | — | skip-placeholder | 非人类注入消息（system-reminder 等）不进入会话 → 跳过并计数 |
 | `orphan-tool-result` | toolResults | skip-placeholder | 源日志无对应 tool/call 的工具结果（中途开始的 transcript）→ 丢弃并计数 |

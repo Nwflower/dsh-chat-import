@@ -36,6 +36,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 <summary><b>导入参数与行为</b></summary>
 
 - `preview: true`（别名 `dryRun: true`）— **只读**运行：照常解析 / 读取 / 转换，但**零副作用**、不落盘。去掉该参数再调一次即正式导入。
+- **图片落成宿主附件** — 源转录里的图片不再只留 `[image]` 文本占位：转换层把图片字节放进中间结构，落盘前经宿主附件服务（`ctx.attachments`）存成不可变对象，会话日志里只留 `attachmentId` 引用（**base64 永不进日志**）。结果里 `images: <N>` 是落成附件的张数；`imagesDegraded: <M>` 是拿不到字节、仍以 `[image]` 占位导入的张数（宿主没有附件服务 / 类型不收（只收 PNG/JPEG/WebP/GIF）/ 单会话超过 500 张 / 源只给了引用如 Kimi 的 `blobref:`）。导出方向对称：`export_claude` / `export_codex` 会把引用读回 base64 写进目标格式，读不回时计入 `degradations` 的 `attachment-skipped`。`storeImages: false`（或环境变量 `DSH_IMPORT_STORE_IMAGES=0`）可只留占位、不写附件存储——图片是唯一会明显增大宿主持久存储的导入面。
 - `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改（重导语义的完整说明见下文「重导同一源」）。
 - `sessionId`（可选）— 覆盖目标 DSH 会话 id（默认 `import-<源sessionId>`）。
 - `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。

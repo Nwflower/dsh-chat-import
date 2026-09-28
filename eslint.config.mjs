@@ -19,6 +19,7 @@ export default [
       globals: {
         console: 'readonly',
         process: 'readonly',
+        Buffer: 'readonly', // node 全局（zstd 解码 / 图片 base64 编解码）
         URL: 'readonly', // 脚本（.github/scripts/*）用 new URL(..., import.meta.url) 定位路径
         setTimeout: 'readonly', // node 计时器（index.test.mjs 轮询让出事件循环）
       },

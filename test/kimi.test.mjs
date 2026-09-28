@@ -642,6 +642,37 @@ test('convertKimiWire: 新格式 apply_compaction legacy 变体（summary 为 Co
   assert.equal(ctxFallback.events.find((e) => e.type === 'compaction/summary').data.summary[0].text, '降级摘要')
 })
 
+test('convertKimiWire: 工具结果里的图片（blobref 引用）→ [image] 占位 + imagesDegraded', () => {
+  const out = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '看图' }], origin: { kind: 'user' } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'tool.call', turnId: '0', step: 1, toolCallId: 'call_img', name: 'Read', args: {} } }),
+    newEv('context.append_loop_event', {
+      event: {
+        type: 'tool.result',
+        toolCallId: 'call_img',
+        result: {
+          output: [
+            { type: 'text', text: '<image path="x.png">' },
+            // Kimi 的媒体是自有 blob 存储的引用：index.json 不映射该 hash，插件取不到字节
+            { type: 'image_url', imageUrl: { url: 'blobref:image/png;77670d21aec043a98310b88adbfbf8e79ac358d0b4daa0960edcfc6eeb9a83bb' } },
+            { type: 'text', text: '</image>' },
+          ],
+          is_error: false,
+        },
+      },
+    }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-img' })
+
+  assert.equal(out.imagesDegraded, 1, '取不到字节的图片如实计数')
+  const result = out.events.find((e) => e.type === 'tool/result')
+  const content = result.data.message.content[0].content
+  assert.deepEqual(content.map((c) => c.type), ['text', 'text', 'text'])
+  assert.equal(content[1].text, '[image]')
+  assert.ok(!JSON.stringify(out.events).includes('blobref:'), '引用地址不进会话日志')
+})
+
 test('convertKimiWire: 压缩为最后一条记录 → 边界轮只装检查点，压缩前内容留在日志', () => {
   const out = convertKimiWire(newWire([
     newEv('turn.prompt', { input: [{ type: 'text', text: '问' }], origin: { kind: 'user' } }),

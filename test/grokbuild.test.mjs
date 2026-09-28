@@ -535,7 +535,7 @@ test('convertGrokbuildJson: <user_query> 三种包装（裸包装 / 中断 / 插
   assert.deepEqual(ends.map((e) => e.data.reason.kind), ['aborted', 'completed', 'completed'])
 })
 
-test('convertGrokbuildJson: tool_result images 计数 + [image] 占位（base64 不进日志）', () => {
+test('convertGrokbuildJson: tool_result images → IR image 块（无字节才占位 + imagesDegraded）', () => {
   const out = convertGrokbuildJson(summaryJson(), chatLines([
     { type: 'user', content: [{ type: 'text', text: '看图' }] },
     { type: 'assistant', content: '', tool_calls: [{ id: 'call-img', name: 'read_file', arguments: '{"target_file":"x.png"}' }] },
@@ -544,27 +544,36 @@ test('convertGrokbuildJson: tool_result images 计数 + [image] 占位（base64 
       { type: 'image', url: 'data:image/png;base64,REVG' },
     ] },
   ]))
-  assert.equal(out.images, 2)
   const result = out.events.find((e) => e.type === 'tool/result')
   const content = result.data.message.content[0].content
-  assert.deepEqual(content.map((c) => c.type), ['text', 'text', 'text'])
   assert.equal(content[0].text, 'Read image file: x.png')
-  assert.deepEqual(content.slice(1), [{ type: 'text', text: '[image]' }, { type: 'text', text: '[image]' }])
-  assert.ok(!JSON.stringify(out.events).includes('base64'), 'base64 永不落日志')
+  assert.deepEqual(content.slice(1), [
+    { type: 'image', data: 'QUJD', mediaType: 'image/png' },
+    { type: 'image', data: 'REVG', mediaType: 'image/png' },
+  ])
+  assert.equal(out.imagesDegraded, undefined, '两张图都有字节：没有降级')
   // 空 content + 有图：也不静默丢图
   const onlyImages = convertGrokbuildJson(summaryJson(), chatLines([
     { type: 'user', content: [{ type: 'text', text: '再看' }] },
     { type: 'assistant', content: '', tool_calls: [{ id: 'call-img2', name: 'read_file', arguments: '{}' }] },
     { type: 'tool_result', tool_call_id: 'call-img2', content: '', images: [{ type: 'image', url: 'data:image/png;base64,QUJD' }] },
   ]))
-  assert.equal(onlyImages.images, 1)
-  assert.deepEqual(onlyImages.events.find((e) => e.type === 'tool/result').data.message.content[0].content, [{ type: 'text', text: '[image]' }])
+  assert.deepEqual(onlyImages.events.find((e) => e.type === 'tool/result').data.message.content[0].content,
+    [{ type: 'image', data: 'QUJD', mediaType: 'image/png' }])
+  // 拿不到字节（http URL）：占位 + 计数
+  const noBytes = convertGrokbuildJson(summaryJson(), chatLines([
+    { type: 'user', content: [{ type: 'text', text: '远程' }] },
+    { type: 'assistant', content: '', tool_calls: [{ id: 'call-img3', name: 'read_file', arguments: '{}' }] },
+    { type: 'tool_result', tool_call_id: 'call-img3', content: '', images: [{ type: 'image', url: 'https://example.com/a.png' }] },
+  ]))
+  assert.deepEqual(noBytes.events.find((e) => e.type === 'tool/result').data.message.content[0].content, [{ type: 'text', text: '[image]' }])
+  assert.equal(noBytes.imagesDegraded, 1)
   // 孤儿结果的图随结果一起丢弃，只计 droppedToolResults
   const orphan = convertGrokbuildJson(summaryJson(), chatLines([
     { type: 'user', content: [{ type: 'text', text: '问' }] },
     { type: 'tool_result', tool_call_id: 'ghost', content: 'x', images: [{ type: 'image', url: 'data:image/png;base64,QUJD' }] },
   ]))
-  assert.equal(orphan.images, 0)
+  assert.equal(orphan.imagesDegraded, undefined)
   assert.equal(orphan.droppedToolResults, 1)
 })
 

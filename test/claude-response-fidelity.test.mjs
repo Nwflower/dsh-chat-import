@@ -75,7 +75,7 @@ test('claude tool_result: content 缺失 → 空数组（不虚构文本，交�
   assert.deepEqual(out.turns[0].steps[0].toolResults[0].content, [])
 })
 
-test('claude tool_result: image 块 → [image] 占位 + images 计数（base64 不进日志）', () => {
+test('claude tool_result: 有字节的 image 块 → IR image 块（字节由宿主层落成附件）', () => {
   const b64 = 'iVBORw0KGgoAAAANSUhEUg=='
   const out = convertClaudeJsonl(jsonl([
     user('看截图'),
@@ -87,9 +87,41 @@ test('claude tool_result: image 块 → [image] 占位 + images 计数（base64 
     }]),
   ]), { fileStem: SID })
 
+  // 转换层保留真实图片块（待宿主层经 ctx.attachments 落成附件）；不再是一律占位
+  assert.deepEqual(out.turns[0].steps[0].toolResults[0].content,
+    [{ type: 'image', data: b64, mediaType: 'image/png' }])
+  assert.equal(out.imagesDegraded, undefined, '没有降级发生：不占 imagesDegraded 键')
+})
+
+test('claude tool_result: 拿不到字节的 image 块 → [image] 占位 + imagesDegraded 计数', () => {
+  const out = convertClaudeJsonl(jsonl([
+    user('看远程图'),
+    asstId('msg_img2', [{ type: 'tool_use', id: 'toolu_shot2', name: 'Screenshot', input: {} }]),
+    user([{
+      type: 'tool_result',
+      tool_use_id: 'toolu_shot2',
+      content: [{ type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } }],
+    }]),
+  ]), { fileStem: SID })
+
   assert.deepEqual(out.turns[0].steps[0].toolResults[0].content, [{ type: 'text', text: '[image]' }])
-  assert.equal(out.images, 1)
-  assert.ok(!JSON.stringify(out.events).includes(b64), 'base64 永不进日志')
+  assert.equal(out.imagesDegraded, 1)
+})
+
+test('claude 用户提问里的图片 → promptBlocks（不再静默丢弃），文本仍是 prompt 投影', () => {
+  const b64 = 'iVBORw0KGgoAAAANSUhEUg=='
+  const out = convertClaudeJsonl(jsonl([
+    user([{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: b64 } }, { type: 'text', text: '这是我插件的截图' }]),
+  ]), { fileStem: SID })
+
+  assert.equal(out.turns[0].prompt, '这是我插件的截图')
+  assert.deepEqual(out.turns[0].promptBlocks, [
+    { type: 'image', data: b64, mediaType: 'image/png' },
+    { type: 'text', text: '这是我插件的截图' },
+  ])
+  // 合成的 user/message 里图片块与文本块都在（顺序与源一致）
+  const userMessages = out.events.filter((e) => e.type === 'user/message' && e.data.source && e.data.source.kind === 'user')
+  assert.deepEqual(userMessages[0].data.content.map((b) => b.type), ['image', 'text'])
 })
 
 test('claude tool_result: 未知块类型计数（droppedToolResultBlocks），不静默吞', () => {

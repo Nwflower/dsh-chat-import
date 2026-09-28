@@ -123,3 +123,14 @@
   读不到日志长度（后端不可用）时既不追加也不复制，跳过并报 `appendedSkipped`。`force: true` / 显式 `sessionId` 变更仍恒另铸副本（`reason: 'forced'` / `'session-id-changed'`）。**另铸副本时旧会话进 `record.copies`**：撤回 / 清理 / 体检 / `/attach-workspaces` / 面板历史都经 `lib/imports.mjs` 的 `registryEntries` 统一展开（此前 8 处各自展开 registry，加 copies 必漏改，故一并收口）；删除单条副本只摘该条，删除主记录时把最新副本提升为主记录（会话还在，账也还在）。
 - **代价**：registry 记录多两个字段（`storedEvents` / `copies`），每次 create 多一次日志读回（append 路径不需要）；一次导入可能产出多条会话（用户显式重导的必然结果）；`reimported` 取代了原先只服务于 force 的 `forceImported` 字段（输出 schema 与类型面同步改名）。基线是「我们写完时的长度」，所以宿主若在 create 后自行追加事件（迁移 / 归一化）会把它判成「已续聊」，代价是**多建一份副本**——偏保守的方向，且结果里点名了原因。
 - **重审条件**：宿主提供「会话自上次写入后是否被改动」的一等信号（revision / 写入者标记）时，改用该信号替代日志长度比对。
+
+## D14. 图片以宿主附件落地：IR 只带字节，日志只留引用（2026-09 定）
+
+- **背景**：0.20.0 及以前，所有来源的图片都降级成 `[image]` 文本占位（宿主的会话日志不该装 base64）。对本机真实数据的普查说明了代价：claude 43 个会话文件里 590 张图、kimi 258 张、grokbuild 101 张、codex 42 张；而 DSH **原生就存图片**——141 份原生日志里有 144 个 `image` 块，形态是 `{type:'image', attachment:{attachmentId:'sha256:…', mediaType, width, height, bytes, name}}`，字节由 `ctx.attachments`（`@deepseek-ai/dsh-attachment` 的 `AttachmentStore`，内容寻址）持有。宿主 `@deepseek-ai/dsh-llm` 的 `ContentBlockMap` 恰好就是 `text / reasoning / image / tool-call / tool-result`——`image` 是我们的 IR 唯一没对齐的块类型。此外普查还查出三处**静默丢弃**：claude/codex 用户提问里的图片（只取 text 块拼 prompt，图片连计数都没有）、助手消息里的图片、Kimi 工具结果里的 `image_url`（`mapToolOutput` 只取 text/think）。
+- **决定**：
+  1. **IR 增加两种状态的 `image` 块**：待落地 `{type:'image', data:<base64>, mediaType, name?}`（转换层拿到字节时产出）与已是引用 `{type:'image', attachment:{…}}`（DSH 源回灌 / 导出再导入）。用户提问带图时，完整块列表放 `turns[i].promptBlocks`（`prompt` 仍是文本投影，标题/空轮判定/去重都用它）。
+  2. **字节只在边界存在**：`lib/attachments.mjs` 在 `runDecision` 的每条写盘路径（create / replace / append / multi 全部）就地把待落地块经 `ctx.attachments.saveImage` 落成不可变对象、替换为引用；**base64 永不写进会话日志**（宿主的 `ImageBlock` 只认引用）。已是引用的块原样保留，不重复存（内容寻址）。导出方向对称：`resolveImagesForExport` 经 `readImage` 把引用读回 base64，供 Claude / Codex 序列化器写进目标格式。
+  3. **失败要大声**：服务缺席（可选服务）/ 类型不收（第一版只收 PNG/JPEG/WebP/GIF）/ 超限（单会话 500 张，超出部分降级）/ 载荷畸形 / 源只有引用（Kimi 的 `blobref:`，其 `file/index.json` 不映射该 hash）→ 该块降级为 `[image]` 文本并计入公开结果的 `imagesDegraded`；落成附件的张数计入 `images`。导出侧读不回字节同样计入 `attachment-skipped` 降级。
+  4. **可关**：`storeImages: false`（或 `DSH_IMPORT_STORE_IMAGES=0`）时不做落地、只留占位——图片是唯一会把宿主持久存储撑大的导入面（本机抽样 40 个 claude 会话就有 43MB 图片字节），需要给用户一个开关。
+- **代价**：导入可能写入大量附件字节（本机抽样：297 张 / 43MB，只算 claude 的 40 个会话）；宿主附件服务 v1 无 GC，失败路径可能留下不可达的内容寻址对象（该包已声明这是允许形态）；`skippedBlocks` 与导出降级的 `attachment-skipped` 现在同时涵盖「未知块」与「读不回字节的图片」。Kimi / Zed 的图片仍只能占位（字节在各自的 blob 存储里，插件无法解析）——这是**源侧**限制，不是 IR 限制。
+- **重审条件**：宿主附件服务支持通用文件（非图片）/ 提供按引用感知的 GC / 暴露批量落地上限时，重新评估开关默认值与上限；Kimi 若公开 blob 索引（hash → 文件）则可把该源从占位改为落地。
