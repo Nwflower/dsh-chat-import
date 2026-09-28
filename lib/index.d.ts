@@ -157,6 +157,8 @@ export interface SingleImportResult {
   images?: number
   /** 未能落地、以 [image] 文本占位导入的图片数（服务缺席 / 类型不收 / 超限 / 源无字节）。 */
   imagesDegraded?: number
+  /** Claude 富结果 sidecar 合并数（includeToolUseResult: true 时 > 0）。 */
+  toolUseResultsMerged?: number
   /** 只计数不映射的后端工具调用数（Grok Build 的 backend_tool_call）。 */
   backendToolCalls?: number
   /** 无法映射成内容块的工具结果块数（未知块类型，已计数上报）。 */
@@ -209,6 +211,7 @@ export interface BatchItemResult {
   metaMessages?: number
   images?: number
   imagesDegraded?: number
+  toolUseResultsMerged?: number
   backendToolCalls?: number
   droppedToolResultBlocks?: number
   droppedMalformedOutputs?: number

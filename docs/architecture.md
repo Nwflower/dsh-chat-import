@@ -135,3 +135,11 @@
   5. **目标代次 < 4 时一律降级**：附件引用是当前世代（V4）宿主的概念，V3 落点（面板「导入到 → DSH（V3）」）或续写一条 V3 会话时，旧宿主读不出引用——此时图片（含已是引用的块）全部降级为 `[image]` 占位并计数。判据只取**权威来源**（面板显式覆盖的代次 / 目标会话 header 自己的代次），不取「推断出来的宿主代次」：宿主没有版本信号时推断值会退化成转换层默认的 3，若据此降级，会在全新宿主上把图片全部降级。
 - **代价**：导入可能写入大量附件字节（本机抽样：297 张 / 43MB，只算 claude 的 40 个会话）；宿主附件服务 v1 无 GC，失败路径可能留下不可达的内容寻址对象（该包已声明这是允许形态）；**删除/撤回导入会话不会回收附件字节**——`AttachmentStore` 只有 `saveImage` / `readImage` / `validateImage`，没有删除面，所以清理一个含图会话只删日志与 registry 条目，图片对象留在附件存储里（`lib/purge.mjs` / `lib/retract.mjs` 因此不碰附件）；`skippedBlocks` 与导出降级的 `attachment-skipped` 现在同时涵盖「未知块」与「读不回字节的图片」；V3 落点没有图片。Kimi / Zed 的图片仍只能占位（字节在各自的 blob 存储里，插件无法解析）——这是**源侧**限制，不是 IR 限制。
 - **重审条件**：宿主附件服务支持通用文件（非图片）/ 提供按引用感知的 GC / 暴露批量落地上限时，重新评估开关默认值与上限；Kimi 若公开 blob 索引（hash → 文件）则可把该源从占位改为落地。
+
+## D15. Claude 富结果 sidecar 按需并入为文本（2026-09 定）
+
+- **背景**：Claude Code 在 `tool_result` 记录旁另写一份 `toolUseResult`——模型看不到的结构化产物。本机 4001 条样本的键频次：`stdout`/`stderr`/`interrupted`/`isImage` 各约 2096、`filePath`/`originalFile`/`structuredPatch`/`userModified` 各 1260、`oldString`/`newString`/`replaceAll` 各 1115、`contentNotInModelContext` 648、`filenames`/`numFiles` 150、`bashEditDiff` 147，另有 `durationMs` / `persistedOutputPath` / `questions`/`answers` / `gitOperation` 等。此前只导入模型可见的 `tool_result.content`，这些 sidecar 全丢——其中 `structuredPatch`（编辑到底改了什么）与 `questions`/`answers`（交互问答）是真正有信息量的。
+- **决定**：宿主 `ToolResultBlock` 只有 `{ toolCallId, content, isError }`，没有结构化 sidecar 槽位；DSH 自己的工具就是把结构化信息**渲染成文本**存进 content 的（真实日志里 tool-result 的正文就是 `{"exitCode":0,"stdout":…}` 这类 JSON）。所以按需把 sidecar 渲染成文本块**追加在可见结果之后**：`structuredPatch` / `bashEditDiff` → 统一 diff 文本（` ```diff ` 围栏）、`questions`/`answers` → 问答对、其余标量 → 一行 `<tool-use-result>{…}</tool-use-result>`。体积键（`originalFile` / `content` / `stdout` / `stderr`）与「值已在可见文本里出现」的项一律跳过，单值超过 2000 字符也跳过——绝不把整份文件搬进日志。
+- **开关与指纹**：`includeToolUseResult: true`（默认关：本机样本里 1260 条带原文补丁、1115 条带 old/new 字符串，全量并入会明显撑大日志，而多数会话并不需要）。它与 `fullHistory` 同列进 claude 的参数指纹（换值须重导，否则短路径会按旧参数跳过）。结果里 `toolUseResultsMerged` 上报合并条数。
+- **代价**：开启后日志体积随编辑次数增长（每条补丁几十到几百字符）；`originalFile` 这类整份快照仍不导入（与「模型可见内容」口径一致，用 `tool_result.content` 里的片段已足够还原语义）。
+- **重审条件**：宿主为工具结果提供结构化元数据槽位时，改为写结构化字段而不是渲染文本；或按需把 `originalFile` 也纳入（需要新的体积开关）。
