@@ -6,8 +6,6 @@ import {
   workspaceKey,
   filterByWorkspace,
   buildWorkspaceOptions,
-  importableSessions,
-  refreshableSessions,
 } from '../lib/panel-filter.mjs'
 
 const s = (project, status, extra = {}) => ({
@@ -40,26 +38,4 @@ test('buildWorkspaceOptions：按最新活跃降序，无工作区钉最后', ()
   ]
   const opts = buildWorkspaceOptions(items)
   assert.deepEqual(opts.map((o) => o.key), ['Desktop', 'Funion.Client-develop', NO_WORKSPACE_KEY])
-})
-
-test('importableSessions：仅未导入/未归档，且受工作区筛选约束', () => {
-  const items = [
-    s('Desktop', 'not-imported'),
-    s('Desktop', 'imported'),
-    s('Funion.Client-develop', 'not-imported'),
-    s(null, 'archived'),
-  ]
-  assert.equal(importableSessions(items, '').length, 2)
-  assert.equal(importableSessions(items, 'Desktop').length, 1)
-  assert.equal(importableSessions(items, 'Funion.Client-develop')[0].project, 'Funion.Client-develop')
-})
-
-test('refreshableSessions：仅已导入，且受工作区筛选约束', () => {
-  const items = [
-    s('Desktop', 'imported'),
-    s('Desktop', 'not-imported'),
-    s('Funion.Client-develop', 'imported'),
-  ]
-  assert.equal(refreshableSessions(items, '').length, 2)
-  assert.equal(refreshableSessions(items, 'Desktop').length, 1)
 })

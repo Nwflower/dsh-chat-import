@@ -86,7 +86,10 @@ test('选择区一行读完：来源下拉 → 连接词「导入到」→ 落�
   const listAt = at(body, 'style.list')
   assert.ok(toolbarAt < selects[2] && selects[2] < listAt, '工作区筛选挂在工具栏末位，排在列表之前')
   const toolbar = body.slice(toolbarAt, listAt)
-  assert.equal((toolbar.match(/toolBtn\(/g) || []).length, 5, '工具栏的五个动作按钮走 toolBtn')
+  // 工具栏三个动作按钮（全选 / 清空 / 刷新）都走 toolBtn，窄面板下一起降级成图标。
+  // 「仅选未导入 / 仅选已导入」两个跨页勾选按钮已移除：重导语义下前者的集合由「全选 +
+  // 未导入行」覆盖，后者批量重导只会空转（源未变）或产出副本（已续聊），名字也不描述动作。
+  assert.equal((toolbar.match(/toolBtn\(/g) || []).length, 3, '工具栏的三个动作按钮走 toolBtn')
   assert.ok(toolbar.indexOf('t("workspace.title")') > toolbar.lastIndexOf('toolBtn('),
     '路径筛选不是 toolBtn 条目：窄面板下工具按钮降级成图标时它仍保持文字')
   assert.ok(toolbar.indexOf('t("filter.time")') > toolbar.lastIndexOf('toolBtn('),

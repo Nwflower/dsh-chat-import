@@ -401,15 +401,6 @@
         () => (allRows ? filteredItems : filteredItems.slice(page * pageSize, (page + 1) * pageSize)),
         [filteredItems, page, pageSize, allRows],
       );
-      // 未导入/已导入条目（跨页全量，供「仅选未导入 / 仅选已导入」批量勾选）
-      const importableFiltered = useMemo(
-        () => (stream.done ? importableSessions(items, workspaceFilter) : []),
-        [items, workspaceFilter, stream.done],
-      );
-      const refreshableFiltered = useMemo(
-        () => (stream.done ? refreshableSessions(items, workspaceFilter) : []),
-        [items, workspaceFilter, stream.done],
-      );
       const workspaceOptions = useMemo(() => buildWorkspaceOptions(items), [items]);
       // 分页文案总数：扫描完成后用服务端 total（过滤后总数）；扫描中显示已发现数
       const displayTotal = filteredItems.length;
@@ -620,19 +611,11 @@
             React.createElement("div", { ref: toolsRef, style: style.toolbarActions },
               toolBtn(selectAllLabel, "checkSquare", { onClick: toggleAll, disabled: filteredItems.length === 0 || importing }, toolsIcon),
               toolBtn(t("clearSelection"), "x", { onClick: () => setSelected(new Map()), disabled: selected.size === 0 || importing }, toolsIcon),
-              toolBtn(t("refresh"), "refresh", { onClick: () => setEpoch((n) => n + 1), disabled: importing, title: t("refresh.title") }, toolsIcon),
-              toolBtn(t("selectImportable"), "circle", {
-                disabled: importableFiltered.length === 0 || importing || !stream.done,
-                onClick: () => setSelected(new Map(importableFiltered.map((s) => [itemKey(s), s]))),
-              }, toolsIcon),
-              toolBtn(t("selectImported"), "checkCircle", {
-                disabled: refreshableFiltered.length === 0 || importing || !stream.done,
-                onClick: () => setSelected(new Map(refreshableFiltered.map((s) => [itemKey(s), s]))),
-              }, toolsIcon)),
+              toolBtn(t("refresh"), "refresh", { onClick: () => setEpoch((n) => n + 1), disabled: importing, title: t("refresh.title") }, toolsIcon)),
             // 探针：与真实按钮同款文字、同款 button 元素，只为量出「文字形态需要多宽」；
             // 绝对定位 + 不可见，不参与排版也不可交互（tabIndex -1 保证不进键盘序）
             React.createElement("div", { ref: toolsProbeRef, "aria-hidden": true, style: style.toolbarProbe },
-              [selectAllLabel, t("clearSelection"), t("refresh"), t("selectImportable"), t("selectImported")]
+              [selectAllLabel, t("clearSelection"), t("refresh")]
                 .map((label) => React.createElement("button", {
                   key: label, type: "button", tabIndex: -1, style: style.toolBtn,
                 }, label))),

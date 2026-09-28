@@ -3,11 +3,9 @@
     const LOCALE_NS = "chat-import";
     // 未分组桶的稳定键（排序钉最后；显示时经 t("noWorkspace") 翻译）
     const NO_WORKSPACE_KEY = "__no_workspace__";
-    // 与 lib/panel-filter.mjs 同步：工作区筛选键 / 过滤 / 可搬空计数
+    // 与 lib/panel-filter.mjs 同步：工作区筛选键 / 过滤
     const workspaceKey = (s) => (s && s.project ? s.project : NO_WORKSPACE_KEY);
     const filterByWorkspace = (list, ws) => (!ws ? list : list.filter((s) => workspaceKey(s) === ws));
-    const importableSessions = (list, ws) => filterByWorkspace(list, ws).filter((s) => s.importStatus !== "imported" && s.importStatus !== "archived");
-    const refreshableSessions = (list, ws) => filterByWorkspace(list, ws).filter((s) => s.importStatus === "imported");
     // 工作区下拉的选项：key/latest 供排序与过滤，path 是该组里最新会话的绝对路径
     //（discovery 的 project 通常只是文件夹名，下拉里用更淡的字把它后面的路径画出来；
     // 同名不同路径时以最活跃的那个会话为准）。
@@ -65,8 +63,6 @@
         "clearSelection": "清空",
         "toast.skipped": "已跳过 {n} 个未变化 / 无法安全续写的对话",
         "toast.ignore": "重新导入为新会话",
-        "selectImportable": "仅选未导入",
-        "selectImported": "仅选已导入",
         "refresh": "刷新",
         "refresh.title": "重新扫描；源文件未改时复用 scan-cache，通常几秒完成",
         "importing": "导入中…",
@@ -202,8 +198,6 @@
         "clearSelection": "Clear",
         "toast.skipped": "Skipped {n} conversation(s) that are unchanged or cannot be appended safely",
         "toast.ignore": "Re-import as a new session",
-        "selectImportable": "Select unimported",
-        "selectImported": "Select imported",
         "refresh": "Refresh",
         "refresh.title": "Rescan; unchanged files reuse scan-cache and finish in seconds",
         "importing": "Importing…",
