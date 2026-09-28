@@ -36,7 +36,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 <summary><b>导入参数与行为</b></summary>
 
 - `preview: true`（别名 `dryRun: true`）— **只读**运行：照常解析 / 读取 / 转换，但**零副作用**、不落盘。去掉该参数再调一次即正式导入。
-- **图片落成宿主附件** — 源转录里的图片不再只留 `[image]` 文本占位：转换层把图片字节放进中间结构，落盘前经宿主附件服务（`ctx.attachments`）存成不可变对象，会话日志里只留 `attachmentId` 引用（**base64 永不进日志**）。结果里 `images: <N>` 是落成附件的张数；`imagesDegraded: <M>` 是拿不到字节、仍以 `[image]` 占位导入的张数（宿主没有附件服务 / 类型不收（只收 PNG/JPEG/WebP/GIF）/ 单会话超过 500 张 / 源只给了引用如 Kimi 的 `blobref:`）。导出方向对称：`export_claude` / `export_codex` 会把引用读回 base64 写进目标格式，读不回时计入 `degradations` 的 `attachment-skipped`。`storeImages: false`（或环境变量 `DSH_IMPORT_STORE_IMAGES=0`）可只留占位、不写附件存储——图片是唯一会明显增大宿主持久存储的导入面。
+- **图片落成宿主附件** — 源转录里的图片不再只留 `[image]` 文本占位：转换层把图片字节放进中间结构，落盘前经宿主附件服务（`ctx.attachments`）存成不可变对象，会话日志里只留 `attachmentId` 引用（**base64 永不进日志**）。结果里 `images: <N>` 是落成附件的张数；`imagesDegraded: <M>` 是拿不到字节、仍以 `[image]` 占位导入的张数（宿主没有附件服务 / 类型不收（只收 PNG/JPEG/WebP/GIF）/ 单会话超过 500 张 / 源只给了引用如 Kimi 的 `blobref:` / **落点是 V3 代次**）。导出方向对称：`export_claude` / `export_codex` 会把引用读回 base64 写进目标格式，读不回时计入 `degradations` 的 `attachment-skipped`。`storeImages: false`（或环境变量 `DSH_IMPORT_STORE_IMAGES=0`）可只留占位、不写附件存储——图片是唯一会明显增大宿主持久存储的导入面。**注意：删除或撤回导入的会话不会回收这些图片字节**（宿主附件服务第一版没有删除/回收 API，图片对象会留在附件存储里）。
 - `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改（重导语义的完整说明见下文「重导同一源」）。
 - `sessionId`（可选）— 覆盖目标 DSH 会话 id（默认 `import-<源sessionId>`）。
 - `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
@@ -192,6 +192,8 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 来源与落点**都是 DSH 且代次不同**（V3 ↔ V4）时，底部会多出一个主按钮「**导入所选并归档旧会话 (N)**」：所选会话按目标代次导入，**导入成功**后把对应的**源会话**在宿主里归档（迁移的收尾）。归档是不可逆的隐藏动作（宿主没有取消归档面），所以**只有导入成功的条目才归档**——跳过 / 失败的条目原样保留，面板会点名「N 个旧会话未归档」。
 
 非 DSH 目标是**转投而不是导入**：插件用同一套转换器读源会话，序列化成目标工具自己的格式（即 `export_chat` 用的那些序列化器），以 `createIfAbsent` 落盘（绝不覆盖）。为这次转换而临时建立的 DSH 会话会在**导出成功后立刻撤回**，DSH 侧不留副本；但如果会话在你选择转投之前就已存在（already-imported / appended），**绝不删除**——只导出，并在结果里标为保留。撤回失败（会话在运行、工件被占用）会把原因写进结果而不是吞掉。结果行显示落盘路径与该工具的下一步操作，条目级失败与常规 `degradations` 清单照常列出。
+
+> **转投与图片**：目标工具能承载图片时（Claude Code / Codex），图片会先按常规路径落进中间会话的附件存储、导出时读回字节写进目标格式——但中间会话随后被撤回，而宿主附件服务没有删除面，所以这些图片字节会**留在附件存储里无法回收**。结果里 `attachmentsOrphaned: <N>` 会点名这个张数。目标工具导不出图片时（Kimi 的 wire 只认自有 blob、opencode 的 file part 另需外部文件），插件**不落**这些字节（图片降级为占位并在结果里计数），免得白白留下无法回收的数据。
 
 > 数据来自与 `scan_discover` 同一套只读发现（30s TTL 缓存 + 持久化 mtime 书签）；面板除你主动触发的导入外零写入。
 

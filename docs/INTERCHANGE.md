@@ -61,7 +61,9 @@
   （DSH 源回灌 / 导出再导入时带过来）。落盘前 `lib/attachments.mjs` 经宿主 `ctx.attachments`
   把待落地块存成不可变对象、替换为引用；**base64 永不进会话日志**（宿主的 `ImageBlock`
   只认引用）。宿主没有该服务 / 类型不收（第一版只收 PNG/JPEG/WebP/GIF）/ 超限 / 源只给引用
-  （如 Kimi 的 `blobref:`）时，该块降级为 `[image]` 文本并计入 `imagesDegraded`。
+  （如 Kimi 的 `blobref:`）时，该块降级为 `[image]` 文本并计入 `imagesDegraded`。**目标代次
+  低于 4 时**（面板「导入到 → DSH（V3）」或续写一条 V3 会话）也一律降级——附件引用是当前
+  世代的概念，旧宿主读不出引用来；宁可占位，也不产出旧宿主打不开的日志。
 - 该 IR 是**进程内契约**（无版本号、不落盘）：改它需同步各转换器与 `synthesizeSession`。
   对外可交换的格式是 §4 的便携 bundle（有 `version` 与双层指纹）。
 

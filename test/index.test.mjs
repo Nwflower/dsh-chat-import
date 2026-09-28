@@ -533,6 +533,70 @@ test('图片降级：宿主无 attachments 服务时以 [image] 占位落盘并�
   assert.ok(!flat.includes('iVBORw0KGgo'), 'base64 永不进日志')
 })
 
+test('图片落地：显式 V3 落点不支持附件引用 → 降级为占位并计数（不写读不出的日志）', async () => {
+  const sid = 'sess-img-v3'
+  const recs = [
+    { sessionId: sid, type: 'user', message: { role: 'user', content: '看截图' } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_1', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_img', name: 'Shot', input: {} }] } },
+    { sessionId: sid, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_img', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUg==' } }] }] } },
+  ].map((r) => JSON.stringify(r)).join('\n')
+  const target = 'D:\\demo\\proj\\' + sid + '.jsonl'
+  let saves = 0
+  const { ctx, persistence } = makeCtx({ [target]: recs }, {
+    services: { attachments: { async saveImage() { saves++; return { attachmentId: 'sha256:x', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } } } },
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  const { withHostFormatVersion } = await import('../lib/import-core.mjs')
+  const value = await withHostFormatVersion(ctx, 3, () => def.execute({ path: target }))
+
+  assert.equal(value.status, 'imported')
+  assert.equal(value.images, undefined, 'V3 落点不落附件')
+  assert.equal(value.imagesDegraded, 1)
+  assert.equal(saves, 0, '未调用附件服务')
+  const saved = persistence.sessions.get('import-' + sid)
+  assert.equal(saved.meta.version, 3, '落成 V3 generation')
+  const flat = JSON.stringify(saved.events)
+  assert.ok(flat.includes('[image]'), '降级为占位文本')
+  assert.ok(!flat.includes('iVBORw0KGgo'), 'base64 永不进日志')
+})
+
+test('图片落地：续写到 V3 旧会话时同样降级（跟目标会话自己的代次）', async () => {
+  const sid = 'sess-img-v3-append'
+  const recs = [
+    { sessionId: sid, type: 'user', message: { role: 'user', content: '第一问' } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_1', role: 'assistant', content: [{ type: 'text', text: '答' }] } },
+  ].map((r) => JSON.stringify(r)).join('\n')
+  const target = 'D:\\demo\\proj\\' + sid + '.jsonl'
+  const tree = { [target]: recs }
+  let saves = 0
+  const { ctx, persistence } = makeCtx(tree, {
+    services: { attachments: { async saveImage() { saves++; return { attachmentId: 'sha256:y', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } } } },
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  const { withHostFormatVersion } = await import('../lib/import-core.mjs')
+  // 先按 V3 建会话
+  await withHostFormatVersion(ctx, 3, () => def.execute({ path: target }))
+  assert.equal(persistence.sessions.get('import-' + sid).meta.version, 3)
+
+  // 源增长（新增一轮带图）后重导 → 走 append 路径，且目标会话本身是 V3
+  tree[target] = recs + '\n' + [
+    { sessionId: sid, type: 'user', message: { role: 'user', content: '再看一张' } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_2', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_img2', name: 'Shot', input: {} }] } },
+    { sessionId: sid, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_img2', content: [{ type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUg==' } }] }] } },
+  ].map((r) => JSON.stringify(r)).join('\n')
+
+  const value = await def.execute({ path: target })
+  assert.equal(value.status, 'appended')
+  assert.equal(value.images, undefined, 'V3 目标会话不落附件')
+  assert.equal(value.imagesDegraded, 1)
+  assert.equal(saves, 0)
+  const flat = JSON.stringify(persistence.sessions.get('import-' + sid).events)
+  assert.ok(flat.includes('[image]'))
+  assert.ok(!flat.includes('iVBORw0KGgo'), 'base64 永不进日志')
+})
+
 test('图片落地可关：storeImages=false 时不写附件，图片只留占位并计数', async () => {
   const sid = 'sess-img-off'
   const recs = [
