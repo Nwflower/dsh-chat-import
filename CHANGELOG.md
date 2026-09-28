@@ -2,6 +2,46 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.22.0] - 2026-09-28
+
+[中文](#cn-0.22.0) | [English](#en-0.22.0)
+
+<h3 id="cn-0.22.0">新增功能</h3>
+
+- **Claude 富结果 sidecar 可选并入**：`import_claude({ includeToolUseResult: true })` 把模型看不到的 `toolUseResult` 渲染成文本追加在工具结果之后——编辑补丁（`structuredPatch` / `bashEditDiff`）→ diff 文本，交互问答（`questions` / `answers`）→ 问答对，其余标量（退出码、耗时、持久化输出路径等）→ 一行紧凑 JSON。默认关（本机 4001 条样本里 1260 条带原文补丁、1115 条带 old/new 字符串，全量并入会明显撑大日志）；体积键（`originalFile` / `content` / `stdout` / `stderr`）与可见正文里已有的内容不重复搬，单值超 2000 字符跳过。开关进参数指纹（换值须 `force` 重导），结果里 `toolUseResultsMerged` 上报实际并入条数。
+
+<h3 id="cn-0.22.0">问题修复</h3>
+
+- **V3 落点不再写出旧宿主读不出的图片块**：附件引用是当前世代（V4）宿主的概念，此前只要宿主提供附件服务就一律落地，「导入到 → DSH（V3）」或续写一条 V3 会话时会产出 V3 宿主打不开的图片块。现在目标代次低于 4 时图片（含已是引用的块）一律降级为 `[image]` 占位并计入 `imagesDegraded`；目标代次只取权威来源（显式覆盖的代次 / 目标会话 header 自己的代次），不用「推断出来的宿主代次」——宿主没有版本信号时推断值会退化成转换层默认的 3。
+- **转投（导入到 Claude Code / Codex / Kimi / opencode）的图片口径**：目标能承载图片（Claude / Codex）时按常规路径落附件、导出时读回字节写进目标格式，并在结果里用 `attachmentsOrphaned` 点名「中间会话已撤回、这些字节留在附件存储里无法回收」的张数；目标导不出图片（Kimi 的 wire 只认自有 blob、opencode 的 file part 另需外部文件）时不再落字节，免得白白留下无法回收的数据。
+- **导出解引用的能力判定修正**：原本用 `attachmentService()`（要求 `saveImage`）判断能否读附件，而读面只需要 `readImage`——「只能读」的宿主面会被误判成读不了，把有字节的图片降级为占位。改为直接调 `readAttachmentBytes`。
+- **面板补上图片计数显示**：`lib/panel.mjs` 已把 `images` / `imagesDegraded` 传回客户端，但客户端结果行不读它们（空载荷）；现补两档文案（中英）。
+- **校验器新增 `inline-image-data` 检查**：`validateSessionEvents` 此前不看内容块，「图片块带内联 data（落地步骤被绕过）」这类回归没有任何守卫能发现；现在递归进 tool-result 内层 content（V3 wrapper / V4 一级形状都覆盖）点名。
+- **dsh 源同一 turn 多条带图 user/message 时 `promptBlocks` 被覆盖**：改为累积（文本仍取第一条，IR 语义不变）。dsh 源的事件是原样透传，落盘产物不受影响，这是 IR 层（预算估算 / 再合成）的正确性修复。
+
+<h3 id="cn-0.22.0">其他变更</h3>
+
+- 清理 grokbuild 早返回分支里语义已废的 `images: 0` 死字段；`docs/architecture.md` 新增 D15（富结果 sidecar）并补齐 D14 的「V3 目标」「附件不可回收」两条代价；USAGE 双语补「转投与图片」与 `includeToolUseResult` 说明。
+
+<h3 id="en-0.22.0">New Features</h3>
+
+- **Optional Claude tool-result sidecar import**: `import_claude({ includeToolUseResult: true })` renders the model-invisible `toolUseResult` into text appended after the tool result — edit patches (`structuredPatch` / `bashEditDiff`) become diff text, interactive questions/answers become Q&A pairs, and the remaining scalars (exit codes, durations, persisted output paths, …) become one compact JSON line. Off by default (among 4001 sampled records, 1260 carry a source patch and 1115 carry old/new strings; importing all of it grows the log noticeably); bulk keys (`originalFile` / `content` / `stdout` / `stderr`) and anything already present in the visible body are never duplicated, and single values longer than 2000 characters are skipped. The flag is part of the argument fingerprint (changing it requires `force`), and the result reports `toolUseResultsMerged`.
+
+<h3 id="en-0.22.0">Bug Fixes</h3>
+
+- **V3 targets no longer receive image blocks the old host cannot read**: attachment refs are a current-generation (V4) host concept, so previously any host offering the attachment service got them stored — "import to DSH (V3)" or appending to a V3 session produced image blocks a V3 host cannot read. Below generation 4, images (including already-referenced blocks) now degrade to `[image]` placeholders counted in `imagesDegraded`; the target generation is taken only from authoritative sources (an explicit override or the target session's own header) and never from an inferred host version — without a version signal that inference collapses to the converter default of 3.
+- **Transfer images (import to Claude Code / Codex / Kimi / opencode)**: when the target can carry images (Claude / Codex) they are stored through the normal path and read back into the target format, with `attachmentsOrphaned` reporting how many bytes the retracted intermediate session leaves behind in the attachment store; when the target cannot express images at all (Kimi's wire only accepts its own blob refs, opencode's file parts need external files) nothing is stored, avoiding data that can never be reclaimed.
+- **Export dereference capability check fixed**: it used `attachmentService()` (which requires `saveImage`) to decide whether it could read attachments, while the read path only needs `readImage` — a read-only host surface was misjudged as unable to read, degrading images that had bytes to placeholders. It now calls `readAttachmentBytes` directly.
+- **The panel shows the image counters**: `lib/panel.mjs` already returned `images` / `imagesDegraded`, but the client result line ignored them (dead payload); two new labels (zh + en) render them now.
+- **New `inline-image-data` validator check**: `validateSessionEvents` never inspected content blocks, so a regression where image blocks keep their inline `data` (the landing step bypassed) had no guard; it now walks tool-result inner content (both the V3 wrapper and the V4 flat shape) and names it.
+- **dsh source: `promptBlocks` was overwritten when one turn carried several image-bearing `user/message` records**: they now accumulate (the text still comes from the first, unchanged IR semantics). Since dsh events pass through verbatim, the written product is unaffected — this fixes IR-level correctness (budget estimation and re-synthesis).
+
+<h3 id="en-0.22.0">Chores</h3>
+
+- Removed the dead `images: 0` field from grokbuild's early-return branch; `docs/architecture.md` gained D15 (tool-result sidecar) and D14 now records the V3-target and non-reclaimable-attachment costs; USAGE documents "Transfer and images" plus `includeToolUseResult` in both languages.
+
+**Full Changelog**: [v0.21.0...v0.22.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.21.0...v0.22.0)
+
 ## [0.21.0] - 2026-09-28
 
 [中文](#cn-0.21.0) | [English](#en-0.21.0)
