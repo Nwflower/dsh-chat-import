@@ -2,6 +2,46 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.20.0] - 2026-09-27
+
+[中文](#cn-0.20.0) | [English](#en-0.20.0)
+
+<h3 id="cn-0.20.0">体验优化</h3>
+
+- **移除双向增量同步，只保留导入与导出**：删掉 `sync_to_claude` 工具、面板「同步」页与 `/api-import/sync` 路由、设置页的同步分区、`sync.json` / `outbound.json` 配置与定时巡检，工具面 13 → 12。反向导出不受影响（`export_chat` 只写新文件，从不改写源转录）。`$DSH_HOME/dsh-chat-import/` 下历史的 `sync.json` / `outbound.json` 以及 imports registry 里的 `writeback` / `exports` 字段成为惰性残留，不再被读取，也不静默删除用户数据。
+- **重导语义重做**：不再「记录存在即跳过、源增长一律续写」，改为按「这条 DSH 会话还是不是我上次写完的样子」分流——源未变 → 跳过（不重读）；源增长且未在 DSH 续聊 → 只把新增轮次追加进同一会话（`appended`）；源增长但已在 DSH 续聊 → **另铸新副本**（`reimported.reason: "continued-in-dsh"`），旧会话一字不改；DSH 侧日志比基线短（被外部截短）→ 不写、跳过并报 `storedShrunk`；0.20.0 之前的记录没有基线 → 不可判定，保守另建一次副本并在落盘后回填基线。读不到 DSH 日志长度时既不追加也不复制（跳过并报 `appendedSkipped`）。`force: true` 与显式 `sessionId` 变更仍恒另铸副本。
+- **重导产生的副本不再丢账**：另铸副本时旧会话收进 registry 的 `record.copies`，`list_imported_sessions`、`retract_import`、`/attach-workspaces`、清理与 `doctor` 都能枚举到它；删除单条副本只摘掉该条，删除主记录时把最新副本提升为主记录（会话还在，账也还在）。
+- 面板与命令：已导入行的按钮与 tooltip 改为重导语义（未导入则新建会话、已续聊则另建副本），跳过 Toast 的动作从「忽略警告」改为「重新导入为新会话」，批量结果摘要单列「重导为新会话 N 个」。
+
+<h3 id="cn-0.20.0">问题修复</h3>
+
+- 修复 **重导时把导入轮次追加进用户已续聊的会话**：源文件增长后重导会把新增轮次 append 进那条会话，位置落在用户自己的提问之前，事后无法拆开；而「我就想再导一份」的用户在未变文件上又只有静默跳过一条路。现在已续聊即另铸副本，用户那条会话保持原样；想显式要新副本时随时可用 `force: true`。
+
+<h3 id="cn-0.20.0">其他变更</h3>
+
+- 删除随写回失效的导出层死代码：`tailClaudeEvents` / `serializeClaudeJsonlTail` / `verifyClaudeJsonl` / `serializeCodexJsonlTail` 与 `lib/export/grokbuild.mjs` 整个文件；`./export.mjs` 子路径不再导出这些名字（破坏性契约变化）。
+- registry 的展开口径收口到 `lib/imports.mjs` 的 `registryEntries` / `recordEntries`：撤回 / 清理 / 体检 / 工作区挂载 / 面板历史原先各自展开一份（同一逻辑 8 处副本），加副本记账必漏改。
+- 输出字段 `forceImported` 更名为 `reimported`（带 `reason`：`continued-in-dsh` / `baseline-missing` / `forced` / `session-id-changed`），新增 `storedShrunk` 与批量 `reimported` 计数；`import_chat` 与 `restore_bundle` 的输出 schema、`lib/index.d.ts` 类型面同步。
+
+<h3 id="en-0.20.0">Improvements</h3>
+
+- **Removed two-way incremental sync; import and export only**: the `sync_to_claude` tool, the panel's Sync page and the `/api-import/sync` route, the sync section in Settings, the `sync.json` / `outbound.json` config and the interval watcher are gone (tool surface 13 → 12). Reverse export is unaffected (`export_chat` only ever writes new files and never rewrites source transcripts). Existing `sync.json` / `outbound.json` files under `$DSH_HOME/dsh-chat-import/` and the registry's `writeback` / `exports` fields become inert leftovers — nothing reads them, and user data is never deleted silently.
+- **Re-import policy reworked**: no longer "skip when a record exists, always append when the source grew", but "is this DSH session still exactly what the import wrote?" — unchanged source → skipped (no re-read); source grew and the DSH session was not touched → only the new turns are appended (`appended`); source grew but you already chatted in that DSH session → a **new copy** is created (`reimported.reason: "continued-in-dsh"`) and the old session is left byte-identical; the DSH log is shorter than the baseline (externally truncated) → nothing is written, skipped and reported as `storedShrunk`; records written before 0.20.0 have no baseline → undecidable, so one conservative copy is made and the baseline is backfilled afterwards. When the DSH log length cannot be read at all, neither append nor copy happens (skipped as `appendedSkipped`). `force: true` and an explicit `sessionId` change still always mint a copy.
+- **Copies produced by re-imports are no longer lost from the books**: the superseded session lands in the registry's `record.copies`, so `list_imported_sessions`, `retract_import`, `/attach-workspaces`, purge and `doctor` all still enumerate it; deleting a single copy only drops that entry, and deleting the main record promotes the newest copy to main (the session stays, and so does the bookkeeping).
+- Panel and commands: the imported row's button and tooltip now describe the re-import policy (new session when unimported, new copy when you already chatted), the skip toast's action is "Re-import as a new session" instead of "Ignore warning", and the batch summary reports "N re-imported as new" separately.
+
+<h3 id="en-0.20.0">Bug Fixes</h3>
+
+- Fix **re-importing appending imported turns into a session you had already chatted in**: when the source file grew, the new turns were appended to that session, landing *before* your own question and impossible to untangle afterwards; meanwhile a user who simply wanted a second copy only had a silent skip on an unchanged file. A continued session now gets a fresh copy while the session you used stays untouched, and `force: true` remains the explicit way to ask for a copy.
+
+<h3 id="en-0.20.0">Chores</h3>
+
+- Removed the export-layer dead code left behind by the write-back: `tailClaudeEvents` / `serializeClaudeJsonlTail` / `verifyClaudeJsonl` / `serializeCodexJsonlTail` and the whole `lib/export/grokbuild.mjs`; the `./export.mjs` subpath no longer exports those names (breaking contract change).
+- Registry flattening is now centralized in `lib/imports.mjs` (`registryEntries` / `recordEntries`): retract / purge / doctor / workspace attach / panel history each used to expand the registry themselves (8 copies of the same logic), which copy tracking would inevitably have missed.
+- The `forceImported` result field is renamed to `reimported` (with `reason`: `continued-in-dsh` / `baseline-missing` / `forced` / `session-id-changed`), and `storedShrunk` plus a batch `reimported` counter are added; the `import_chat` and `restore_bundle` output schemas and the `lib/index.d.ts` type surface follow.
+
+**Full Changelog**: [v0.19.7...v0.20.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.19.7...v0.20.0)
+
 ## [0.19.7] - 2026-09-27
 
 [中文](#cn-0.19.7) | [English](#en-0.19.7)
