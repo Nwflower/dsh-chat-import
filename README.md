@@ -70,7 +70,7 @@
 
 ## Install
 
-> Requires dsh ≥ 0.1.5-rc.1
+> Requires dsh ≥ 0.1.5-rc.1 — verified on the 0.1.x line and on 0.2.0-rc.1 (dsh-tools must satisfy `>=0.1.0-rc.6 <0.3.0`)
 
 1. Install via terminal
 
@@ -83,7 +83,7 @@ dsh plugin --profile web add dsh-chat-import                    # npm package
 ## Usage
 
 1. Import conversations via GUI
-  Open the import window from the "Import sessions" button at the bottom of the left sidebar, select the conversations you want to import, and import with one click.
+  Open the import window from the "Import sessions" button at the bottom of the left sidebar (with the DSH Claude Style theme, that button sits in the account menu at the bottom left), select the conversations you want to import, and import with one click.
 
   <table>
     <tr>
@@ -92,7 +92,7 @@ dsh plugin --profile web add dsh-chat-import                    # npm package
     </tr>
   </table>
 
-  > These screenshots also use the author's other theme plugin, [DSH Claude Style](https://github.com/Nwflower/dsh-claude-style): it recreates the look and feel of Claude Code Desktop inside DSH. If the default theme is not quite your taste, give it a try.
+  > These screenshots also use the DeepSeek palette of the author's other theme plugin, [DSH Claude Style](https://github.com/Nwflower/dsh-claude-style): it recreates the look and feel of Claude Code Desktop inside DSH, in a Claude palette and a DeepSeek one. If the default theme is not quite your taste, give it a try. The workspaces and sessions in the screenshots are sample data.
 
 2. Import via Agent tool calls
 
