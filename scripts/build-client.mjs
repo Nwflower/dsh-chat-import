@@ -34,6 +34,7 @@ const FRAGMENTS = [
   'logos.js',     // 来源品牌标与字标（lobehub 静态 SVG，生成物：dev/gen-lockups.mjs）
   'widgets.js',   // Icon / SourceBadge / useContainerWidth
   'styles.js',    // themeColors + makeStyles（DSW 设计令牌）
+  'toast.js',     // ToastHost（官方 shell.overlay 落点提示；缺 primitives 时自绘横幅）
   'utils.js',     // fmt* / 结果摘要 / 响应解析 worker / Toggle
   'settings.js',  // 设置页「会话导入」分区 + 同步设置
   'tabs.js',      // ImportTabContent / SidebarImportTab / HistoryPanel / SearchableSelect
@@ -42,9 +43,10 @@ const FRAGMENTS = [
   'entry.js',     // ImportButton + apply()（槽注册、tab 类型注册）
 ]
 
-const HEADER = `/* global window, document, fetch, getComputedStyle, MutationObserver, ResizeObserver, setTimeout, requestAnimationFrame, cancelAnimationFrame, Worker, Blob */
+const HEADER = `/* global window, document, fetch, getComputedStyle, MutationObserver, ResizeObserver, setTimeout, clearTimeout, requestAnimationFrame, cancelAnimationFrame, Worker, Blob */
  // lib/client.js — DSH Web 侧面板 bundle：右侧栏「导入会话」tab，支持发现、搜索、分页、多选导入。
- // 纯前端，只消费注入的 slots / locale / react，不 import DSH host 模块。
+ // 纯前端，只消费注入的 slots / locale / react；唯一例外是官方 UI primitives 的 Toast
+ //（toast.js，缺包自动退回自绘横幅），见 docs/architecture.md D17。
  //
  // GENERATED FILE — 勿手改。源在 src/client/ 分片，node scripts/build-client.mjs 组装。
 window.__ModuleLoader__.load({

@@ -217,6 +217,13 @@
           { name: "sidebar.footer.action", id: "chat-import", order: 0 },
           ImportButton,
         ));
+      // 落点 Toast 的挂载点：官方 shell.overlay（与宿主自己的 toast 同一个槽，例如
+      // ui-plugin-manager 的 plugin-manager.refresh-toast）。惰性 inject：槽被声明才注册。
+      ctx.slots.inject("shell.overlay", () =>
+        ctx.slots.register(
+          { name: "shell.overlay", id: "chat-import.landing-toast", locale: LOCALE_NS, inject: () => ({}) },
+          ToastHost,
+        ));
       // 设置席位按宿主世代分流（对齐 dsh-claude-style）：
       //   0.1.7+ —— 插件页 plugins.bundle.config（键 = 包名），由 ui-plugin-manager 声明，
       //             渲染在「设置 → 插件 → dsh-chat-import」；值走客户端 configForms。

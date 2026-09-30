@@ -200,6 +200,8 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 
 > **导入的会话落在哪个工作区**（细节见 docs/architecture.md D16）：宿主只接受「会话 cwd 与工作区路径相等」的挂接，所以插件在创建会话前先定落点——cwd 命中已有工作区就沿用它；cwd 是本机目录就在该目录建一个工作区（会话与原生会话同区，侧栏会出现这个新分组）；cwd 不在本机 / 拿不到（含主目录，沙箱 ACL 不允许）时落到**专用导入工作区** `$DSH_HOME/dsh-chat-import-workspace`（cwd 随之改写）。`workspaceMode` 可选 `auto`（默认，上述规则）/ `per-project`（不改写 cwd，宁可「未分组」）/ `dedicated`（一律落专用工作区，`workspaceDir` 可覆盖目录）。归组结果一律写进导入结果：`workspace` / `workspaceCreated`（侧栏多出的分组）与 `ungrouped` + `ungroupedReason`（会话已导入，但停在侧栏最底部的「未分组」——看不到时先滚到列表末尾）。旧版本为源 transcript 目录误建的空工作区，可用「导入历史」页的「**清理空工作区**」按钮移除（只删成员为 0 的工作区登记，目录与会话日志保留）。
 
+> **导入完成会弹一条落点提示**（官方 `shell.overlay` 的 Toast：顶部居中，约 6 秒后自动消失）：「导入完成 → <工作区路径>（本次新建该工作区）；另有 N 个未归组」。面板结果栏里仍有完整计数，这条只是保证你切走 tab 或收起右栏时也知道**这次落到哪了**；转投（导入到 DSH 之外）弹的是写出的文件路径。宿主没有官方 `Toast` 组件的旧版本上，插件退化为同位置的自绘横幅（见 docs/architecture.md D17）。
+
 ### `/import` 斜杠命令与 `/resume-*` 交接
 
 插件还注册了一个 **`/import <source> <path>`** 斜杠命令（在挂载了 dsh `commands` 服务的环境下可用）：直接在会话里输入即可导入，不占模型轮次——与 `import_*` 工具同一管线、同一重导 / force / 上下文预算语义。`<source>` 接受短名（`claude`、`codex`…）、客户端来源 id（`claude-code`）或工具全名（`import_claude`）；`<path>` 为 transcript 文件或会话目录 / 数据根（单文件导入 / 目录批量照常判定）。

@@ -158,3 +158,13 @@
   5. 附带修掉两处静默：`restore_bundle` 原先自己算 `groupedTo`（声称「回退归组到 bundle 目录」），现改为照抄真实落点；空工作区清理原先调 `ws.remove()/wr.remove()`（现宿主只有 `workspaceRegistry.delete(id)`，等于不清理），改为 `delete(id)` 并扩展到旧实现误建的源目录工作区，面板「导入历史」加了「清理空工作区」按钮（只删成员为 0 的工作区登记，目录与会话日志保留）。
 - **代价**：会话 header 的 cwd 可能不再是源 cwd（源 cwd 不可用时改写成落点工作区）——这是为了让「导入的会话一定能被看到」；工具会在落点目录里执行，而不是一个本机不存在的源路径。`workspaceMode` 三态因此有了实质差别（此前 `auto` 与 `per-project` 同义）。
 - **重审条件**：宿主允许会话同时属于多个工作区、或允许挂接时改写 header cwd（提供 relocate API）时，可以回到「保持源 cwd + 显式分组」的组合；宿主暴露 workspace 事件/GC 时，可把空工作区清理做成自动而非按钮。
+
+## D17. 客户端只消费注入服务的例外：官方 UI primitives 的 Toast（2026-09 定）
+
+- **背景**：导入落点以前只写在面板结果栏里（一行面板内文本），而批量导入时用户可能已经切走 tab 或收起右栏，于是「导进去了但不知道导到哪」——与 D16 修的那个困惑同源。DSH 有官方 Toast：`@deepseek-ai/dsh-client-ui-primitives` 的 `Toast`（顶部居中临时横幅，owner 给 `holdMs`/`onDone`，组件 key 变化即重开一条）。宿主自己的插件就是这么用的——`dsh-client-ui-plugin-manager` 在自己的 client bundle 里 `require("@deepseek-ai/dsh-client-ui-primitives")`，并把 toast 经 `ctx.slots.inject("shell.overlay", …)` 注册成 `plugin-manager.refresh-toast`。
+- **决定**：
+  1. 新增 `src/client/toast.js` 分片：`ToastHost` 经 `ctx.slots.inject("shell.overlay")` 注册（id `chat-import.landing-toast`，与宿主 toast 同槽）。导入成功后弹「导入完成 → <落点>（本次新建该工作区）；另有 N 个未归组」；转投（非 DSH 目标）弹写出文件路径。落点信息全部取自 D16 的公开结果字段（`workspace` / `workspaceCreated` / `ungrouped`），面板不另算。
+  2. **这是「客户端只消费注入的 slots / locale / react」的唯一例外**，且必须可降级：`require` 包在 `try/catch` 里，拿不到（或没有 `Toast`）就渲染同位置、同 `holdMs` 的自绘横幅。插件声明支持 dsh ≥ 0.1.5-rc.1，不能因为一句提示在旧宿主上把整个面板搞挂。该 require 走 bundle factory 已有的 `require` 通道（`react` 本来就是这么拿的），不引入模块语法（分片仍禁 import/export）。
+  3. 触发面只覆盖面板发起的导入（`/api-import/import` 响应里带落点）；工具与 `/import` 命令的落点写在工具结果文本里（`detailsNote` 的「新建工作区 …」「未归组 …」），不改动它们。
+- **代价**：客户端多了一条对宿主包名的硬编码字符串（版本漂移只能靠 try/catch 兜底，不是编译期发现）；Toast 的 props（`text`/`holdMs`/`onDone`/组件 key 重开）是 0.2.0-rc.1 的现状，上游若改名我们会静默退到自绘横幅——有兜底、不报错，但风格会不一致。
+- **重审条件**：宿主把「提示 / 通知」做成客户端服务（`ctx.get('notices')` 之类）时改走服务；或官方给第三方插件提供 toast 出口，则删掉自绘兜底与包名硬编码。

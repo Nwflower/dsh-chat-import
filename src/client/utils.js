@@ -77,6 +77,36 @@
       return bits.join(t("result.separator")) + (tail ? "\n" + tail : "");
     }
 
+    // 导入完成后的落点提示（Toast 用）：只说「落到哪了」——面板结果栏已有完整计数。
+    // 归组字段来自宿主层（lib/workspace-group.mjs）：workspace / workspaceCreated /
+    // ungrouped；转投（非 DSH 目标）落点是写出的文件路径。
+    function landingToast(results, t) {
+      const paths = [];
+      let created = false;
+      let ungrouped = 0;
+      for (const r of results || []) {
+        if (!r) continue;
+        if (typeof r.workspace === "string" && r.workspace && paths.indexOf(r.workspace) === -1) paths.push(r.workspace);
+        if (r.workspaceCreated) created = true;
+        if (typeof r.ungrouped === "number") ungrouped += r.ungrouped;
+      }
+      if (paths.length > 0) {
+        const shown = paths.slice(0, 2).join(t("result.separator")) + (paths.length > 2 ? " …" : "");
+        return t("toast.landed", { where: shown })
+          + (created ? t("toast.newWorkspace") : "")
+          + (ungrouped > 0 ? t("toast.ungrouped", { n: ungrouped }) : "");
+      }
+      // 转投：写出文件就是落点（第一条足够指出位置，完整清单在面板结果里）
+      let written = "";
+      for (const r of results || []) {
+        for (const f of (r && r.files) || []) {
+          if (!written && f && f.filePath) written = f.filePath;
+        }
+      }
+      if (written) return t("toast.written", { where: written });
+      return "";
+    }
+
     // 批量结果摘要（single/batch 混合计数；t 为 useTranslate 返回的翻译函数）。
     // reimported：重导另铸副本（用户在 DSH 里续聊过 / 旧记录无基线 / force），
     // 单独计数——它既不是「追加进已有会话」，也不是用户没见过的普通新增。

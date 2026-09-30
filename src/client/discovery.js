@@ -284,6 +284,10 @@
               ].filter(Boolean).map((line) => "\n" + line).join("")
               : "";
             setResult(summary + archiveNote);
+            // 落点 Toast（官方 shell.overlay 顶部横幅）：面板可能不在眼前（批量导入时切走
+            // 了 tab、右栏收起），所以「这次导到哪个工作区 / 哪个文件」要浮出来一次。
+            // 无落点信息（全部幂等跳过等）时 landingToast 返回空串 → 不弹，避免噪音。
+            showAppToast(landingToast(data.results, t));
             // 兜底不再静默：被幂等跳过（already-imported）的条目单独出 Toast，用户点
             // 「忽略警告」即用 force 再导一次（另铸新会话）。force 轮本身不再重复提示。
             const alreadyPaths = new Set((data.results || [])
