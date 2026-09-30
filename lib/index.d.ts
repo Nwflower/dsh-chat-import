@@ -177,6 +177,12 @@ export interface SingleImportResult {
   droppedMalformedOutputs?: number
   /** 未能转成标准 JSON、原样保留的工具参数条数（Codex custom_tool_call）。 */
   droppedMalformedArgs?: number
+  /**
+   * Codex Desktop「导入外部 agent 会话」展平信封的还原计数（任一 > 0 才占键）：
+   * calls = 还原的 tool-call 数、results = 配上调用的结果数、
+   * orphanResults = 找不到调用而保留为正文的结果数、malformed = 未闭合信封 / 认不出的载荷数。
+   */
+  externalAgent?: { calls: number; results: number; orphanResults: number; malformed: number }
   skipReason?: string
   alreadyImported: boolean
   appendedTurns?: number

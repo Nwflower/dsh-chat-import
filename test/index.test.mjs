@@ -906,6 +906,56 @@ test('import_codex 工具历史：tool/result 带 sourceEventSeqs 且 output 落
   assert.equal(result.data.message.content[0].content[0].text, 'README.md\nsrc\n')
 })
 
+// Codex Desktop「导入外部 agent 会话」产出的 rollout：工具调用被展平成 assistant 正文里的
+// 文本信封（信封可与正文混排），转换层按段还原为 tool/call + tool/result（见 lib/convert/codex.mjs
+// 与 docs/architecture.md D18）。落盘、schema、计数透出与渲染都要对得上（失败要大声）。
+test('import_codex 外部导入展平信封：还原为 tool/call + tool/result，计数透出且渲染可见', async () => {
+  const T = '2026-09-07T04:21:56.824Z'
+  const line = (type, payload) => JSON.stringify({ timestamp: T, type, payload })
+  const asst = (text) => line('response_item', { type: 'message', role: 'assistant', content: [{ type: 'output_text', text }] })
+  const recs = [
+    line('session_meta', { id: 'ext-demo-001', timestamp: T, cwd: hostAbs('D:/demo/mods') }),
+    line('response_item', { type: 'message', role: 'user', content: [{ type: 'input_text', text: '改一下建筑数值' }] }),
+    // 正文 + 调用信封混排在同一文本块（实测 776 块如此），信封载荷为 key:value
+    asst('先读设计稿。\n\n[external_agent_tool_call: Bash]\ndescription: 查数值\ncommand: grep -n "# 关键词" a.sql\n[/external_agent_tool_call]'),
+    // 结果信封带 error 标记
+    asst('[external_agent_tool_result: error]\ngrep: a.sql: No such file\n[/external_agent_tool_result]'),
+    // 第二个调用：Codex 只保留了 file（Edit 的 old/new 已被上游丢弃）
+    asst('[external_agent_tool_call: Edit]\nfile: D:\\demo\\mods\\a.sql\n[/external_agent_tool_call]'),
+    asst('[external_agent_tool_result]\n已修改\n[/external_agent_tool_result]'),
+  ].join('\n')
+  const target = 'D:\\demo\\codex\\external-agent.jsonl'
+  const { ctx, persistence } = makeCtx({ [target]: recs })
+  apply(ctx)
+  const def = chatDef(ctx, 'codex')
+  const value = await def.execute({ path: target })
+
+  assert.equal(value.status, 'imported')
+  assert.equal(value.toolCalls, 2)
+  assert.deepEqual(value.externalAgent, { calls: 2, results: 2, orphanResults: 0, malformed: 0 })
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get(value.sessionId)
+  assertEnvelopeHygiene(saved.events)
+  const calls = saved.events.filter((e) => e.type === 'tool/call')
+  assert.deepEqual(calls.map((e) => e.data.name), ['Bash', 'Edit'])
+  assert.deepEqual(JSON.parse(calls[0].data.arguments), { description: '查数值', command: 'grep -n "# 关键词" a.sql' })
+  // Edit 只剩文件路径：上游丢掉的正文不补，也不虚构
+  assert.deepEqual(JSON.parse(calls[1].data.arguments), { file: 'D:\\demo\\mods\\a.sql' })
+  const results = saved.events.filter((e) => e.type === 'tool/result')
+  assert.equal(results.length, 2)
+  assert.equal(results[0].data.message.content[0].isError, true)
+  assert.equal(results[0].data.message.content[0].toolCallId, calls[0].data.callId)
+  // 工具生命周期：结果与调用同步（宿主不变量），正文里不再残留信封标记
+  for (const [, r] of results.entries()) assert.equal(r.data.step, calls.find((c) => c.data.callId === r.data.message.content[0].toolCallId).data.step)
+  const flat = JSON.stringify(saved.events)
+  assert.equal(flat.includes('external_agent_tool'), false, '信封不得再以正文落入日志')
+  assert.ok(flat.includes('先读设计稿。'), '混排块里的正文必须保留')
+
+  const text = def.output.render({ path: target }, value).map((b) => b.text).join('\n')
+  assert.ok(text.includes('还原外部工具调用 2 次'))
+})
+
 test('import_codex 目录批量导入：递归扫描、逐文件独立会话、schema 校验', async () => {
   const tree = {
     'D:\\demo\\codex': 'dir',

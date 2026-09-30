@@ -161,3 +161,32 @@ test('verify: head 在最前（导入会话的新形状）不报 system-head-mis
   const out = await verifySession(ctxFor(events), { sessionId: 's' })
   assert.equal(kindsOf(out).has('system-head-missing'), false)
 })
+
+// ---- 存量旧形状：Codex Desktop 外部导入的展平工具信封（docs/architecture.md D18）----
+// 0.24.0 之前的转换器把这类信封当正文导入，工具调用至今是散文；日志 append-only，
+// verify_session 点名它并给出「force:true 重导」的修复路径（幂等闸会挡住普通重导）。
+
+test('verify: 正文残留展平信封 → flattened-tool-envelope + force 重导提示', async () => {
+  const events = baseLog().map((ev) => {
+    if (ev.type !== 'assistant/message') return ev
+    const next = clone(ev)
+    next.data.message.content = [{ type: 'text', text: '先读设计稿。\n\n[external_agent_tool_call: Bash]\ncommand: ls\n[/external_agent_tool_call]' }]
+    return next
+  })
+  const out = await verifySession(ctxFor(events), { sessionId: 's' })
+  assert.equal(kindsOf(out).has('flattened-tool-envelope'), true)
+  const hint = out.repairHints.find((h) => h.kind === 'flattened-tool-envelope')
+  assert.ok(hint, '有修复提示')
+  assert.match(hint.hint, /force:true/)
+})
+
+test('verify: 正文里只是引用该标记（非行首信封）不误报', async () => {
+  const events = baseLog().map((ev) => {
+    if (ev.type !== 'assistant/message') return ev
+    const next = clone(ev)
+    next.data.message.content = [{ type: 'text', text: '我们把 [external_agent_tool_call: Bash] 这种写法叫展平信封。' }]
+    return next
+  })
+  const out = await verifySession(ctxFor(events), { sessionId: 's' })
+  assert.equal(kindsOf(out).has('flattened-tool-envelope'), false)
+})

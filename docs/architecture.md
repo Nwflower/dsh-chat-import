@@ -169,3 +169,12 @@
   4. **面板内那条自绘黄条（跳过提示 + 「忽略警告」按钮）也并入同一条 Toast**：官方 `Toast` 支持 `actions`（`[{ label, onClick }]`，宿主自己的「已归档，可撤销」toast 就是这么用的），于是「已跳过 N 条未变化 / 无法安全续写的对话」+「重新导入为新会话」变成一个带按钮的顶部横幅，`holdMs` 取 15s（给点击留时间），面板里不再有底部浮层。**取舍**：黄条原本是常驻到用户处理的，Toast 是临时的（15s 后淡出，动作不能再点）——面板结果栏仍照旧报「跳过 N」，重选该行再导入会再次弹出同一条提示，所以这条信息不会丢，但「看到就必须当场决定」的紧迫感比常驻横幅弱。
 - **代价**：客户端多了一条对宿主包名的硬编码字符串（版本漂移只能靠 try/catch 兜底，不是编译期发现）；Toast 的 props（`text`/`actions`/`holdMs`/`onDone`/组件 key 重开）是 0.2.0-rc.1 的现状，上游若改名我们会静默退到自绘横幅——有兜底、不报错，但风格会不一致（自绘横幅同样画出动作按钮，所以「跳过 → force 重导」不会因为缺包而消失）。带动作的提示是临时的（15s），不如原来的常驻黄条耐等。
 - **重审条件**：宿主把「提示 / 通知」做成客户端服务（`ctx.get('notices')` 之类）时改走服务；或官方给第三方插件提供 toast 出口，则删掉自绘兜底与包名硬编码。
+
+---
+
+## D18. Codex 侧「外部 agent 会话导入」的展平信封按段还原（2026-09 定）
+
+- **背景**：Codex Desktop 的「导入外部 agent 会话」（`~/.codex/external_agent_session_imports.json`）把外部 transcript（本机 45 条全部来自 Claude Code）写成 Codex rollout，但 foreign 工具调用**没有** `function_call`/`custom_tool_call` 记录——调用与结果被展平成 assistant 正文里的文本信封（`[external_agent_tool_call: <Name>]…[/external_agent_tool_call]` 与 `[external_agent_tool_result[: error]]…[/external_agent_tool_result]`），且信封可与正文混排在同一个 `output_text` 块里（本机普查：14477 块独占整块、776 块与正文混排、102 块含多个信封，信封只在 assistant 侧出现）。用户从 Codex 侧再导入这类 rollout 时，工具调用全变散文：python 命令里的 `# 注释` 行被 markdown 渲染成巨型标题、130+ 次 Edit 与普通发言无法区分。这不是转换器的解析漏项（源文件里确实没有结构化调用），但「忠实导入」在这里等价于「丢结构」。
+- **决定**：新增 `lib/convert/codex-external-agent.mjs`（纯函数层；单独成文件是因为 `codex.mjs` 已接近体量停止线，见 AGENTS.md）提供 `splitExternalAgentEnvelopes` / `externalAgentArguments`，由 `codex.mjs` 的 assistant 分支调用：在 assistant 正文按**行扫描**切段（不能要求「整块即信封」），把信封还原成 IR 的 `tool-call` / `tool-result`：载荷 `input: <JSON>` 原样作 arguments，`key: value` 行（值可跨行）逐键组对象；结果按「最早未配对调用」FIFO 配对（信封不带 call_id），`: error` 标记还原为 `isError`。**不虚构**：载荷键名与内容照抄信封——Codex 自己把 `file_path` 写成 `file`、并丢掉 Edit/Write 的正文，本层不补也不猜。降级走 D4：未闭合信封 / 认不出的载荷 / 未知结果标记留在正文并计入 `malformed`，找不到调用的结果原样保留正文并计入 `orphanResults`，还原数进公开结果的 `externalAgent: { calls, results, orphanResults, malformed }`（经 `attachConversionDetails` 与工具 schema 透出）；存量旧形状由 `verify_session` 新增的 `flattened-tool-envelope` 点名（同 D9 的 `system-head-missing` 手法）。**不设开关**：还原的是源侧本来的结构、不增体积、几乎无误判面（整行锚定的信封头），默认恒开。
+- **代价**：转换器多一层启发式解析（约 120 行 + 注释），并为「信封形态漂移」留了含糊地带——载荷认不出时 arguments 退化为 `{"input": <原文>}`（内容不丢、结构会歪），未闭合的信封保留为正文（仍会被 markdown 渲染，但计数可见）；含信封的文本块会被切成多个文本块（正文段两侧空白被 trim），无信封的块走快路径、字节不变。还原后的 step 数减少（只承载结果信封的消息不再凭空开一步，结果归并到调用的那一步）。
+- **重审条件**：Codex Desktop 换用别的展平格式（或改为写真正的 `function_call`）时，重估解析器；宿主收不到这类来源、或上游补回 Edit/Write 正文时，可删掉相应兜底与文档告诫。
