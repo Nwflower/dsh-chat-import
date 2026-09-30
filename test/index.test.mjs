@@ -243,7 +243,17 @@ function makeCtx(tree, opts = {}) {
 
   const workspaceRegistry = {
     async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }; workspaces.set(p, ws); return ws },
+    async create(p) {
+      // 真实宿主 create 会校验「路径是已存在的目录」（realpath + isDirectory）；mock 默认
+      // 宽松（让 D:\demo\... 这类虚拟项目路径也能当工作区）。需要模拟宿主拒绝的场景
+      // （跨机器 cwd 不可达）用 opts.rejectWorkspaceCreate 打开该校验。
+      if (typeof opts.rejectWorkspaceCreate === 'function' && (await opts.rejectWorkspaceCreate(p))) {
+        throw new Error("cannot create a workspace at '" + p + "': path is not a directory")
+      }
+      const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }
+      workspaces.set(p, ws)
+      return ws
+    },
     // REQ-55 归档感知：全局归档集（opts.archived 种子）；archive 辅助供测试把会话归档
     get archivedSessionIds() { return archivedIds },
     async archiveSession(id) { archivedIds.push(id) },
@@ -1977,10 +1987,16 @@ test('import_chatgpt 单文件：一文件多会话、恒返回 batch、schema �
   // 同一文件里的每个会话都带标记，sourcePath 都是 conversations.json（REQ-32）
   assertEnvelopeHygiene(saved1.events)
   assertEnvelopeHygiene(saved2.events)
-  // ChatGPT 无 cwd → REQ-39-lite 回退归到导出文件所在目录（否则堆进「未分组」找不到）
+  // ChatGPT 无 cwd → 没有可用工作区：落入专用导入工作区（改写 cwd 后挂接），不再回退
+  // 源文件目录——宿主只接受 cwd 与原工作区路径相等的挂接，源目录回退只会留下空工作区
+  // 且会话仍留在「未分组」（docs/architecture.md D16）
   assert.equal(attached.length, 2)
-  assert.ok(attached.every((a) => a.ws === dirname('D:\\demo\\chatgpt\\conversations.json')))
+  assert.ok(attached.every((a) => a.ws === join(process.env.DSH_HOME, 'dsh-chat-import-workspace')), '落点为专用导入工作区')
   assert.deepEqual(attached.map((a) => a.id).sort(), ['import-conv-001', 'import-conv-002'])
+  // 结果里如实回报归组落点与「本次新建了工作区」（用户可见的侧栏副作用）
+  assert.equal(value.workspace, join(process.env.DSH_HOME, 'dsh-chat-import-workspace'))
+  assert.equal(value.workspaceMode, 'dedicated')
+  assert.equal(value.workspaceCreated, true)
 })
 
 test('import_chatgpt 默认开关：无显式参数默认收集 system（默认开启），设置显式 false 还原过滤', async () => {
@@ -4354,7 +4370,8 @@ test('REQ-62 跨机器还原：originalCwd 不可达 → cwdAvailable:false + �
 
   // B 机：bundle 文件在（原 cwd D:\machine-a\work 不存在），还原
   const treeB = { [bundlePath]: bundleContent }
-  const { ctx: ctxB, persistence: pB, attached } = makeCtx(treeB)
+  // 模拟宿主 create 的目录校验：A 机路径在 B 机不存在 → 建不出工作区
+  const { ctx: ctxB, persistence: pB, attached } = makeCtx(treeB, { rejectWorkspaceCreate: (p) => p === A_CWD })
   apply(ctxB)
   const rst = registeredDef(ctxB, 'restore_bundle')
   const restored = await rst.execute({ path: bundlePath })
@@ -4363,13 +4380,13 @@ test('REQ-62 跨机器还原：originalCwd 不可达 → cwdAvailable:false + �
   assert.equal(restored.cwdAvailable, false)
   assert.equal(restored.originalCwd, A_CWD)
   assert.equal(restored.landingHint, 'work')
-  assert.equal(restored.groupedTo, dirname(bundlePath)) // REQ-39-lite 回退归组到 bundle 目录
+  // 原 cwd 建不出工作区 → 落点是专用导入工作区（改成 cwd 后挂接成功）。不再声称
+  // 「回退归组到 bundle 目录」——那条路在宿主上必然被拒（docs/architecture.md D16）
+  assert.equal(restored.groupedTo, join(process.env.DSH_HOME, 'dsh-chat-import-workspace'))
   assert.match(restored.restoreNote, /原 cwd 不可达/)
   assert.deepEqual(validateJsonSchemaValue(rst.output.schema, restored), [])
-  // 会话确实落盘（mock workspaceRegistry 对不存在的 cwd 也会虚拟创建，故只断言
-  // 归组发生过一次；真实 host resolveByPath 失败 → REQ-39-lite 回退到 bundle 目录，
-  // 该落点由 groupedTo 报告契约保证）
   assert.equal(attached.length, 1)
+  assert.equal(attached[0].ws, restored.groupedTo)
   assert.ok(pB.sessions.has(restored.sessionId))
 })
 
@@ -4638,7 +4655,7 @@ test('REQ-43 agents.create 失败（无 cwd 等）→ 回退 sessionPersistence 
 
 // ---- REQ-39 full：cwd 权威映射 + home-dir 沙箱防护 ----
 
-test('REQ-39 沙箱防护：transcript cwd = 主目录 → 归组回退源文件目录（绝不把主目录当 workspace）', async () => {
+test('REQ-39 沙箱防护：transcript cwd = 主目录 → 落入专用导入工作区（绝不把主目录当 workspace）', async () => {
   const home = homedir().replace(/[\\/]+$/, '')
   const jsonl = [
     JSON.stringify({ sessionId: 'sess-home-001', type: 'user', cwd: home, message: { role: 'user', content: 'hi' } }),
@@ -4646,10 +4663,13 @@ test('REQ-39 沙箱防护：transcript cwd = 主目录 → 归组回退源文件
   ].join('\n')
   const { ctx, attached } = makeCtx({ 'D:\\demo\\proj\\sess-home-001.jsonl': jsonl })
   apply(ctx)
-  await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-home-001.jsonl' })
-  // 归组落在源文件目录，不是主目录（跨平台：Linux 下 dirname 为 '.'，Windows 为 D:\demo\proj）
+  const value = await chatDef(ctx, 'claude').execute({ path: 'D:\\demo\\proj\\sess-home-001.jsonl' })
+  // 主目录被显式跳过（沙箱 ACL 会拒绝 home 里的 temp/pwsh），落点是专用导入工作区；
+  // 源文件目录**不**再被建成工作区（旧回退在宿主上必然被拒，只会留下空工作区）
   assert.equal(attached.length, 1)
-  assert.equal(attached[0].ws, dirname('D:\\demo\\proj\\sess-home-001.jsonl'))
+  assert.equal(attached[0].ws, join(process.env.DSH_HOME, 'dsh-chat-import-workspace'))
+  assert.equal(value.workspace, join(process.env.DSH_HOME, 'dsh-chat-import-workspace'))
+  assert.equal(value.ungrouped, undefined, '已归组 → 不占 ungrouped 键')
 })
 
 test('REQ-39 Claude 权威映射：转录无 cwd → ~/.claude.json projects 命中真实路径', async () => {

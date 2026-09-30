@@ -143,3 +143,18 @@
 - **开关与指纹**：`includeToolUseResult: true`（默认关：本机样本里 1260 条带原文补丁、1115 条带 old/new 字符串，全量并入会明显撑大日志，而多数会话并不需要）。它与 `fullHistory` 同列进 claude 的参数指纹（换值须重导，否则短路径会按旧参数跳过）。结果里 `toolUseResultsMerged` 上报合并条数。
 - **代价**：开启后日志体积随编辑次数增长（每条补丁几十到几百字符）；`originalFile` 这类整份快照仍不导入（与「模型可见内容」口径一致，用 `tool_result.content` 里的片段已足够还原语义）。
 - **重审条件**：宿主为工具结果提供结构化元数据槽位时，改为写结构化字段而不是渲染文本；或按需把 `originalFile` 也纳入（需要新的体积开关）。
+
+## D16. 归组必须先定目标工作区：attach 只接受 cwd 与工作区路径相等（2026-09 定）
+
+- **背景**：用户报「从 Claude 导入的对话，重启也不出现在对话列表里」。实际是导入成功了，但会话掉进侧栏最底部的「未分组」。根因是宿主的挂接契约与我们的事后回退设计相冲突：
+  1. `@deepseek-ai/dsh-workspace` 的 `attachSession` 读会话 header，要求 `realpath(header.cwd) === workspace.path`，否则抛 `its cwd resolves to '…'`；`workspace.sessionIds` 的 getter 也只返回通过该检查的 id；
+  2. 客户端（`dsh-client-ui-workspace`）的 `ungroupedMemberIds = list.ids − ⋃workspace.sessionIds`，所以没被计入的会话全部落进「未分组」；
+  3. 旧实现先在 create 时落下源 cwd，事后才 `attachToWorkspace`：cwd 候选命中不了就**回退源文件目录**并 `create()` 一个工作区。源目录被建出来了、`attachSession` 却必然被宿主拒绝，异常只写 `console.error`（本机 `$DSH_HOME/logs` 为空，用户完全看不到）→ 净效果是**多出一个空工作区 + 会话仍在「未分组」**。本机实测：同一批三条导入里，两条 cwd = 主目录的会话各留下一个空工作区（`…\.claude\projects\C--Users-Nwflower`、`…\.codex\sessions\2026\09\07`，创建时间与导入时间差 16–22ms），第三条 cwd 命中已有工作区的照常归组。
+- **决定**：
+  1. 归组前置：`lib/workspace-group.mjs` 在 **create 之前**规划目标工作区，并把目标路径写进会话 header 的 cwd；create 之后再 `attachSession`。同一个 plan 也用于 replace 与 multi 的每条 create。
+  2. 目标选择（`workspaceMode`，默认 `auto`）：cwd 命中已有工作区 → 沿用；cwd（非主目录）能建成工作区 → 就地建（会话落在真实项目下，与原生会话同区）；否则 → 专用导入工作区 `$DSH_HOME/dsh-chat-import-workspace`（`mkdir -p` 后建，cwd 随之改写）。`per-project` = 同上但**不改写 cwd**（宁可「未分组」也不伪造 cwd）；`dedicated` = 一律落专用工作区。主目录 cwd 始终不建工作区（沙箱 ACL 会拒绝 home 里的 temp/pwsh），走专用工作区。
+  3. 绝不按 transcript 的一面之词建目录：cwd 是否是可用目录交给宿主 `create` 判定（`realpath + isDirectory`），插件只为自己拥有的专用导入工作区 `mkdir -p`。跨机器 transcript 的 cwd 因此自然落到专用工作区，而不是在源盘上造目录、也不是把源 transcript 目录当工作区。
+  4. 失败要大声：归组结果进公开结果——`workspace` / `workspaceMode` / `workspaceCreated`（新建了工作区这个用户可见副作用）与 `ungrouped` + `ungroupedReason`（会话已导入、停在「未分组」）。`/attach-workspaces` 改为按**会话自己的 cwd** 重新规划，不再回退源目录；header 是 append-only、事后改不了 cwd，所以落不了组的会话如实报告并提示用 `force` 重导一份。
+  5. 附带修掉两处静默：`restore_bundle` 原先自己算 `groupedTo`（声称「回退归组到 bundle 目录」），现改为照抄真实落点；空工作区清理原先调 `ws.remove()/wr.remove()`（现宿主只有 `workspaceRegistry.delete(id)`，等于不清理），改为 `delete(id)` 并扩展到旧实现误建的源目录工作区，面板「导入历史」加了「清理空工作区」按钮（只删成员为 0 的工作区登记，目录与会话日志保留）。
+- **代价**：会话 header 的 cwd 可能不再是源 cwd（源 cwd 不可用时改写成落点工作区）——这是为了让「导入的会话一定能被看到」；工具会在落点目录里执行，而不是一个本机不存在的源路径。`workspaceMode` 三态因此有了实质差别（此前 `auto` 与 `per-project` 同义）。
+- **重审条件**：宿主允许会话同时属于多个工作区、或允许挂接时改写 header cwd（提供 relocate API）时，可以回到「保持源 cwd + 显式分组」的组合；宿主暴露 workspace 事件/GC 时，可把空工作区清理做成自动而非按钮。

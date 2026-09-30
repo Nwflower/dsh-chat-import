@@ -88,6 +88,26 @@
         }
       };
 
+      // 清理空工作区：只删本插件建过且已无成员的工作区登记（专用导入工作区 + 旧实现为
+      // 源目录误建的空工作区），目录与会话日志保留。删的是侧栏里点不动的空分组。
+      const runCleanup = async () => {
+        setBusy(true);
+        setNote(null);
+        setError(null);
+        try {
+          const resp = await fetch("/api-import/workspaces/cleanup", {
+            method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
+          });
+          const data = await readJson(resp);
+          if (data && data.ok === true) setNote(t("history.cleanup.done", { n: data.count || 0 }));
+          else setError((data && data.error) || t("error.route"));
+        } catch (err) {
+          setError(String((err && err.message) || err));
+        } finally {
+          setBusy(false);
+        }
+      };
+
       const confirmDialog = confirm && React.createElement("div", {
         style: {
           position: "absolute", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 2,
@@ -121,6 +141,12 @@
           React.createElement("span", { style: { fontWeight: 600, color: colors.text } }, t("history.title")),
           React.createElement("div", { style: { display: "flex", gap: "6px" } },
             React.createElement("button", { style: style.toolBtn, onClick: load, disabled: busy || loading }, t("refresh")),
+            React.createElement("button", {
+              style: style.toolBtn,
+              disabled: busy || loading,
+              title: t("history.cleanup.title"),
+              onClick: runCleanup,
+            }, t("history.cleanup")),
             React.createElement("button", {
               style: { ...style.toolBtn, color: colors.error, borderColor: colors.error },
               disabled: busy || loading || entries.length === 0,

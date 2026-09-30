@@ -157,6 +157,16 @@ export interface SingleImportResult {
   images?: number
   /** 未能落地、以 [image] 文本占位导入的图片数（服务缺席 / 类型不收 / 超限 / 源无字节）。 */
   imagesDegraded?: number
+  /** 本次导入会话挂接到的 DSH 工作区路径（归组成功时才有；见 docs/architecture.md D16）。 */
+  workspace?: string
+  /** 归组方式：已有工作区沿用 workspace / 就地建项目工作区 project / 专用导入工作区 dedicated。 */
+  workspaceMode?: string
+  /** 本次是否为归组新建了工作区（侧栏会多出一个分组）。 */
+  workspaceCreated?: boolean
+  /** 未归组的会话数（>0 才占键）：会话已导入，但停在侧栏「未分组」下。 */
+  ungrouped?: number
+  /** 未归组的首个原因（no-registry / cwd-is-home / create-failed: … / attach-failed: …）。 */
+  ungroupedReason?: string
   /** Claude 富结果 sidecar 合并数（includeToolUseResult: true 时 > 0）。 */
   toolUseResultsMerged?: number
   /** 只计数不映射的后端工具调用数（Grok Build 的 backend_tool_call）。 */
@@ -211,6 +221,12 @@ export interface BatchItemResult {
   metaMessages?: number
   images?: number
   imagesDegraded?: number
+  /** 同 SingleImportResult 的归组字段（批量条目）。 */
+  workspace?: string
+  workspaceMode?: string
+  workspaceCreated?: boolean
+  ungrouped?: number
+  ungroupedReason?: string
   toolUseResultsMerged?: number
   backendToolCalls?: number
   droppedToolResultBlocks?: number
@@ -248,6 +264,17 @@ export interface BatchImportResult {
   skipped: number
   failed: number
   missingFromSource?: string[]
+  /** 本批落成宿主附件的图片总数（>0 才占键）。 */
+  images?: number
+  /** 本批以 [image] 占位降级的图片总数（>0 才占键）。 */
+  imagesDegraded?: number
+  /** 本批未归组的会话数（>0 才占键）：会话已导入，停在侧栏「未分组」下。 */
+  ungrouped?: number
+  /** 单库多会话源把本轮落点摊平到顶层：同 SingleImportResult 的归组字段。 */
+  workspace?: string
+  workspaceMode?: string
+  workspaceCreated?: boolean
+  ungroupedReason?: string
   results: BatchItemResult[]
 }
 

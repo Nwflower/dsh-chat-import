@@ -109,7 +109,7 @@
 | `tool-result-missing` | toolResults | skip-placeholder | 目标格式不记录工具结果（Cursor）→ 导入器兜底补发空结果 |
 | `tool-result-text-fallback` | toolResults | text-fallback | 源格式工具消息无结构化参数（ChatGPT 网页导出）→ 按文本挂最近一步 |
 | `reasoning-encrypted` | reasoning | skip-placeholder | 推理内容不可见（Codex 密文 `encrypted_content`，可读的 summary 仍照常导入）→ 密文部分无内容可导入 |
-| `cwd-missing` | cwd | text-fallback | 无工作目录（ChatGPT / Grok Build）→ 回退源目录归组 |
+| `cwd-missing` | cwd | text-fallback | 无工作目录（ChatGPT / Grok Build）→ 落入专用导入工作区（见 architecture D16） |
 | `branch-collapsed` | branches | text-fallback | 目标会话无分支概念 → 分支会话只导主线程 |
 | `attachment-skipped` | attachments | skip-placeholder | 图片拿不到字节（宿主无 `ctx.attachments`、类型不收、超上限、源只有引用如 Kimi 的 `blobref:`）→ 该块以 `[image]` 文本占位并计入 `imagesDegraded`（导出方向读不回字节时同样计此项） |
 | `compacted-unavailable` | compacted | text-fallback | 无压缩摘要 → 超长会话由预算三层保护被动截断 |

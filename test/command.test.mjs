@@ -89,7 +89,7 @@ function makeCtx() {
     },
   }
   return {
-    ctx, registryDir, sessions, attached, registered,
+    ctx, registryDir, sessions, attached, registered, workspaces,
     getCommand: (name) => commands.find((c) => c.name === (name || 'import')),
     getAllCommands: () => commands,
   }
@@ -128,7 +128,7 @@ test('REQ-42 全部命令 input.hint 非空（空 hint 会致插件加载失败�
 })
 
 test('REQ-42 /import claude <path>：单文件导入成功并落盘会话', async () => {
-  const { cmd, sessions, attached } = setup()
+  const { cmd, sessions, attached, workspaces } = setup()
   const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-src-')), 'cmd-sess.jsonl')
   writeFileSync(file, simpleClaudeJsonl('cmd-sess'), 'utf8')
 
@@ -138,9 +138,13 @@ test('REQ-42 /import claude <path>：单文件导入成功并落盘会话', asyn
   assert.ok(out.text.includes('cmd-sess'), 'text 含会话 id: ' + out.text)
   assert.ok([...sessions.keys()].some((id) => id.includes('cmd-sess')),
     '会话已落盘（import-<src> 前缀）: ' + [...sessions.keys()].join(','))
-  // REQ-39-lite：cwd 不可解析 → 回退源目录归组（mkdtemp 目录存在）
+  // cwd 不可解析（跨机器路径）→ 落点是专用导入工作区；源文件目录**不**被建成工作区
+  // （宿主只接受 cwd 与原工作区路径相等的挂接，源目录回退只会留下空工作区 + 未分组）
   assert.ok(attached.length > 0, '已归组到工作区')
-  assert.ok(attached[0].ws.includes('cmd-src-'), '归组到源目录: ' + attached[0].ws)
+  assert.ok(attached[0].ws.includes('dsh-chat-import-workspace'),
+    '落点为专用导入工作区: ' + attached[0].ws)
+  assert.ok(![...workspaces.keys()].some((p) => p.includes('cmd-src-')),
+    '不得为源文件目录建工作区: ' + [...workspaces.keys()].join(','))
 })
 
 test('REQ-42 /import：幂等重导跳过（源未变）', async () => {
