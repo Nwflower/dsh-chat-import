@@ -2,6 +2,40 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.23.0] - 2026-09-28
+
+[中文](#cn-0.23.0) | [English](#en-0.23.0)
+
+<h3 id="cn-0.23.0">新增功能</h3>
+
+- 面板「导入历史」新增「**清理空工作区**」按钮（`POST /api-import/workspaces/cleanup`）：移除本插件建过、已无成员的导入工作区登记，幂等；对应用户在侧栏里点不动的空分组。
+- `/attach-workspaces` 改为按**会话自己的 cwd** 重新规划归组，不再回退源目录；cwd 不可用的会话如实报告未归组（header 是 append-only、事后改不了 cwd，要换落点用 `force: true` 重导）。
+
+<h3 id="cn-0.23.0">问题修复</h3>
+
+- **修「导入成功但对话列表里找不到」**：宿主只接受「会话 cwd 与工作区路径相等」的挂接（`@deepseek-ai/dsh-workspace` 的 `attachSession` 读 header 校验，不匹配即抛错），而插件原先在创建会话之后才归组、失败时回退到**源 transcript 目录**——那条路在宿主上必然被拒，于是每次都在侧栏留下一个**空工作区**、会话仍停在最底部的「未分组」，异常还只写进 `console.error`（本机 `$DSH_HOME/logs` 为空，用户看不到）。现在归组**前置到创建之前**：目标工作区路径先写进 header cwd，创建后再挂接。本机实测同一批三条导入中，两条 cwd = 主目录的会话各留一个空工作区（创建时间与导入时间差 16–22ms），第三条 cwd 命中已有工作区的照常归组——现已一致。
+- **落点不再按 transcript 的一面之词造目录**：cwd 是否是可用目录交给宿主 `create` 判定（realpath + isDirectory），插件只为自己拥有的专用导入工作区 `mkdir -p`。cwd 不在本机（跨机器导入）/ 拿不到（含主目录，沙箱 ACL 不允许）时落到专用导入工作区 `$DSH_HOME/dsh-chat-import-workspace` 并改写 cwd，会话因此一定能被看到；源 transcript 目录不再被建成工作区。
+- **`workspaceMode` 三态真正生效**：`auto`（默认，按上述规则）/ `per-project`（不改写 cwd，宁可「未分组」也不伪造 cwd）/ `dedicated`（一律落专用工作区，`workspaceDir` 可覆盖目录）。此前 `dedicated` 与源目录回退在宿主上都是失效路径。
+- **归组结果进公开结果**：新增 `workspace` / `workspaceMode` / `workspaceCreated`（侧栏多出的分组）与 `ungrouped` + `ungroupedReason`（会话已导入但停在「未分组」）；面板摘要、批量汇总、工具渲染与结果 schema 同步。
+- **`restore_bundle` 不再谎报落点**：原先自己算出 `groupedTo` 并声称「回退归组到 bundle 目录」，现改为照抄真实落点；`restoreNote` 给出原 cwd、落点或未归组原因。
+- **空工作区清理真正生效**：宿主现只有 `workspaceRegistry.delete(id)`（实体无 `remove`），旧写法恒不命中；改为 `delete(id)` 并覆盖旧实现为源 transcript 目录误建的空工作区，且只删**成员为 0** 的工作区登记（目录与会话日志保留）。
+
+<h3 id="en-0.23.0">New Features</h3>
+
+- The panel's History tab gains a **Clean empty workspaces** button (`POST /api-import/workspaces/cleanup`): it removes import-workspace registrations this plugin created that have no members, and is idempotent — the empty groups in the sidebar that cannot be clicked away.
+- `/attach-workspaces` now re-plans grouping from **each session's own cwd** instead of falling back to the source directory; sessions whose cwd is unusable are honestly reported as ungrouped (the header is append-only, so its cwd cannot be changed after the fact — re-import with `force: true` to get a copy under a new landing point).
+
+<h3 id="en-0.23.0">Bug Fixes</h3>
+
+- **Fixed "the import succeeded but the conversation is not in the list"**: the host only accepts an attach whose session cwd equals the workspace path (`attachSession` in `@deepseek-ai/dsh-workspace` validates the stored header and throws on a mismatch), while the plugin used to group *after* creating the session and fell back to the **source transcript directory** on failure — a path the host always rejects. The net effect was a fresh **empty workspace** per import plus a session stuck at the very bottom under "Ungrouped", with the exception only reaching `console.error` (this machine's `$DSH_HOME/logs` is empty, so nothing was visible). Grouping now happens **before creation**: the target workspace path is written into the header cwd first, and the session is attached after it exists. Measured on this machine: of three imports in one batch, the two whose cwd was the home directory each left an empty workspace behind (created 16–22 ms after the import), while the third, whose cwd matched an existing workspace, grouped correctly — all three now behave the same.
+- **No more directories invented from a transcript's word**: whether a cwd is a usable directory is decided by the host's own `create` (realpath + isDirectory); the plugin only `mkdir -p`s the dedicated import workspace it owns. A cwd that is absent locally (cross-machine import) or unavailable (including the home directory, which the sandbox ACL refuses) lands in the dedicated import workspace `$DSH_HOME/dsh-chat-import-workspace` with the cwd rewritten, so the session is always findable; source transcript directories are no longer turned into workspaces.
+- **`workspaceMode` now really has three behaviours**: `auto` (default, rules above) / `per-project` (never rewrite cwd — "Ungrouped" is preferred over a fabricated cwd) / `dedicated` (always the dedicated workspace, `workspaceDir` overrides it). Previously both `dedicated` and the source-directory fallback were dead paths on the host.
+- **The grouping outcome is part of the public result**: `workspace` / `workspaceMode` / `workspaceCreated` (the group that appeared in the sidebar) and `ungrouped` + `ungroupedReason` (imported but sitting under "Ungrouped"), wired through the panel summary, batch totals, tool rendering and output schemas.
+- **`restore_bundle` no longer reports a landing point that never happened**: it used to derive `groupedTo` itself and claim a fallback "grouped to the bundle directory"; it now reports the real landing point, with `restoreNote` naming the original cwd plus the landing point or the reason it stayed ungrouped.
+- **Empty-workspace cleanup actually works**: the host now only exposes `workspaceRegistry.delete(id)` (entities have no `remove`), so the old call never matched; it now deletes by id and also covers the empty workspaces older versions created for source transcript directories — and only workspaces with **zero members** (directories and session logs are kept).
+
+**Full Changelog**: [v0.22.2...v0.23.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.22.2...v0.23.0)
+
 ## [0.22.2] - 2026-09-28
 
 [中文](#cn-0.22.2) | [English](#en-0.22.2)
