@@ -16,15 +16,21 @@
     }
 
     const TOAST_HOLD_MS = 6000;
+    // 带动作按钮的提示要留足点击时间（宿主自己的「撤销归档」toast 也是长驻）
+    const TOAST_ACTION_HOLD_MS = 15000;
     // 单一通道：ToastHost 挂在 shell.overlay 上，挂载时把 setter 交给这里，导入流程只调
-    // showAppToast(text)——面板不需要知道自己在哪个槽里渲染。
+    // showAppToast(text, actions?)——面板不需要知道自己在哪个槽里渲染。actions 是
+    // [{ label, onClick }]，与官方 Toast 的 actions 同形（点击后自动收起本条）。
     let toastPush = null;
     let toastSeq = 0;
-    function showAppToast(text) {
+    function showAppToast(text, actions) {
       const line = typeof text === "string" ? text.trim() : "";
+      const acts = Array.isArray(actions)
+        ? actions.filter((a) => a && typeof a.label === "string" && typeof a.onClick === "function")
+        : [];
       if (line === "" || !toastPush) return;
       toastSeq += 1;
-      toastPush({ seq: toastSeq, text: line });
+      toastPush({ seq: toastSeq, text: line, actions: acts });
     }
 
     function ToastHost() {
@@ -34,23 +40,32 @@
         return () => { if (toastPush === setToast) toastPush = null; };
       }, []);
       if (!toast) return null;
+      // 动作点击后先收起本条再执行（与官方 ui-workspace 的「撤销归档」toast 同一处理）
+      const actions = (toast.actions || []).map((a) => ({
+        label: a.label,
+        onClick: () => { setToast(null); a.onClick(); },
+      }));
+      const holdMs = actions.length > 0 ? TOAST_ACTION_HOLD_MS : TOAST_HOLD_MS;
       if (HostToast) {
         return React.createElement(HostToast, {
           key: toast.seq,
           text: toast.text,
-          holdMs: TOAST_HOLD_MS,
+          holdMs,
+          ...(actions.length > 0 ? { actions } : {}),
           onDone: () => setToast(null),
         });
       }
-      return React.createElement(FallbackToast, { key: toast.seq, text: toast.text });
+      return React.createElement(FallbackToast, { key: toast.seq, text: toast.text, actions, holdMs });
     }
 
-    // 无 primitives 时的自绘横幅：顶部居中、holdMs 后自动消失（位置与官方 Toast 一致）
+    // 无 primitives 时的自绘横幅：顶部居中、holdMs 后自动消失（位置与官方 Toast 一致）；
+    // 有动作时同样画出按钮，所以「跳过 → 用 force 重导」这条兜底不会因为缺包就没了
     function FallbackToast(props) {
       const colors = themeColors();
       const [shown, setShown] = useState(true);
+      const actions = props.actions || [];
       useEffect(() => {
-        const timer = setTimeout(() => setShown(false), TOAST_HOLD_MS);
+        const timer = setTimeout(() => setShown(false), props.holdMs || TOAST_HOLD_MS);
         return () => clearTimeout(timer);
       }, []);
       if (!shown) return null;
@@ -72,6 +87,20 @@
           lineHeight: "1.5",
           zIndex: 60,
           wordBreak: "break-all",
+          display: "flex",
+          gap: "10px",
+          alignItems: "center",
         },
-      }, props.text);
+      },
+        React.createElement("span", { style: { flex: "1", minWidth: 0 } }, props.text),
+        actions.map((a, i) => React.createElement("button", {
+          key: i,
+          type: "button",
+          style: {
+            flex: "none", cursor: "pointer", padding: "2px 8px", borderRadius: "6px",
+            background: "transparent", color: colors.accent, border: "1px solid " + colors.accent,
+            font: "inherit",
+          },
+          onClick: () => { setShown(false); a.onClick(); },
+        }, a.label)));
     }

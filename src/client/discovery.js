@@ -131,8 +131,6 @@
       const [selected, setSelected] = useState(new Map()); // key → 会话条目
       const [importing, setImporting] = useState(false);
       const [result, setResult] = useState(null);
-      // 已导入跳过的会话 → Toast（「忽略警告」用 force 再导一次）
-      const [skippedToast, setSkippedToast] = useState(null);
       const [epoch, setEpoch] = useState(0); // 刷新 / 导入后自增 → 服务端新扫描键
       const [queryInput, setQueryInput] = useState(""); // 搜索框输入（未提交）
       const [query, setQuery] = useState(""); // 已提交的搜索词（请求用）
@@ -284,17 +282,21 @@
               ].filter(Boolean).map((line) => "\n" + line).join("")
               : "";
             setResult(summary + archiveNote);
-            // 落点 Toast（官方 shell.overlay 顶部横幅）：面板可能不在眼前（批量导入时切走
-            // 了 tab、右栏收起），所以「这次导到哪个工作区 / 哪个文件」要浮出来一次。
-            // 无落点信息（全部幂等跳过等）时 landingToast 返回空串 → 不弹，避免噪音。
-            showAppToast(landingToast(data.results, t));
-            // 兜底不再静默：被幂等跳过（already-imported）的条目单独出 Toast，用户点
-            // 「忽略警告」即用 force 再导一次（另铸新会话）。force 轮本身不再重复提示。
+            // 兜底不再静默：被幂等跳过（already-imported）的会话出一条带动作的 Toast，
+            // 点「重新导入为新会话」即用 force 再导一次（另铸新会话）。force 轮本身不再提示。
             const alreadyPaths = new Set((data.results || [])
               .filter((r) => r && r.status === "already-imported")
               .map((r) => r.sourcePath));
             const skipped = force ? [] : items.filter((it) => alreadyPaths.has(it.sourcePath));
-            setSkippedToast(skipped.length > 0 ? { count: skipped.length, items: skipped } : null);
+            // 落点与「跳过」合成同一条官方 Toast（shell.overlay 顶部横幅）：面板可能不在
+            // 眼前（批量导入时切走 tab / 收起右栏），两件事都得浮出来；动作按钮就是原来
+            // 面板内黄条的「忽略警告」。有动作时 holdMs 更长（15s），够点。
+            const landed = landingToast(data.results, t);
+            const skipLine = skipped.length > 0 ? t("toast.skipped", { n: skipped.length }) : "";
+            const toastText = [landed, skipLine].filter(Boolean).join(t("result.separator"));
+            showAppToast(toastText, skipped.length > 0
+              ? [{ label: t("toast.ignore"), onClick: () => doImport(skipped, { force: true }) }]
+              : null);
             setSelected(new Map());
             // 单条导入（非 force / 非转投 / 非多会话）本地把该行标成已导入即可，不重扫：
             // 重扫只为刷新状态，而这条路径的状态变化是可确定的（multi 源的 partial 语义、
@@ -697,19 +699,9 @@
             }, PAGE_SIZES.map((n) => React.createElement("option", {
               key: n, value: n,
             }, n === ALL_PAGE_SIZE ? t("pageSizeAll") : String(n))))),
-          // 底部主操作区：导入结果 + 导入所选（列表与分页之外的固定区，滚动时始终可见）
+          // 底部主操作区：导入结果 + 导入所选（列表与分页之外的固定区，滚动时始终可见）。
+          // 跳过提示与落点提示都在顶部官方 Toast 里（见 toast.js），不在这里再画一条。
           result && React.createElement("div", { style: style.resultBar }, result),
-          // 兜底不再静默：被幂等跳过的会话出 Toast，点「忽略警告」用 force 再导一次
-          skippedToast && React.createElement("div", { style: style.toast, role: "status" },
-            React.createElement("span", { style: style.toastText }, t("toast.skipped", { n: skippedToast.count })),
-            React.createElement("button", {
-              type: "button", style: style.toastAction, disabled: importing,
-              onClick: () => {
-                const items = skippedToast.items;
-                setSkippedToast(null);
-                doImport(items, { force: true });
-              },
-            }, t("toast.ignore"))),
           React.createElement("div", { style: style.importBar },
             migrate && React.createElement("button", {
               style: {

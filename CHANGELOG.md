@@ -9,7 +9,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 <h3 id="cn-0.23.0">新增功能</h3>
 
 - 面板「导入历史」新增「**清理空工作区**」按钮（`POST /api-import/workspaces/cleanup`）：移除本插件建过、已无成员的导入工作区登记，幂等；对应用户在侧栏里点不动的空分组。
-- **导入完成弹落点提示**：面板发起的导入成功后，用官方 Toast（`shell.overlay`，顶部居中，约 6 秒）报出「导入完成 → <工作区路径>（本次新建该工作区）；另有 N 个未归组」；转投弹写出文件路径。切走 tab / 收起右栏也不会漏掉落点。宿主没有官方 `Toast` 组件的旧版本上自动退化为同位置的自绘横幅（`require` 包在 `try/catch` 里，见 docs/architecture.md D17）。
+- **导入完成弹落点提示**：面板发起的导入成功后，用官方 Toast（`shell.overlay`，顶部居中，约 6 秒）报出「导入完成 → <工作区路径>（本次新建该工作区）；另有 N 个未归组」；转投弹写出文件路径。切走 tab / 收起右栏也不会漏掉落点。**面板内原先那条底部黄条（跳过提示 + 「忽略警告」）也并入同一条 Toast**：官方 `Toast` 支持 `actions`，于是变成「已跳过 N 个…」+「重新导入为新会话」按钮（= force 另铸新会话，带动作的横幅停留 15 秒）。宿主没有官方 `Toast` 组件的旧版本上自动退化为同位置、同样带动作按钮的自绘横幅（`require` 包在 `try/catch` 里，见 docs/architecture.md D17）。
 - `/attach-workspaces` 改为按**会话自己的 cwd** 重新规划归组，不再回退源目录；cwd 不可用的会话如实报告未归组（header 是 append-only、事后改不了 cwd，要换落点用 `force: true` 重导）。
 
 <h3 id="cn-0.23.0">问题修复</h3>
@@ -24,7 +24,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 <h3 id="en-0.23.0">New Features</h3>
 
 - The panel's History tab gains a **Clean empty workspaces** button (`POST /api-import/workspaces/cleanup`): it removes import-workspace registrations this plugin created that have no members, and is idempotent — the empty groups in the sidebar that cannot be clicked away.
-- **A landing toast now appears when an import finishes**: after a panel-triggered import the official Toast (`shell.overlay`, top-center, ~6 s) reports "Import done → &lt;workspace path&gt; (workspace created); N left ungrouped"; transfers toast the written file path. Switching tabs or collapsing the right sidebar no longer hides where it landed. On host versions without the official `Toast` component the plugin degrades to a self-drawn banner in the same place (the `require` is wrapped in `try/catch`; see docs/architecture.md D17).
+- **A landing toast now appears when an import finishes**: after a panel-triggered import the official Toast (`shell.overlay`, top-center, ~6 s) reports "Import done → &lt;workspace path&gt; (workspace created); N left ungrouped"; transfers toast the written file path. Switching tabs or collapsing the right sidebar no longer hides where it landed. **The panel's old bottom banner (skip notice + "ignore warning") moved into the same toast**: the official `Toast` accepts `actions`, so it is now "Skipped N …" plus a **Re-import as a new session** button (`force`, minting a new session) on a 15-second hold. On host versions without the official `Toast` component the plugin degrades to a self-drawn banner in the same place, action button included (the `require` is wrapped in `try/catch`; see docs/architecture.md D17).
 - `/attach-workspaces` now re-plans grouping from **each session's own cwd** instead of falling back to the source directory; sessions whose cwd is unusable are honestly reported as ungrouped (the header is append-only, so its cwd cannot be changed after the fact — re-import with `force: true` to get a copy under a new landing point).
 
 <h3 id="en-0.23.0">Bug Fixes</h3>

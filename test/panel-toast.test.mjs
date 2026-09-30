@@ -96,11 +96,25 @@ test('官方 Toast 是 require 来的，且缺包时退回自绘横幅', () => {
 
 test('Toast 生命周期：显式给 holdMs，且新提示用 key 重开一条', () => {
   assert.match(source, /const TOAST_HOLD_MS = \d+;/, 'holdMs 必须是常量而非 undefined（否则官方 Toast 不会自动消失）')
-  assert.match(source, /holdMs: TOAST_HOLD_MS/, '要把 holdMs 传给官方 Toast')
+  assert.match(source, /const TOAST_ACTION_HOLD_MS = \d+;/, '带动作的提示要有自己的（更长的）holdMs')
+  assert.match(source, /holdMs = actions\.length > 0 \? TOAST_ACTION_HOLD_MS : TOAST_HOLD_MS/, '按是否有动作选 holdMs')
+  assert.match(source, /holdMs,/, '要把 holdMs 传给官方 Toast')
   assert.match(source, /key: toast\.seq/, '用递增 seq 当 key，连续导入才会重开横幅')
   assert.match(source, /onDone: \(\) => setToast\(null\)/, '官方 Toast 结束后要清掉本地状态')
 })
 
-test('导入成功路径把落点提示推给 Toast（面板不在眼前时也能看到）', () => {
-  assert.match(source, /showAppToast\(landingToast\(data\.results, t\)\)/, '导入结果处理里要调用落点提示')
+test('面板内自绘黄条已并入官方 Toast（动作按钮 = 原来的「忽略警告」）', () => {
+  // 面板里不再有底部浮层：状态、JSX、样式三处都不该再出现
+  assert.doesNotMatch(source, /skippedToast/, 'DiscoveryPanel 不应再有 skippedToast 状态')
+  assert.doesNotMatch(source, /style\.toast\b/, '面板里不应再画自绘 toast')
+  assert.doesNotMatch(source, /toastText:|toastAction:/, 'styles.js 里不应再留旧浮层样式')
+  // 跳过提示与动作走同一条官方 Toast（动作透传给官方组件）
+  assert.match(source, /const skipLine = skipped\.length > 0 \? t\("toast\.skipped"/, '跳过条数要进 Toast 文案')
+  assert.match(source, /label: t\("toast\.ignore"\), onClick: \(\) => doImport\(skipped, \{ force: true \}\)/, '动作 = 用 force 重导这批会话')
+  assert.match(source, /\.\.\.\(actions\.length > 0 \? \{ actions \} : \{\}\)/, '有动作时把 actions 透传给官方 Toast')
 })
+
+test('导入成功路径把落点提示推给 Toast（面板不在眼前时也能看到）', () => {
+  assert.match(source, /showAppToast\(toastText, skipped\.length > 0/, '导入结果处理里要调用落点提示并带动作')
+})
+
