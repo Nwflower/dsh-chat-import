@@ -23,12 +23,14 @@ function makeCtx(coldSnapshot) {
   }
 }
 
-test('warmProjection：按宿主契约传 (meta, 0, events)', async () => {
+test('warmProjection：按宿主契约传 (meta, 0, events)，成功返回实测事件数', async () => {
   let captured = null
   const ok = await warmProjection(makeCtx((m, inherited, evs) => {
     captured = { meta: m, inheritedEventCount: inherited, events: evs }
   }), 'import-ses-a')
-  assert.equal(ok, true)
+  // 成功 = 本次 inspect 读到的持久化事件数（落盘路径复用它刷新 storedEvents 基线，
+  // 不再整读第二遍）；falsy（false）仍表示未读到。
+  assert.equal(ok, 1)
   assert.equal(captured.meta, meta)
   assert.equal(captured.inheritedEventCount, 0)
   assert.equal(captured.events, events)
@@ -43,5 +45,18 @@ test('warmProjection：coldSnapshot 抛错不外泄、返回 false', async () =>
 
 test('warmProjection：服务缺席时静默跳过', async () => {
   const ctx = { get: () => undefined }
+  assert.equal(await warmProjection(ctx, 'import-ses-a'), false)
+})
+
+test('warmProjection：inspect 返回非数组事件 → false（不计长度）', async () => {
+  const ctx = {
+    get(service) {
+      if (service === 'sessionProjectionCache') return { coldSnapshot() {} }
+      if (service === 'sessionPersistence') {
+        return { async inspect() { return { meta, events: 'not-an-array' } } }
+      }
+      return undefined
+    },
+  }
   assert.equal(await warmProjection(ctx, 'import-ses-a'), false)
 })
