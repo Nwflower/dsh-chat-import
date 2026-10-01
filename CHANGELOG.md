@@ -2,6 +2,20 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.23.2] - 2026-10-01
+
+[中文](#cn-0.23.2) | [English](#en-0.23.2)
+
+<h3 id="cn-0.23.2">新增功能</h3>
+
+- **新增 opencode 2.x 的会话导入**：`import_opencode` / `import_chat({ format: 'opencode' })` 现在同时覆盖 opencode 的两个存储世代——V1（`session`/`message`/`part`）与 V2（opencode 2.x 的 `session_v2`/`session_message`，与 V1 共用同一个 `opencode.db`）。读取层按库里的表自动分派：两代产出同一种中间结构，导入、预览与面板发现全部复用；同一会话不会被导入两次，两代都没有的库明确报错，而不是显示成「没有会话」。V2 的压缩边界取最近一条 `completed` 的 `compaction` 行（与源工具自己仍让模型看见的内容起点一致），检查点正文为 `summary` + `recent`；未完成的压缩正文按普通内容保留，不丢。实测（本机 opencode 2.0.21 迁移后的库）：4 个会话在 V1/V2 两侧读出的会话数、消息数与工具调用数一致，压缩会话正确产出 1 个原生压缩检查点。
+
+<h3 id="en-0.23.2">New Features</h3>
+
+- **opencode 2.x session import**: `import_opencode` / `import_chat({ format: 'opencode' })` now cover both of opencode's storage generations — V1 (`session`/`message`/`part`) and V2 (opencode 2.x's `session_v2`/`session_message`, which shares the same `opencode.db`). The reader dispatches on the tables present; both generations produce the same intermediate shape, so import, preview and panel discovery are shared. A session is never imported twice, and a database with neither generation fails loudly instead of looking like "no sessions". V2's compaction boundary is the latest `completed` `compaction` row — the same point the source tool itself keeps visible to the model — with the checkpoint body taken from `summary` + `recent`; unfinished compactions keep their text as ordinary content. Measured on a migrated opencode 2.0.21 database: the same four sessions read from both generations agree on session, message and tool-call counts, and the compacted session produces exactly one native compaction checkpoint.
+
+**Full Changelog**: [v0.23.1...v0.23.2](https://github.com/Nwflower/dsh-chat-import/compare/v0.23.1...v0.23.2)
+
 ## [0.23.1] - 2026-10-01
 
 [中文](#cn-0.23.1) | [English](#en-0.23.1)
