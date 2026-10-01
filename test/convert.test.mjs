@@ -2169,8 +2169,16 @@ test('cropContentBlocks: 超限文本保留头 75% + 尾、未超限原样、too
   assert.equal(r4.cropped, 1)
   assert.ok(r4.blocks[0].content[0].text.length <= TOOL_RESULT_CHAR_LIMIT)
 
+  // savedTokens = 被裁内容的估算 token 减少量（增量修正 trim 的 L1 估算，免去二次全量走查）：
+  // 未裁剪时为 0；裁剪后等于 原文估算 − 裁后估算（口径与 estimateTokens 一致）。
+  assert.deepEqual(cropContentBlocks([short]), { blocks: [short], cropped: 0, savedTokens: 0 })
+  const r5 = cropContentBlocks([{ type: 'text', text: long }])
+  assert.equal(r5.cropped, 1)
+  assert.equal(r5.savedTokens, estimateTokens(long) - estimateTokens(r5.blocks[0].text))
+  assert.ok(r5.savedTokens > 0)
+
   // 非数组安全
-  assert.deepEqual(cropContentBlocks(undefined), { blocks: [], cropped: 0 })
+  assert.deepEqual(cropContentBlocks(undefined), { blocks: [], cropped: 0, savedTokens: 0 })
 })
 
 // 合成 N 轮纯文本 turns（每轮 ~2×len tokens），供预算截断用例。
