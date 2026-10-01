@@ -319,14 +319,14 @@ test('grokbuild：summary.json 标题/时间、百分号编码目录名解码为
   // 真实布局：sessions/<encodeURIComponent(cwd) 整路径>/<session_id>/（Windows 盘符 +
   // 中文都会进入目录名），面板工作区列必须显示解码后的项目名而非 %XX 乱码。
   const root = join(HOME, '.grok', 'sessions')
-  const projEnc = 'F%3A%5C%E9%A1%B9%E7%9B%AE%5C%E7%A1%95%E5%A3%AB%E6%AF%95%E4%B8%9A%E8%AE%BE%E8%AE%A1%5CRegulus'
+  const projEnc = 'D%3A%5C%E5%B7%A5%E4%BD%9C%E5%8C%BA%5C%E7%A4%BA%E4%BE%8B%E9%A1%B9%E7%9B%AE%5Cdemo-app'
   const proj = join(root, projEnc)
   const sessA = join(proj, 'grok-sess-001')
   const sessB = join(proj, 'grok-sess-002')
   const files = new Map([
     [root, { type: 'dir' }], [proj, { type: 'dir' }], [sessA, { type: 'dir' }], [sessB, { type: 'dir' }],
     [join(sessA, 'summary.json'), { type: 'file', text: j({
-      info: { id: 'grok-sess-001', cwd: 'F:\\项目\\硕士毕业设计\\Regulus' },
+      info: { id: 'grok-sess-001', cwd: 'D:\\工作区\\示例项目\\demo-app' },
       generated_title: '重构认证模块',
       created_at: '2026-07-16T12:00:00Z',
     }) }],
@@ -351,12 +351,12 @@ test('grokbuild：summary.json 标题/时间、百分号编码目录名解码为
   assert.equal(total, 2)
   const a = sessions.find((s) => s.sessionId === 'grok-sess-001')
   assert.equal(a.title, '重构认证模块')
-  assert.equal(a.project, 'Regulus') // 解码后的项目名（不再是 %XX 乱码）
-  assert.equal(a.cwd, 'F:\\项目\\硕士毕业设计\\Regulus') // 记录内完整工作目录
+  assert.equal(a.project, 'demo-app') // 解码后的项目名（不再是 %XX 乱码）
+  assert.equal(a.cwd, 'D:\\工作区\\示例项目\\demo-app') // 记录内完整工作目录
   assert.ok(a.createdAt > 0)
   assert.equal(a.lastActiveAt, 1786000005000) // chat_history mtime 取大
   const b = sessions.find((s) => s.sessionId === 'grok-sess-002')
-  assert.equal(b.project, 'Regulus') // 无 cwd → 目录布局解码回退
+  assert.equal(b.project, 'demo-app') // 无 cwd → 目录布局解码回退
   assert.equal(b.cwd, null)
 })
 
@@ -1481,7 +1481,7 @@ test('isInjectedTitle / normalizeTitle / layoutProject 纯函数', () => {
   assert.equal(layoutProject('/home/u/.reasonix/projects/demo/s/desktop-1.jsonl', 'reasonix'), 'demo')
   assert.equal(layoutProject('/home/u/.grok/sessions/proj-x/grok-s1', 'grokbuild'), 'proj-x')
   // 编码目录名 = cwd 整路径 encodeURIComponent：解码后取末段
-  assert.equal(layoutProject('/home/u/.grok/sessions/F%3A%5C%E9%A1%B9%E7%9B%AE%5Cproj/grok-s1', 'grokbuild'), 'proj')
+  assert.equal(layoutProject('/home/u/.grok/sessions/D%3A%5C%E5%B7%A5%E4%BD%9C%E5%8C%BA%5Cproj/grok-s1', 'grokbuild'), 'proj')
   assert.equal(layoutProject('/home/u/.openclaw/agents/main/sessions/s.jsonl', 'openclaw'), 'main')
   assert.equal(layoutProject('/home/u/.gemini/history/slot-a/chats/session-1.json', 'gemini'), 'slot-a')
   assert.equal(layoutProject('/home/u/.cursor/projects/slug-c/agent-transcripts/abc/abc.jsonl', 'cursor'), 'slug-c')
