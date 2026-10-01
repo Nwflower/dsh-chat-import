@@ -1990,6 +1990,30 @@ test('claude compacted：现代压缩载体，摘要作 reasoning、只留尾部
   assert.equal(kept.turns.length, 2)
 })
 
+test('claude compacted：自动压缩后没有新提问的续跑内容归入压缩边界轮，事件时间取源时间戳', () => {
+  const at = (s) => '2026-09-30T12:' + s + 'Z'
+  const lines = [
+    { sessionId: 'sess-comp4-001', type: 'user', timestamp: at('00:00.000'), message: { role: 'user', content: '部署' } },
+    { sessionId: 'sess-comp4-001', type: 'assistant', timestamp: at('01:00.000'), message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_a', name: 'Bash', input: { command: 'ls' } }] } },
+    { sessionId: 'sess-comp4-001', type: 'user', timestamp: at('02:00.000'), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_a', content: 'a.txt' }] } },
+    { sessionId: 'sess-comp4-001', type: 'user', isCompactSummary: true, timestamp: at('33:16.000'), message: { role: 'user', content: 'Summary:\n要点' } },
+    { sessionId: 'sess-comp4-001', type: 'assistant', timestamp: at('34:00.000'), message: { role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_b', name: 'Bash', input: { command: 'pwd' } }] } },
+    { sessionId: 'sess-comp4-001', type: 'user', timestamp: at('35:00.000'), message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_b', content: '/tmp' }] } },
+    { sessionId: 'sess-comp4-001', type: 'assistant', timestamp: at('59:00.000'), message: { role: 'assistant', content: [{ type: 'text', text: '已部署' }] } },
+  ].map((r) => JSON.stringify(r)).join('\n')
+  const out = convertClaudeJsonl(lines, { fileStem: 'sess-comp4-001' })
+  assert.deepEqual(out.turns.map((t) => [t.prompt, t.steps.length, Boolean(t.compaction)]), [['部署', 1, false], ['', 2, true]])
+  assert.equal(assertNativeCompaction(out.events), 1)
+  const derived = derivedSurfaceMessages(out.events)
+  assert.ok(derived.some((d) => d.includes('已部署')))
+  const timeOf = (pred) => out.events.find(pred).time
+  assert.equal(out.meta.createdAt, Date.parse(at('00:00.000')))
+  assert.equal(timeOf((e) => e.type === 'tool/result' && e.data.message.content[0].toolCallId === 'toolu_b'), Date.parse(at('35:00.000')))
+  assert.equal(timeOf((e) => e.type === 'compaction/summary'), Date.parse(at('33:16.000')))
+  assert.equal(out.events.at(-2).time, Date.parse(at('59:00.000')))
+  assert.ok(out.events.every((e, i) => i === 0 || e.time >= out.events[i - 1].time))
+})
+
 test('claude compacted：custom-title（/rename）在压缩边界之前时仍是标题', () => {
   const lines = [
     { sessionId: 'sess-comp3-001', type: 'user', message: { role: 'user', content: '问题1' } },

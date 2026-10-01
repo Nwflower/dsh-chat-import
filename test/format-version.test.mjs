@@ -8,8 +8,10 @@
 // 因此产出必须跟随宿主版本；这里锁住两种形状的双向归一、幂等性，以及写盘前的版本分流。
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { shapeToolResults, toolResultOf } from '../lib/convert/index.mjs'
+import { shapeToolResults, toolResultOf, validateSessionEvents } from '../lib/convert/index.mjs'
 import { prepareHostEvents } from '../lib/import-core.mjs'
+import { convertCodexJsonl } from '../lib/convert/codex.mjs'
+import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 
 /** V3 形状的 tool/result（本插件 0.19.0 及更早的产出）。 */
 function v3Event() {
@@ -191,9 +193,75 @@ test('未知的更高版本（V5）不静默：按已知最高版本产出并大
   }
 })
 
+test('V4 源形状：压缩检查点 compact → 生产者自有 kind "compact-checkpoint"（不是 plugin:compact）', () => {
+  const checkpoint = () => ({
+    type: 'user/message', seq: 9, time: 1, surfaceOp: { op: 'replace', start: 2, end: 7 }, sourceEventSeqs: [2, 5, 7],
+    data: { id: 'ck', role: 'user', content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact', compactionId: 'c1' } },
+  })
+  const [v4] = prepareHostEvents([checkpoint()], 's1', 4)
+  assert.deepEqual(v4.data.source, { kind: 'compact-checkpoint', compactionId: 'c1' })
+  assert.deepEqual(prepareHostEvents([v4], 's1', 4)[0].data.source, { kind: 'compact-checkpoint', compactionId: 'c1' })
+  const [v3] = prepareHostEvents([checkpoint()], 's1', 3)
+  assert.deepEqual(v3.data.source, { kind: 'plugin', plugin: 'compact', compactionId: 'c1' })
+})
+
+test('V4 源形状：宿主同名生产者（goal）原样、改名表（tools-code-mode）按宿主映射', () => {
+  const withPlugin = (plugin) => ({
+    type: 'user/message', seq: 1, time: 1, surfaceOp: 'append',
+    data: { id: 'u', role: 'user', content: [{ type: 'text', text: 'x' }], source: { kind: 'plugin', plugin } },
+  })
+  assert.deepEqual(prepareHostEvents([withPlugin('goal')], 's1', 4)[0].data.source, { kind: 'goal' })
+  assert.deepEqual(prepareHostEvents([withPlugin('session-reference')], 's1', 4)[0].data.source, { kind: 'session-reference' })
+  assert.deepEqual(prepareHostEvents([withPlugin('tools-code-mode')], 's1', 4)[0].data.source, { kind: 'ptc-mode' })
+})
+
+test('替换标记拼写跟宿主**原生**代次走：目标 3 + 宿主 4 也改名，V4 拼写写回旧宿主改回 start/end', () => {
+  const checkpoint = (surfaceOp) => ({
+    type: 'user/message', seq: 9, time: 1, surfaceOp, sourceEventSeqs: [2, 5, 7],
+    data: { id: 'ck', role: 'user', content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact', compactionId: 'c1' } },
+  })
+  const oldNames = { op: 'replace', start: 2, end: 7 }
+  const seqNames = { op: 'replace', startSeq: 2, endSeq: 7 }
+  // 目标 V3 + 宿主 V4：V3 codec 与 runtime 都只认 startSeq/endSeq
+  const up = prepareHostEvents([checkpoint(oldNames)], 's1', 3, 4)
+  assert.deepEqual(up[0].surfaceOp, seqNames)
+  assert.deepEqual(up[0].sourceEventSeqs, [2, 5, 7])
+  // 目标 V3 + 宿主 V3（≤0.1.x）：旧拼写原样
+  assert.deepEqual(prepareHostEvents([checkpoint(oldNames)], 's1', 3, 3)[0].surfaceOp, oldNames)
+  // V4 源日志写回旧宿主：改回旧拼写（否则旧 runtime 拒载）
+  assert.deepEqual(prepareHostEvents([checkpoint(seqNames)], 's1', 3, 3)[0].surfaceOp, oldNames)
+  // 目标 V4 恒用新拼写；已是新拼写时幂等
+  assert.deepEqual(prepareHostEvents([checkpoint(seqNames)], 's1', 4)[0].surfaceOp, seqNames)
+  assert.deepEqual(prepareHostEvents([checkpoint(seqNames)], 's1', 4, 3)[0].surfaceOp, seqNames)
+})
+
 test('V4 源形状：system head 的宿主生产者映射为 kind="system-prompt"', () => {
   const ev = pluginHeadEvent()
   ev.data.message.source = { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' }
   const v4 = prepareHostEvents([ev], 'import-x', 4)
   assert.deepEqual(v4[0].data.message.source, { kind: 'system-prompt' })
+})
+
+test('V4 替换标记：compaction 检查点的 {op,start,end} 改名为 {op,startSeq,endSeq}；V3 保持原样', () => {
+  const checkpoint = () => ({
+    type: 'user/message', seq: 9, time: 1, surfaceOp: { op: 'replace', start: 2, end: 7 }, sourceEventSeqs: [2, 5, 7],
+    data: { id: 'ck', role: 'user', content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact', compactionId: 'c1' } },
+  })
+  const [v4] = prepareHostEvents([checkpoint()], 's1', 4)
+  assert.deepEqual(v4.surfaceOp, { op: 'replace', startSeq: 2, endSeq: 7 })
+  assert.deepEqual(v4.sourceEventSeqs, [2, 5, 7])
+  const [v3] = prepareHostEvents([checkpoint()], 's1', 3)
+  assert.deepEqual(v3.surfaceOp, { op: 'replace', start: 2, end: 7 })
+})
+
+test('validateSessionEvents：V4 形状的压缩检查点（compact-checkpoint + startSeq/endSeq）不误报', () => {
+  // 写到 V4 宿主再读回来的日志是 V4 形状：source 是生产者自有 kind，替换端点是
+  // startSeq/endSeq。verify_session 复用同一套校验，只认 V3 形状会对自己的产物误报
+  //（compaction-checkpoint-source / -op）。
+  const out = convertCodexJsonl(codexCompactedRollout(), { sessionId: 'codex-comp-v4' })
+  const v4 = prepareHostEvents(out.events, 'codex-comp-v4', 4)
+  const ck = v4.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.equal(ck.data.source.kind, 'compact-checkpoint')
+  assert.ok(Number.isInteger(ck.surfaceOp.startSeq) && Number.isInteger(ck.surfaceOp.endSeq))
+  assert.deepEqual(validateSessionEvents(v4), { ok: true, problems: [] })
 })
