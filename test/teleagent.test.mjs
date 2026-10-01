@@ -122,7 +122,7 @@ function assertEnvelopeHygiene(events) {
 
 // 两个用户会话：text / reasoning / tool(completed) / tool(error) / compaction 全形态
 function teleagentTestSessions() {
-  const dir = hostAbs('D:/AI/GTCG/genius-invokation')
+  const dir = hostAbs('D:/demo/ws/genius-invokation')
   return [
     {
       id: 'ses_0f1e2d3c4b5a697889012abcdef01234',
@@ -355,7 +355,7 @@ test('import_teleagent 单库：恒批量、落盘、归组、schema 校验', as
   assert.deepEqual([...persistence.sessions.keys()].sort(), [sidA, sidB].sort())
   const saved = persistence.sessions.get(sidA)
   assert.ok(saved, 'teleagent 会话按源 id 落盘')
-  assert.equal(saved.meta.cwd, hostAbs('D:/AI/GTCG/genius-invokation'))
+  assert.equal(saved.meta.cwd, hostAbs('D:/demo/ws/genius-invokation'))
   const titleEv = saved.events.find((e) => e.type === 'session/title')
   assert.ok(titleEv, '钉标题事件存在')
   assert.equal(titleEv.data.title, 'TeleAgent · 牌局复盘')

@@ -24,8 +24,8 @@ function qw(recs) {
 }
 
 const SID = '5543d6df-ec9e-4ce9-842d-aaa9cc74867f'
-const QWEN_WS = 'C:\\Users\\Administrator\\.qwenworkcn\\workspace\\mtco7zxwdyf68dl9'
-const REAL_DIR = 'E:\\RPA-260721-New\\Funion.Client-develop'
+const QWEN_WS = 'C:\\Users\\Administrator\\.qwenworkcn\\workspace\\ws-demo-0001'
+const REAL_DIR = 'E:\\dev-suite\\demo.Client-app'
 const TS = '2026-08-28T08:09:41.457Z'
 
 function wsDirsRec() {

@@ -2287,19 +2287,19 @@ test('import_cursor 目录模式：递归扫描 .jsonl、逐文件独立会话',
 
 test('import_cursor agent-transcripts：slug 解码 meta.cwd 为真实项目路径', async () => {
   clearWorkspacePathCache()
-  const slug = 'e-RPA-260721-New-Funion-Client-develop'
+  const slug = 'e-dev-suite-demo-Client-app'
   const uuid = 'composer-abc'
   const path = `C:\\Users\\Administrator\\.cursor\\projects\\${slug}\\agent-transcripts\\${uuid}\\${uuid}.jsonl`
   // 同一套盘符约定：cursor 的 slug 与 storages 里的权威路径都带盘符，解码/映射出来的
   // 是 `E:\…` 这种跨平台绝对路径——Windows 上原样落 header 并归组，POSIX 上按宿主
   // isAbsolute 剔除（会话退化为未分组）。
-  const realCwd = 'E:\\RPA-260721-New\\Funion.Client-develop'
+  const realCwd = 'E:\\dev-suite\\demo.Client-app'
   const storages = join(process.env.DSH_HOME, 'profiles', 'web', 'storages')
   mkdirSync(storages, { recursive: true })
   writeFileSync(join(storages, 'workspace.json'), JSON.stringify([{ path: realCwd }]))
   const tree = {
     [path]: load('cursor-simple.jsonl'),
-    'E:\\RPA-260721-New': 'dir',
+    'E:\\dev-suite': 'dir',
     [realCwd]: 'dir',
   }
   const { ctx, persistence, attached } = makeCtx(tree)
@@ -6244,11 +6244,11 @@ test('cwdRemap：dry-run 预览与落盘的 cwd 同口径', async () => {
 // Issue #61：Kimi Code 的 state.json 多数只写 workDir（旧版写 cwd，新版两者可能共存）。
 // 只读 cwd 会让 cwd 丢掉 → 会话落到 _no-cwd 并新建一个以源会话目录为根的孤儿工作区。
 test('import_kimi 新 Kimi Code：state.json 仅含 workDir 时同样解析出 cwd（#61）', async () => {
-  const sess = 'C:\\Users\\u\\.kimi-code\\sessions\\wd_genius-invokation_7d34e589df57\\session-eb6808b9'
-  const workDir = hostAbs('D:/AI/GTCG/genius-invokation')
+  const sess = 'C:\\Users\\u\\.kimi-code\\sessions\\wd_genius-invokation_0123456789ab\\session-eb6808b9'
+  const workDir = hostAbs('D:/demo/ws/genius-invokation')
   const tree = {
     'C:\\Users\\u\\.kimi-code\\sessions': 'dir',
-    'C:\\Users\\u\\.kimi-code\\sessions\\wd_genius-invokation_7d34e589df57': 'dir',
+    'C:\\Users\\u\\.kimi-code\\sessions\\wd_genius-invokation_0123456789ab': 'dir',
     [sess]: 'dir',
     [sess + '\\agents']: 'dir',
     [sess + '\\agents\\main']: 'dir',
@@ -6280,9 +6280,9 @@ test('import_kimi 新 Kimi Code：state.json 仅含 workDir 时同样解析出 c
 })
 
 test('import_kimi 新 Kimi Code：state.json 缺失时按 workspaces.json 回退 cwd（REQ-77）', async () => {
-  const workspaceId = 'wd_genius-invokation_7d34e589df57'
+  const workspaceId = 'wd_genius-invokation_0123456789ab'
   const sess = 'C:\\Users\\u\\.kimi-code\\sessions\\' + workspaceId + '\\session-no-state'
-  const workDir = hostAbs('D:/AI/GTCG/genius-invokation')
+  const workDir = hostAbs('D:/demo/ws/genius-invokation')
   const tree = {
     'C:\\Users\\u\\.kimi-code\\sessions': 'dir',
     ['C:\\Users\\u\\.kimi-code\\sessions\\' + workspaceId]: 'dir',

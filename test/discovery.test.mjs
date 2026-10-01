@@ -615,7 +615,7 @@ test('kimi：新 Kimi Code ~/.kimi-code agents/main/wire.jsonl 发现、state.js
 // project/cwd 会丢，面板里那条会话因此没有项目归属，导入也落不到源工作区。
 test('kimi：state.json 仅含 workDir 时发现层同样取到 cwd（#61）', async () => {
   const root = join(HOME, '.kimi-code', 'sessions')
-  const workspace = join(root, 'wd_genius-invokation_7d34e589df57')
+  const workspace = join(root, 'wd_genius-invokation_0123456789ab')
   const sessDir = join(workspace, 'session-eb6808b9')
   const agentWire = join(sessDir, 'agents', 'main', 'wire.jsonl')
   const files = new Map([
@@ -629,19 +629,19 @@ test('kimi：state.json 仅含 workDir 时发现层同样取到 cwd（#61）', a
       j({ type: 'metadata', protocol_version: '1', created_at: 1786000000500 }),
       j({ type: 'turn.prompt', input: [{ type: 'text', text: '帮我看看构建失败' }], time: 1786000000501 }),
     ].join('\n') }],
-    [join(sessDir, 'state.json'), { type: 'file', text: j({ id: 'session-eb6808b9', workDir: 'D:/AI/GTCG/genius-invokation' }) }],
+    [join(sessDir, 'state.json'), { type: 'file', text: j({ id: 'session-eb6808b9', workDir: 'D:/demo/ws/genius-invokation' }) }],
   ])
   const host = mockHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(total, 1)
-  assert.equal(sessions[0].cwd, 'D:/AI/GTCG/genius-invokation')
+  assert.equal(sessions[0].cwd, 'D:/demo/ws/genius-invokation')
   assert.equal(sessions[0].project, 'genius-invokation')
 })
 
 test('kimi：state.json 缺失时按 workspaces.json 的 workspace-id 回退 cwd（REQ-77）', async () => {
   const root = join(HOME, '.kimi-code', 'sessions')
-  const workspaceId = 'wd_genius-invokation_7d34e589df57'
+  const workspaceId = 'wd_genius-invokation_0123456789ab'
   const workspace = join(root, workspaceId)
   const sessDir = join(workspace, 'session-no-state')
   const agentWire = join(sessDir, 'agents', 'main', 'wire.jsonl')
@@ -654,7 +654,7 @@ test('kimi：state.json 缺失时按 workspaces.json 的 workspace-id 回退 cwd
     [join(sessDir, 'agents', 'main'), { type: 'dir' }],
     [join(HOME, '.kimi-code', 'workspaces.json'), { type: 'file', text: j({
       version: 1,
-      workspaces: { [workspaceId]: { root: 'D:/AI/GTCG/genius-invokation', name: 'genius-invokation' } },
+      workspaces: { [workspaceId]: { root: 'D:/demo/ws/genius-invokation', name: 'genius-invokation' } },
     }) }],
     [agentWire, { type: 'file', mtimeMs: 1786000002000, text: [
       j({ type: 'metadata', protocol_version: '1', created_at: 1786000000500 }),
@@ -665,7 +665,7 @@ test('kimi：state.json 缺失时按 workspaces.json 的 workspace-id 回退 cwd
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(total, 1)
-  assert.equal(sessions[0].cwd, 'D:/AI/GTCG/genius-invokation')
+  assert.equal(sessions[0].cwd, 'D:/demo/ws/genius-invokation')
   assert.equal(sessions[0].project, 'genius-invokation')
 })
 
@@ -844,13 +844,13 @@ test('qwen：~/.qwenworkcn/projects 发现、humanInput 首问、workspace-direc
   const rec = (over = {}) => j({
     type: 'user', sessionId: sid, timestamp: '2026-08-28T08:09:41.457Z',
     uuid: 'u1', parentUuid: null, isSidechain: false,
-    cwd: 'C:\\Users\\Administrator\\.qwenworkcn\\workspace\\mtco7zxwdyf68dl9',
+    cwd: 'C:\\Users\\Administrator\\.qwenworkcn\\workspace\\ws-demo-0001',
     humanInput: { text: '出个html介绍一下ai领域的思路', mode: 'prompt' },
     message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>环境注入</system-reminder>' }] },
     ...over,
   })
   const head = [
-    j({ type: 'workspace-directories', sessionId: sid, directories: ['C:\\Users\\Administrator\\.qwenworkcn\\workspace\\mtco7zxwdyf68dl9', 'E:\\RPA-260721-New\\Funion.Client-develop'] }),
+    j({ type: 'workspace-directories', sessionId: sid, directories: ['C:\\Users\\Administrator\\.qwenworkcn\\workspace\\ws-demo-0001', 'E:\\dev-suite\\demo.Client-app'] }),
     rec(),
     j({ type: 'assistant', sessionId: sid, timestamp: '2026-08-28T08:09:50.000Z', message: { role: 'assistant', content: [{ type: 'thinking', thinking: '思考' }, { type: 'text', text: '好的' }] } }),
   ].join('\n')
@@ -869,8 +869,8 @@ test('qwen：~/.qwenworkcn/projects 发现、humanInput 首问、workspace-direc
   assert.equal(s.format, 'qwen')
   assert.equal(s.sessionId, sid)
   assert.equal(s.title, '出个html介绍一下ai领域的思路') // humanInput.text 首问
-  assert.equal(s.project, 'Funion.Client-develop') // workspace-directories 非 .qwenworkcn 目录
-  assert.equal(s.cwd, 'E:\\RPA-260721-New\\Funion.Client-develop')
+  assert.equal(s.project, 'demo.Client-app') // workspace-directories 非 .qwenworkcn 目录
+  assert.equal(s.cwd, 'E:\\dev-suite\\demo.Client-app')
   assert.equal(s.sourcePath, f2) // 留 mtime 最新的副本
   assert.equal(s.lastActiveAt, 1786000002000)
 
@@ -1494,11 +1494,11 @@ test('isInjectedTitle / normalizeTitle / layoutProject 纯函数', () => {
 
 test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间，非仓库 slug 不归组', async () => {
   clearWorkspacePathCache()
-  const slugDots = 'e-RPA-260721-New-Funion-Client-develop'
-  const slugHyphen = 'e-RPA-260721-New-RpaScheduledTasks-publish-fail-monitor'
+  const slugDots = 'e-dev-suite-demo-Client-app'
+  const slugHyphen = 'e-dev-suite-scheduled-tasks-publish-fail-monitor'
   const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
-  const cwdDots = 'E:\\RPA-260721-New\\Funion.Client-develop'
-  const cwdHyphen = 'E:\\RPA-260721-New\\RpaScheduledTasks\\publish-fail-monitor'
+  const cwdDots = 'E:\\dev-suite\\demo.Client-app'
+  const cwdHyphen = 'E:\\dev-suite\\scheduled-tasks\\publish-fail-monitor'
   const root = join(HOME, '.cursor', 'projects')
   const tsRaw = '<timestamp>Friday, Aug 7, 2026, 3:44 PM (UTC+8)</timestamp>\n<user_query>点号目录提问</user_query>'
   const dirA = join(root, slugDots, 'agent-transcripts', uuid)
@@ -1527,9 +1527,9 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
     [fileNum, { type: 'file', mtimeMs: 1786000004000, text: [
       JSON.stringify({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>纯数字 slug</user_query>' }] } }),
     ].join('\n') }],
-    ['E:\\RPA-260721-New', { type: 'dir' }],
+    ['E:\\dev-suite', { type: 'dir' }],
     [cwdDots, { type: 'dir' }],
-    ['E:\\RPA-260721-New\\RpaScheduledTasks', { type: 'dir' }],
+    ['E:\\dev-suite\\scheduled-tasks', { type: 'dir' }],
     [cwdHyphen, { type: 'dir' }],
   ])
   const host = mockHost(files)
@@ -1555,7 +1555,7 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
   const { sessions, total } = await discoverSessions({ path: root, format: 'cursor', host, imports: {} })
   assert.equal(total, 3)
   const dots = sessions.find((s) => s.sessionId === uuid)
-  assert.equal(dots.project, 'Funion.Client-develop')
+  assert.equal(dots.project, 'demo.Client-app')
   assert.equal(dots.cwd, cwdDots)
   assert.equal(dots.title, '点号目录提问')
   assert.ok(typeof dots.createdAt === 'number' && dots.createdAt > 0)

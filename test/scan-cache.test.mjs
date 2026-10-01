@@ -236,9 +236,9 @@ test('书签文件缺失按空书签处理，扫描后重建', async (t) => {
 
 test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project，不重读 jsonl', async (t) => {
   clearWorkspacePathCache()
-  const slug = 'e-RPA-260721-New-Funion-Client-develop'
+  const slug = 'e-dev-suite-demo-Client-app'
   const uuid = 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee'
-  const cwdDots = 'E:\\RPA-260721-New\\Funion.Client-develop'
+  const cwdDots = 'E:\\dev-suite\\demo.Client-app'
   const root = join('C:', 'Users', 'tester', '.cursor', 'projects')
   const dirA = join(root, slug, 'agent-transcripts', uuid)
   const file = join(dirA, uuid + '.jsonl')
@@ -250,7 +250,7 @@ test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project
     [join(root, slug, 'agent-transcripts'), { type: 'dir' }],
     [dirA, { type: 'dir' }],
     [file, { type: 'file', mtimeMs: 1786000002000, text: fileBody }],
-    ['E:\\RPA-260721-New', { type: 'dir' }],
+    ['E:\\dev-suite', { type: 'dir' }],
     [cwdDots, { type: 'dir' }],
   ])
   const cacheDir = mkdtempSync(join(tmpdir(), 'scan-cache-cursor-patch-'))
@@ -285,7 +285,7 @@ test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project
   assert.equal(r.total, 1)
   assert.equal(host.counters.reads, 0, '书签命中不应重读 jsonl')
   assert.equal(r.sessions[0].cwd, cwdDots)
-  assert.equal(r.sessions[0].project, 'Funion.Client-develop')
+  assert.equal(r.sessions[0].project, 'demo.Client-app')
   assert.equal(r.sessions[0].title, '点号提问')
   assert.ok(typeof r.sessions[0].createdAt === 'number' && r.sessions[0].createdAt > 0)
   assert.equal(r.sessions[0].lastActiveAt, 1786000002000)
@@ -293,7 +293,7 @@ test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project
   const disk = JSON.parse(readFileSync(bmPath, 'utf8'))
   const saved = disk.bookmarks.cursor[file].entries[0]
   assert.equal(saved.cwd, cwdDots)
-  assert.equal(saved.project, 'Funion.Client-develop')
+  assert.equal(saved.project, 'demo.Client-app')
   assert.equal(saved.title, '点号提问')
   assert.ok(typeof saved.createdAt === 'number' && saved.createdAt > 0)
 })
