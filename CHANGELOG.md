@@ -2,6 +2,40 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.23.1] - 2026-10-01
+
+[中文](#cn-0.23.1) | [English](#en-0.23.1)
+
+<h3 id="cn-0.23.1">问题修复</h3>
+
+- **Claude Code 自动压缩后的续跑内容不再丢失**：源工具压缩后会直接接着做原任务、之后可能再没有人类提问，而转换器在压缩摘要处把「当前轮」置空，紧跟其后的 assistant 记录因无轮可挂被整段丢弃——实测一份 18499 行、压缩 6 次的转录丢掉 **2632 / 5962 条** assistant 记录（最后一次压缩后约 2.5 小时的工作全部消失）。现在这些记录归入一个空 prompt 的压缩边界轮，检查点就是该轮的 user 侧消息，与会话正好停在压缩点时的既有处理一致。
+- **会话事件时间改为源记录时间戳**：事件 `time` 取最近一个已知的源时间且不倒退（来源没有时间戳时保持 `meta.createdAt` 不变），轮、步、工具结果与压缩检查点的时间都经 IR 传递。此前全部事件都等于 `meta.createdAt`，会话列表的「最后活动时间」因此一直停在创建时间。
+- **带上下文压缩的会话能在 0.2.x 宿主上打开**：替换标记的拼写属于**宿主 runtime 世代**、与目标 header 代次无关——`dsh-session` ≥ 0.2.0 的 runtime 与 V3/V4 两代 released codec 都只认 `{ op:'replace', startSeq, endSeq }`，≤ 0.1.x 只认 `{ start, end }`。此前一律写旧拼写，V4 宿主以 `replacement start must be a non-negative safe integer` 拒载整份日志；现在按宿主原生代次双向归一（V4 源日志回灌旧宿主会改回旧拼写），面板显式选 V3 落点同样跟随宿主代次。
+- **V4 压缩检查点改用宿主的生产者 kind `compact-checkpoint`**：`shapeMessageSources` 逐条对齐宿主 `producerKind()`（改名表 + 同名生产者表 + system 角色特例）。此前写成 `plugin:compact`，宿主虽能载入，但 `isCompactCheckpointSource` 认不出这是压缩检查点——会话引用投影会直接丢掉摘要，trajectory 视图也不把它折叠成压缩节点。
+- **`verify_session` 不再对自己刚导入的 V4 压缩会话误报**：`compaction-checkpoint-source` / `compaction-checkpoint-op` 两项此前只认 V3 形状（`{kind:'plugin',plugin:'compact'}` + `{op,start,end}`），读回 V4 日志（生产者 kind + `startSeq/endSeq`）必然报错；现在 source 与替换端点都按 V3/V4 双形状校验，口径与 `toolResultOf` 一致。
+- **DSH → DSH 重导不再把压缩检查点退化成追加**：`convertDshJsonl` 的替换范围重映射只读 `surfaceOp.start/end`，V4 源日志的 `startSeq/endSeq` 找不到端点 → 退化成 `append`（摘要变成普通 user 消息、模型看到全量历史）。现在两种拼写都识别，重排时保持源拼写。
+
+<h3 id="cn-0.23.1">其他变更</h3>
+
+- 本版是 0.22.2 之后第一个发布到 npm 的版本：0.23.0 只在仓库里归版、没有单独发布，它的改动随本版一起到达，内容见下方 0.23.0 节。
+- CI：headless 冒烟的 mock LLM 补上 `dsh-llm-deepseek` ≥ 0.1.7 的 Messages wire（`POST {base}/v1/messages` 的 SSE 事件流，事件形状照抄宿主自己的 `tests/mock-server`）——此前只有 OpenAI 兼容的 `/chat/completions`，冒烟自适配器换代起恒红（`DeepSeek Messages request failed (404)`）；`package-lock.json` 里 `@deepseek-ai/dsh-tools` 的 peer 范围与 `package.json` 同步，锁文件漂移护栏恢复绿。
+
+<h3 id="en-0.23.1">Bug Fixes</h3>
+
+- **Claude Code auto-compaction no longer drops the work that continues after it**: after compacting, the source tool keeps working on the same task and may never ask another question, while the converter cleared the "current turn" at the summary record — every assistant record that followed had no turn to attach to and was dropped wholesale. Measured on one 18,499-line transcript with 6 compactions: **2,632 of 5,962** assistant records lost, including roughly 2.5 hours of work after the last compaction. They now form a zero-prompt compaction-boundary turn whose checkpoint is that turn's user-side message, matching the existing handling when a session stops exactly at the boundary.
+- **Event times now come from the source records**: an event's `time` follows the latest known source timestamp and never goes backwards (a source without timestamps keeps `meta.createdAt`). Turn, step, tool-result and compaction times are carried through the IR. Every event used to carry `meta.createdAt`, so a session list's "last activity" was stuck at its creation time.
+- **Sessions with context compaction open on 0.2.x hosts**: the replacement marker's spelling belongs to the **host runtime generation**, not the target header generation — the `dsh-session` ≥ 0.2.0 runtime and both released V3/V4 codecs accept only `{ op:'replace', startSeq, endSeq }`, while ≤ 0.1.x accepts only `{ start, end }`. Writing the old spelling made a V4 host reject the whole log with `replacement start must be a non-negative safe integer`; the plugin now normalizes in both directions from the host's native generation (a V4 source log written back to an old host gets the old spelling), and an explicit V3 landing follows the host generation too.
+- **V4 compaction checkpoints use the host's producer kind `compact-checkpoint`**: `shapeMessageSources` now mirrors the host's `producerKind()` (rename table, same-name table, and the role-sensitive system-prompt case). The old `plugin:compact` was loadable but `isCompactCheckpointSource` did not recognise it, so session-reference projections dropped the summary and the trajectory view did not fold the checkpoint.
+- **`verify_session` no longer false-alarms on the plugin's own freshly imported V4 sessions**: `compaction-checkpoint-source` / `compaction-checkpoint-op` only accepted the V3 shapes (`{kind:'plugin',plugin:'compact'}` plus `{op,start,end}`), so a V4 log (producer kind plus `startSeq/endSeq`) always reported a problem; source and replacement endpoints are now read in either shape, the same policy as `toolResultOf`.
+- **DSH → DSH re-imports no longer degrade a compaction checkpoint to an append**: `convertDshJsonl`'s replacement-range remap read only `surfaceOp.start/end`, so a V4 source log's `startSeq/endSeq` had no endpoints to map and fell back to `append` (the summary became a plain user message and the model saw the full history). Both spellings are recognised now, and the source spelling is preserved through the remap.
+
+<h3 id="en-0.23.1">Chores</h3>
+
+- This is the first release on npm since 0.22.2: 0.23.0 was versioned in the repository but never published on its own, so its changes arrive with this release — see the 0.23.0 section below.
+- CI: the headless smoke's mock LLM now serves the Messages wire of `dsh-llm-deepseek` ≥ 0.1.7 (`POST {base}/v1/messages` SSE, event shapes copied from the host's own `tests/mock-server`); it previously had only the OpenAI-compatible `/chat/completions`, so the smoke had been red since the adapter moved (`DeepSeek Messages request failed (404)`). `package-lock.json` now matches `package.json` for the `@deepseek-ai/dsh-tools` peer range, restoring the lockfile-drift guard.
+
+**Full Changelog**: [v0.22.2...v0.23.1](https://github.com/Nwflower/dsh-chat-import/compare/v0.22.2...v0.23.1)
+
 ## [0.23.0] - 2026-09-28
 
 [中文](#cn-0.23.0) | [English](#en-0.23.0)
