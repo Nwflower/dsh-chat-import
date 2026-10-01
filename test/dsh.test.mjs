@@ -63,13 +63,33 @@ test('convertDshJsonl 保留原生压缩事务（重导压缩过的 DSH 会话�
   assert.deepEqual(validateSessionEvents(out.events), { ok: true, problems: [] })
   assert.ok(out.events.some((e) => e.type === 'turn/start'))
 
-  // V4 形状：source.kind='plugin:compact' 读回来还原成 V3 形状（写 V4 时再改写）
+  // V4 形状（旧插件写歪的 kind）：source.kind='plugin:compact' 读回来还原成 V3 形状
   const v4 = lines.map((l) => (l.type === 'user/message' && l.surfaceOp && typeof l.surfaceOp === 'object'
     ? { ...l, data: { ...l.data, source: { kind: 'plugin:compact', compactionId: l.data.source.compactionId } } }
     : l))
   const out4 = convertDshJsonl(v4.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/session-comp.jsonl' })
   assert.equal(out4.compactions, 1)
   assert.equal(out4.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object').data.source.kind, 'plugin')
+
+  // V4 原生形状：source.kind='compact-checkpoint'（宿主 RENAMED_PRODUCERS）+ startSeq/endSeq。
+  // 两者都要还原成 V3 标记并重映射端点；拼写随源日志保留（写目标会话时按宿主世代归一）。
+  const v4native = lines.map((l) => (l.type === 'user/message' && l.surfaceOp && typeof l.surfaceOp === 'object'
+    ? {
+      ...l,
+      surfaceOp: { op: 'replace', startSeq: l.surfaceOp.start, endSeq: l.surfaceOp.end },
+      data: { ...l.data, source: { kind: 'compact-checkpoint', compactionId: l.data.source.compactionId } },
+    }
+    : l))
+  const out4native = convertDshJsonl(v4native.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/session-comp.jsonl' })
+  assert.equal(out4native.compacted, true)
+  assert.equal(out4native.compactions, 1)
+  const ck4 = out4native.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.deepEqual(ck4.data.source, { kind: 'plugin', plugin: 'compact', compactionId: 'import:codex-comp-1:c1' })
+  assert.ok(Number.isInteger(ck4.surfaceOp.startSeq) && Number.isInteger(ck4.surfaceOp.endSeq))
+  assert.equal(ck4.surfaceOp.start, undefined)
+  const summary4 = out4native.events.find((e) => e.type === 'compaction/summary')
+  assert.deepEqual(summary4.data.shadowedRange, { start: ck4.surfaceOp.startSeq, end: ck4.surfaceOp.endSeq })
+  assert.deepEqual(validateSessionEvents(out4native.events), { ok: true, problems: [] })
 })
 
 test('convertDshJsonl 净化旧日志：过滤标记事件、剥离词汇表外 envelope 键、密集重排 seq（issue #34）', () => {
