@@ -8,8 +8,12 @@
 //      绝不入库（入库即把内部项目存在性泄露到公开仓库）。CI 无此文件 → 自动跳过本层。
 //
 // 用法：
-//   node .github/scripts/check-leaks.mjs          # 扫仓库全部源文件（CI / 手动全量）
-//   node .github/scripts/check-leaks.mjs --staged # 扫 git staged（本地 pre-commit）
+//   node .github/scripts/check-leaks.mjs              # 扫仓库全部源文件（CI / 手动全量）
+//   node .github/scripts/check-leaks.mjs --staged     # 扫 git staged（本地 pre-commit）
+//   node .github/scripts/check-leaks.mjs --message <file>  # 扫待提交的提交信息（本地
+//                                                     commit-msg 钩子）。提交信息随仓库公开，
+//                                                     而文件扫描看不到它——同一条黑名单/凭据
+//                                                     规则在这里同样生效。
 //
 // 确定性、零运行时依赖；违反即 exit 1。
 
@@ -20,6 +24,8 @@ import { fileURLToPath } from 'node:url'
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..')
 const staged = process.argv.includes('--staged')
+const messageArg = process.argv.indexOf('--message')
+const messagePath = messageArg >= 0 ? process.argv[messageArg + 1] : undefined
 
 // ── 待扫描文件集 ────────────────────────────────────────────────────────────
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dev', '.dsh-file-claim'])
@@ -71,31 +77,49 @@ const blocklist = (() => {
 })()
 
 const problems = []
-const files = targetFiles()
 
-for (const file of files) {
-  // 规则 1：dev/ 绝不入库（git add -f 误 stage）
-  if (file === 'dev' || file.startsWith('dev/')) {
-    problems.push(`${file}: dev/ 本地工程文件被 stage（gitignore 失效或被 -f 强制）——dev/ 绝不入库`)
-    continue
-  }
-  let src
-  try {
-    src = readFileSync(join(root, file), 'utf8')
-  } catch {
-    continue // 二进制 / 已删除：跳过
-  }
-  const lines = src.split(/\r?\n/)
-  for (const [re, label] of CRED_PATTERNS) {
+/** 同一套规则扫一段文本：label 是定位前缀（`文件` 或 `<commit message>`，命中报 label:行号）。 */
+function scanText(label, text) {
+  const lines = text.split(/\r?\n/)
+  for (const [re, name] of CRED_PATTERNS) {
     for (let i = 0; i < lines.length; i++) {
-      if (re.test(lines[i])) problems.push(`${file}:${i + 1}: 疑似凭据 ${label}`)
+      if (re.test(lines[i])) problems.push(`${label}:${i + 1}: 疑似凭据 ${name}`)
     }
   }
   for (const name of blocklist) {
     const needle = name.toLowerCase()
     for (let i = 0; i < lines.length; i++) {
-      if (lines[i].toLowerCase().includes(needle)) problems.push(`${file}:${i + 1}: 命中内部项目名黑名单「${name}」——内部参照只许在 dev/`)
+      if (lines[i].toLowerCase().includes(needle)) problems.push(`${label}:${i + 1}: 命中内部项目名黑名单「${name}」——内部参照只许在 dev/`)
     }
+  }
+}
+
+const files = messagePath ? [] : targetFiles()
+
+if (messagePath) {
+  // 提交信息模式（本地 commit-msg 钩子；CI 不跑——历史信息里的旧命中不该拦住今天的提交）
+  let text
+  try {
+    text = readFileSync(resolve(root, messagePath), 'utf8')
+  } catch {
+    console.error(`check-leaks: FAIL — 读不到提交信息文件 ${messagePath}`)
+    process.exit(1)
+  }
+  scanText('<commit message>', text)
+} else {
+  for (const file of files) {
+    // 规则 1：dev/ 绝不入库（git add -f 误 stage）
+    if (file === 'dev' || file.startsWith('dev/')) {
+      problems.push(`${file}: dev/ 本地工程文件被 stage（gitignore 失效或被 -f 强制）——dev/ 绝不入库`)
+      continue
+    }
+    let src
+    try {
+      src = readFileSync(join(root, file), 'utf8')
+    } catch {
+      continue // 二进制 / 已删除：跳过
+    }
+    scanText(file, src)
   }
 }
 
@@ -106,4 +130,6 @@ if (problems.length > 0) {
   process.exit(1)
 }
 const note = blocklist.length ? `黑名单 ${blocklist.length} 条` : '黑名单未加载（CI，跳过内部名检查）'
-console.log(`check-leaks: OK — 扫描 ${files.length} 文件，${note}`)
+console.log(messagePath
+  ? `check-leaks: OK — 扫描提交信息，${note}`
+  : `check-leaks: OK — 扫描 ${files.length} 文件，${note}`)
