@@ -197,3 +197,15 @@ test('V4 源形状：system head 的宿主生产者映射为 kind="system-prompt
   const v4 = prepareHostEvents([ev], 'import-x', 4)
   assert.deepEqual(v4[0].data.message.source, { kind: 'system-prompt' })
 })
+
+test('V4 替换标记：compaction 检查点的 {op,start,end} 改名为 {op,startSeq,endSeq}；V3 保持原样', () => {
+  const checkpoint = () => ({
+    type: 'user/message', seq: 9, time: 1, surfaceOp: { op: 'replace', start: 2, end: 7 }, sourceEventSeqs: [2, 5, 7],
+    data: { id: 'ck', role: 'user', content: [{ type: 'text', text: 'summary' }], source: { kind: 'plugin', plugin: 'compact', compactionId: 'c1' } },
+  })
+  const [v4] = prepareHostEvents([checkpoint()], 's1', 4)
+  assert.deepEqual(v4.surfaceOp, { op: 'replace', startSeq: 2, endSeq: 7 })
+  assert.deepEqual(v4.sourceEventSeqs, [2, 5, 7])
+  const [v3] = prepareHostEvents([checkpoint()], 's1', 3)
+  assert.deepEqual(v3.surfaceOp, { op: 'replace', start: 2, end: 7 })
+})
