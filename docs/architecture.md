@@ -178,3 +178,13 @@
 - **决定**：新增 `lib/convert/codex-external-agent.mjs`（纯函数层；单独成文件是因为 `codex.mjs` 已接近体量停止线，见 AGENTS.md）提供 `splitExternalAgentEnvelopes` / `externalAgentArguments`，由 `codex.mjs` 的 assistant 分支调用：在 assistant 正文按**行扫描**切段（不能要求「整块即信封」），把信封还原成 IR 的 `tool-call` / `tool-result`：载荷 `input: <JSON>` 原样作 arguments，`key: value` 行（值可跨行）逐键组对象；结果按「最早未配对调用」FIFO 配对（信封不带 call_id），`: error` 标记还原为 `isError`。**不虚构**：载荷键名与内容照抄信封——Codex 自己把 `file_path` 写成 `file`、并丢掉 Edit/Write 的正文，本层不补也不猜。降级走 D4：未闭合信封 / 认不出的载荷 / 未知结果标记留在正文并计入 `malformed`，找不到调用的结果原样保留正文并计入 `orphanResults`，还原数进公开结果的 `externalAgent: { calls, results, orphanResults, malformed }`（经 `attachConversionDetails` 与工具 schema 透出）；存量旧形状由 `verify_session` 新增的 `flattened-tool-envelope` 点名（同 D9 的 `system-head-missing` 手法）。**不设开关**：还原的是源侧本来的结构、不增体积、几乎无误判面（整行锚定的信封头），默认恒开。
 - **代价**：转换器多一层启发式解析（约 120 行 + 注释），并为「信封形态漂移」留了含糊地带——载荷认不出时 arguments 退化为 `{"input": <原文>}`（内容不丢、结构会歪），未闭合的信封保留为正文（仍会被 markdown 渲染，但计数可见）；含信封的文本块会被切成多个文本块（正文段两侧空白被 trim），无信封的块走快路径、字节不变。还原后的 step 数减少（只承载结果信封的消息不再凭空开一步，结果归并到调用的那一步）。
 - **重审条件**：Codex Desktop 换用别的展平格式（或改为写真正的 `function_call`）时，重估解析器；宿主收不到这类来源、或上游补回 Edit/Write 正文时，可删掉相应兜底与文档告诫。
+
+---
+
+## D19. opencode 双存储世代：按表分派读取，绝不两边都读（2026-10 定）
+
+- **背景**：opencode 2.x（npm `@opencode/cli`，命令仍是 `opencode` / `opencode2`）**沿用 V1 的 `opencode.db`**，但把会话搬到 `session_v2`、转录搬到 `session_message`；V1 的 `session`/`message`/`part` 只是 V1→V2 迁移的来源。实测（本机 opencode 2.0.21 对 V1 库跑一次 `session list`）：迁移后 `session` 4 行、`session_v2` 4 行、`message` 51 行、`session_message` 51 行——**旧行仍在库里**。只读 V1 三表会让 V2 原生会话凭空消失（issue #71 的现象）；两边都读会把同一会话导入两次。
+- **决定**：`readOpencodeDb` / `readOpencodeDbSummaries` 先按 `sqlite_master` 探测世代：有 `session_v2` → V2（`session_v2` + `session_message`，按 `seq` 升序），否则有 `session` → V1，两者都没有 → 大声报错（不返回空列表，否则面板显示的是「没有会话」而不是「库不认识」）。两代产出**同一形状**的中间 JSON，转换器 `lib/convert/opencode.mjs` 无世代分支；导入编排、DB 指纹短路径、`sessionIds` 过滤、registry 子表全部复用。压缩边界取「最近一条 `status='completed'` 的 compaction 行」——这正是 V2 自己的模型上下文口径（`session_message.seq >=` 该行的行才是模型可见内容），该行之前的轮进日志但不进模型上下文。
+- **代价**：V2 的压缩正文分 `summary` 与 `recent` 两个字段（V2 模型两段都看，见 `session/compaction.ts` 的 `<summary>` / `<recent-context>`），检查点正文因此是两段之和：比 V1 的「摘要 + 保留窗口仍以轮呈现」更粗（保留窗口变成文本），换来的是与源侧投影逐字一致。非 `completed` 的 compaction 行（running/failed）不是模型可见边界，正文按普通内容保留、绝不静默丢。V2 原生工具名（`shell`/`subagent`/`patch`、`path` 取代 `filePath`）按「未知名原样保留」处理，不新造 DSH 侧对照（迁移后的历史行里仍是 V1 名，两套都要能读）。
+- **重审条件**：opencode 再换存储世代（第三种表名/库）时按同一分派扩一项；V2 若开始删除 V1 三表，本决策无需改动（分派已覆盖）。反向导出（`export_chat({ format: 'opencode' })`）目前仍写 V1 `opencode import` 能吃的 JSON，V2 的 `session import` 契约未验证前不改。
+
