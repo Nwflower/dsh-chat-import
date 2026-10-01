@@ -51,6 +51,9 @@ jobs:
   # 起本地 mock LLM（CI 无 API key，DEEPSEEK_BASE_URL 指向本地 mock，全程离线）→
   # dsh --profile headless "hi" 完整走真实 boot + 插件激活审计（assertEntriesActivated）+
   # 一次 LLM 回合，exit 0 才绿。
+  # mock 必须同时提供当前 dsh-llm-deepseek 的 Messages wire（POST /v1/messages，SSE
+  # 事件流）与更早适配器的 OpenAI 兼容 wire（POST /chat/completions）——只留一路会在
+  # 适配器换代后恒 404（"DeepSeek Messages request failed"），冒烟红而与插件无关。
   # 目的：DSH 新版本发布后，若破坏 host 服务契约（sessionPersistence / fs / tools /
   # workspaceRegistry 等），此 job 立即红——不用等发布后手工验证。
   # 独立 job 而非 test job 内 step：DSH 侧破坏不影响单测信号（单测不依赖 dsh），
@@ -64,7 +67,7 @@ jobs:
           node-version: 22
           cache: npm
       # dsh plugin 子命令在 profile 目录内转发 pnpm；ubuntu 镜像不自带 pnpm，显式安装。
-      # @deepseek-ai/dsh 装 npm latest（当前 0.1.0-rc.6）——冒烟对象就是"最新发布的 dsh"。
+      # @deepseek-ai/dsh 装 npm latest（当前 0.2.x）——冒烟对象就是"最新发布的 dsh"。
       - name: Install dsh CLI (latest) and pnpm
         run: |
           npm i -g @deepseek-ai/dsh
