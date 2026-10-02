@@ -20,6 +20,7 @@ import_chatgpt({ path: "C:\Users\<you>\Downloads\chatgpt-export\conversations.js
 import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
 import_kilocode({ path: "C:\Users\<you>\.local\share\kilo\kilo.db" })
 import_teleagent({ path: "C:\Users\<you>\.local\share\TeleAgent\users\<account>\teleagent.db" })
+import_trae({ path: "C:\Users\<you>\AppData\Roaming\Trae\User\workspaceStorage" })
 import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 ```
 
@@ -30,7 +31,7 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_teleagent` / `import_zcode` / `import_hermes` always return a batch result — one file / database holds all conversations, so each conversation becomes its own session in a single call. `import_opencode` recognises opencode's **two storage generations** and dispatches automatically: V1 (`session`/`message`/`part`) and V2 (opencode 2.x's `session_v2`/`session_message`) — both share the same `opencode.db`, where the V1 tables are only the V1→V2 migration source and survive it. Only the matched generation is read, so a session is never imported twice; a database with neither generation fails loudly instead of looking like "no sessions". `import_teleagent` also accepts the `users/` multi-account directory (it enumerates `<account>/teleagent.db` per account) or the `TeleAgent/` data root directly.
+`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_teleagent` / `import_trae` / `import_zcode` / `import_hermes` always return a batch result — one file / database holds all conversations, so each conversation becomes its own session in a single call. `import_opencode` recognises opencode's **two storage generations** and dispatches automatically: V1 (`session`/`message`/`part`) and V2 (opencode 2.x's `session_v2`/`session_message`) — both share the same `opencode.db`, where the V1 tables are only the V1→V2 migration source and survive it. Only the matched generation is read, so a session is never imported twice; a database with neither generation fails loudly instead of looking like "no sessions". `import_teleagent` also accepts the `users/` multi-account directory (it enumerates `<account>/teleagent.db` per account) or the `TeleAgent/` data root directly. `import_trae` accepts a Trae `User` root, `workspaceStorage`, `globalStorage`, or a direct `state.vscdb` path.
 
 <details>
 <summary><b>Import parameters & behaviors</b></summary>

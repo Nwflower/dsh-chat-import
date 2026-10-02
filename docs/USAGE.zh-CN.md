@@ -20,6 +20,7 @@ import_chatgpt({ path: "C:\Users\<you>\Downloads\chatgpt-export\conversations.js
 import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
 import_kilocode({ path: "C:\Users\<you>\.local\share\kilo\kilo.db" })
 import_teleagent({ path: "C:\Users\<you>\.local\share\TeleAgent\users\<account>\teleagent.db" })
+import_trae({ path: "C:\Users\<you>\AppData\Roaming\Trae\User\workspaceStorage" })
 import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 ```
 
@@ -30,7 +31,7 @@ import_local_jsonl({ path: "D:\downloads\session.jsonl" })
 import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_teleagent` / `import_zcode` / `import_hermes` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。`import_opencode` 认 opencode 的**两个存储世代**并自动分派：V1（`session`/`message`/`part`）与 V2（opencode 2.x 的 `session_v2`/`session_message`）——两者共用同一个 `opencode.db`，V1 三表只是 V1→V2 迁移的来源、迁移后旧行仍在库里。只读命中的那一代，同一会话不会被导入两次；两代都没有的库直接报错，而不是显示成「没有会话」。`import_teleagent` 也接受 `users/` 多账户目录（逐账户枚举 `<账户>/teleagent.db`）或 `TeleAgent/` 数据根。
+`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_teleagent` / `import_trae` / `import_zcode` / `import_hermes` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。`import_opencode` 认 opencode 的**两个存储世代**并自动分派：V1（`session`/`message`/`part`）与 V2（opencode 2.x 的 `session_v2`/`session_message`）——两者共用同一个 `opencode.db`，V1 三表只是 V1→V2 迁移的来源、迁移后旧行仍在库里。只读命中的那一代，同一会话不会被导入两次；两代都没有的库直接报错，而不是显示成「没有会话」。`import_teleagent` 也接受 `users/` 多账户目录（逐账户枚举 `<账户>/teleagent.db`）或 `TeleAgent/` 数据根。`import_trae` 接受 Trae 的 `User` 根、`workspaceStorage`、`globalStorage` 或直接的 `state.vscdb` 路径。
 
 <details>
 <summary><b>导入参数与行为</b></summary>

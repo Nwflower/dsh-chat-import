@@ -82,7 +82,7 @@ export type LocalJsonlFormat =
 export type ChatFormat =
   | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode'
   | 'mimocode' | 'kilocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'kimi'
-  | 'qoder' | 'workbuddy' | 'qwen' | 'dsh' | 'dsh4' | 'local-jsonl'
+  | 'qoder' | 'workbuddy' | 'qwen' | 'trae' | 'dsh' | 'dsh4' | 'local-jsonl'
 
 /** import_chat 参数：公共导入参数（ImportOptions）+ 源格式 + 源专属参数。 */
 export interface ImportChatOptions extends ImportOptions {
@@ -571,7 +571,7 @@ export interface RetractResult {
 export type ScanFormat =
   | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'mimocode'
   | 'kilocode' | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'hermes' | 'kimi'
-  | 'qoder' | 'chatgpt' | 'workbuddy' | 'qwen' | 'dsh' | 'dsh4'
+  | 'qoder' | 'chatgpt' | 'workbuddy' | 'qwen' | 'trae' | 'dsh' | 'dsh4'
 
 export type ImportStatusLabel = 'imported' | 'partial' | 'not-imported' | 'archived'
 
