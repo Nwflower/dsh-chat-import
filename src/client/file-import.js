@@ -3,7 +3,7 @@
     // 粘贴路径回车预览——外加格式覆盖、预览卡片与目录批处理。
     //
     // 后端契约（lib/panel.mjs）：
-    //   POST /api-import/file   { path? | uploadId?, format?, preview, target? }：preview=true 零
+    //   POST /api-import/file   { path? | uploadId?, preview }：preview=true 零
     //                          副作用（识别 + 规模 + 降级计数），false 走导入编排；目录 → batch。
     //   POST /api-import/browse { mode: info | pick | list }：native 后端弹宿主系统框，
     //                          browse / fs 后端给一层目录清单（crumbs + entries）。
@@ -18,10 +18,8 @@
     const FILE_BATCH_PAGE = 200;
     // 分片下限：服务端起始 640KB，413 逐次减半；减到这里仍被拒就报错，不静默丢文件
     const UPLOAD_MIN_CHUNK = 64 * 1024;
-    // 格式覆盖下拉：'auto' + local-jsonl 认识的解析器名（lib/convert/local-jsonl.mjs）
-    const FILE_FORMATS = ["auto", "dsh", "claude", "codex", "cursor", "reasonix", "pi", "openclaw", "hermes", "qoder", "vibe", "generic"];
-    // 「导入到」：dsh 建可继续会话，其余是转投目标（与发现面板共用 target.* 文案）
-    const FILE_TARGETS = ["dsh", "claude", "codex", "kimi", "opencode"];
+    // 面板只做「自动识别 → 导入为 DSH 会话」：格式覆盖与「导入到」（转投）是低频的
+    // 精确控制，留在工具 / 命令面（import_chat 的 parseFormat / target），面板不摆按钮。
     // 降级计数 → 文案键：>0 才显示（键与 lib/file-import.mjs 的预览条目同口径）
     const FILE_DEGRADE_KEYS = [
       ["imagesDegraded", "fileImport.degraded.images"],
@@ -177,8 +175,6 @@
       const style = useMemo(() => fileImportStyles(colors), [colors]);
       const [collapsed, setCollapsed] = useState(readFileAreaCollapsed);
       const [pathInput, setPathInput] = useState("");
-      const [format, setFormat] = useState("auto");
-      const [target, setTarget] = useState("dsh");
       const [busy, setBusy] = useState(false); // 上传 / 预览 / 导入进行中：交互控件一起禁用
       const [previewing, setPreviewing] = useState(false);
       const [preview, setPreview] = useState(null); // { source:{path|uploadId}, kind, data, sourceKind }
@@ -204,7 +200,7 @@
       }, [browseOpen]);
 
       // ── 预览与导入 ──────────────────────────────────────────────────────
-      const runPreview = async (source, fmt) => {
+      const runPreview = async (source) => {
         setBusy(true);
         setPreviewing(true);
         setError(null);
@@ -214,7 +210,7 @@
         try {
           const resp = await fetch("/api-import/file", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...source, format: fmt === undefined ? format : fmt, preview: true }),
+            body: JSON.stringify({ ...source, preview: true }),
           });
           const data = await readJson(resp);
           if (data && data.ok === true) {
@@ -239,18 +235,11 @@
         }
       };
 
-      const previewPath = async (value, fmt) => {
+      const previewPath = async (value) => {
         const p = String(value === undefined ? pathInput : value).trim();
         if (!p) { setError(t("fileImport.path.empty")); return; }
         setPathInput(p);
-        await runPreview({ path: p }, fmt);
-      };
-
-      // 格式覆盖：有来源（已预览的上传件 / 已填路径）就按新格式重新识别
-      const changeFormat = (v) => {
-        setFormat(v);
-        const source = preview && preview.source ? preview.source : (pathInput.trim() ? { path: pathInput.trim() } : null);
-        if (source) runPreview(source, v);
+        await runPreview({ path: p });
       };
 
       const singleBlocked = (entry) => !entry
@@ -264,11 +253,11 @@
         try {
           const resp = await fetch("/api-import/file", {
             method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...preview.source, format, target, preview: false }),
+            body: JSON.stringify({ ...preview.source, preview: false }),
           });
           const data = await readJson(resp);
           if (data && data.ok === true) {
-            setResult(data.kind === "transfer" ? fmtTransferResult([data], data.target || target, t) : fmtImportResult([data], t));
+            setResult(fmtImportResult([data], t));
             showAppToast(landingToast([data], t));
           } else {
             setError((data && data.error) || t("fileImport.error.route"));
@@ -295,7 +284,7 @@
             try {
               const resp = await fetch("/api-import/file", {
                 method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: entries[i].path, format, target, preview: false }),
+                body: JSON.stringify({ path: entries[i].path, preview: false }),
               });
               const data = await readJson(resp);
               results.push(data && data.ok === true ? data : { status: "failed", error: (data && data.error) || t("fileImport.error.route") });
@@ -304,9 +293,7 @@
               results.push({ status: "failed", error: String((err && err.message) || err) });
             }
           }
-          const summary = target === "dsh"
-            ? fmtImportResult(results, t)
-            : results.map((r) => fmtTransferResult([r], target, t)).join("\n");
+          const summary = fmtImportResult(results, t);
           setResult(summary);
           // 目录批处理是长动作：汇总走官方 Toast（面板可能已不在眼前）
           showAppToast(summary);
@@ -742,24 +729,6 @@
           onClick: () => previewPath(pathInput),
         }, previewing ? t("fileImport.previewing") : t("fileImport.preview")));
 
-      const selectsRow = React.createElement("div", { style: style.rowPlain },
-        React.createElement("span", { style: style.join }, t("fileImport.format")),
-        React.createElement(SearchableSelect, {
-          value: format, colors, disabled: busy, title: t("fileImport.format.title"),
-          searchPlaceholder: t("fileImport.format.search"), noMatchLabel: t("combobox.noMatch"),
-          options: FILE_FORMATS.map((f) => ({
-            value: f,
-            label: f === "auto" ? t("fileImport.format.auto") : f === "generic" ? t("fileImport.format.generic") : f,
-          })),
-          onChange: changeFormat,
-        }),
-        React.createElement("span", { style: style.join }, t("fileImport.importTo")),
-        React.createElement(SearchableSelect, {
-          value: target, colors, disabled: busy, searchable: false, title: t("importTo.title"),
-          options: FILE_TARGETS.map((v) => ({ value: v, label: t("target." + v) })),
-          onChange: (v) => setTarget(v),
-        }));
-
       const previewArea = React.createElement("div", {
         "aria-live": "polite", style: { display: "flex", flexDirection: "column", gap: "6px" },
       },
@@ -793,6 +762,5 @@
           React.createElement("div", { style: { position: "relative", display: "flex", flexDirection: "column", gap: "6px" } },
             pathRow,
             browseOpen ? renderBrowser() : null),
-          selectsRow,
           previewArea));
     }
