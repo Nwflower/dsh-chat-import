@@ -2,6 +2,10 @@
 
 > 机器实现见 `lib/convert/interchange.mjs`（`DEGRADATION_RULES` / `summarizeDegradations` / `exportDegradations`）
 
+> **要把一份未识别的对话记录转成本协议？** 本文是面向维护者的协议规范；执行转换请读
+> [转换指南（给 Agent 的 Skill 指令）](INTERCHANGE-GUIDE.zh-CN.md) /
+> [Conversion Guide (English)](INTERCHANGE-GUIDE.md)——任务化的最小示例、字段表与自检清单都在那里。
+
 > 本协议定义导入/导出共用的 turns IR 与便携 bundle 格式。
 
 ## 1. 文档结构（v1）
