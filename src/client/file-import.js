@@ -31,6 +31,7 @@
     const INTERCHANGE_DOC_URL = "https://github.com/Nwflower/dsh-chat-import/blob/main/docs/INTERCHANGE.md";
     const FILE_AREA_COLLAPSED_KEY = "chat-import.fileArea.collapsed";
     const FILE_AREA_ID = "chat-import-file-area";
+    const FILE_FAILURES_ID = "chat-import-file-failures";
     // 目录批处理的渲染步进：一次最多放 200 行，其余交给「显示更多」（与列表窗口化同思路）
     const FILE_BATCH_PAGE = 200;
     // 分片下限：服务端起始 640KB，413 逐次减半；减到这里仍被拒就报错，不静默丢文件
@@ -89,6 +90,17 @@
       dialogTitle: { fontSize: "14px", fontWeight: 600, color: C.text },
       dialogBody: { fontSize: "13px", color: C.dim, lineHeight: 1.6 },
       link: { color: C.accent, textDecoration: "underline", wordBreak: "break-all" },
+      // 失败清单：展开时是一张可滚动的等宽小表（格式 / 原因两列），收起时完全不占高度
+      failureList: {
+        display: "flex", flexDirection: "column", gap: "2px", maxHeight: "180px", overflowY: "auto",
+        padding: "6px 8px", background: C.field, border: "1px solid " + C.border, borderRadius: "8px",
+      },
+      failureRow: { display: "flex", gap: "6px", fontSize: "12px", lineHeight: 1.5 },
+      failureFormat: {
+        flex: "none", minWidth: "64px", color: C.dim,
+        fontFamily: "ui-monospace, SFMono-Regular, Menlo, Consolas, monospace",
+      },
+      failureReason: { flex: "1", minWidth: 0, color: C.dimmer, wordBreak: "break-word" },
       note: { fontSize: "12px", color: C.dimmer, lineHeight: 1.5 },
       err: { fontSize: "12px", color: C.error, lineHeight: 1.5, wordBreak: "break-word" },
       status: { fontSize: "12px", color: C.dim, lineHeight: 1.5 },
@@ -214,8 +226,8 @@
             } else {
               setBatchSel(null);
             }
-            // 识别失败默认摊开：这是用户此时唯一需要看的东西
-            if (Array.isArray(data.failures) && data.failures.length > 0) setShowFailures(true);
+            // 识别失败时清单**默认收起**：卡片上先给一句结论（哪些解析器都失败了）与
+            // 出路，需要逐条看原因时再展开——11 条「格式：原因」铺满卡片反而淹没重点。
           } else {
             setError((data && data.error) || t("fileImport.error.route"));
           }
@@ -415,8 +427,10 @@
 
       const copyFailures = async () => {
         const path = preview && preview.data ? (preview.data.path || pathInput.trim()) : pathInput.trim();
+        const list = failureList();
         const lines = [t("fileImport.failures.summary.head", { path })];
-        for (const f of failureList()) {
+        if (list.length > 0) lines.push(t("fileImport.failures.allFailed", { n: list.length }));
+        for (const f of list) {
           lines.push(t("fileImport.failures.line", { format: (f && f.format) || "?", reason: (f && f.reason) || "" }));
         }
         lines.push(t("fileImport.failures.hint") + INTERCHANGE_DOC_URL + t("fileImport.failures.hintSuffix"));
@@ -451,20 +465,23 @@
       const renderFailures = (entry) => {
         const list = Array.isArray(entry.failures) ? entry.failures : [];
         if (list.length === 0) return null;
-        return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "4px" } },
-          React.createElement("div", { style: style.warn }, t("fileImport.failures.title", { n: list.length })),
+        return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
+          React.createElement("div", { style: style.warn }, t("fileImport.failures.allFailed", { n: list.length })),
           React.createElement("div", { style: style.actions },
             React.createElement("button", {
               type: "button", style: style.btn, "aria-expanded": showFailures,
+              "aria-controls": FILE_FAILURES_ID,
               onClick: () => setShowFailures((v) => !v),
-            }, showFailures ? t("fileImport.failures.collapse") : t("fileImport.failures.expand")),
+            }, showFailures ? t("fileImport.failures.collapseCount") : t("fileImport.failures.expandCount", { n: list.length })),
             React.createElement("button", {
               type: "button", style: style.btn, onClick: copyFailures,
             }, copied ? t("fileImport.failures.copied") : t("fileImport.failures.copy"))),
-          showFailures && React.createElement("div", { role: "list" },
+          showFailures && React.createElement("div", { id: FILE_FAILURES_ID, role: "list", style: style.failureList },
             list.map((f, i) => React.createElement("div", {
-              key: i, role: "listitem", style: style.err,
-            }, t("fileImport.failures.line", { format: (f && f.format) || "?", reason: (f && f.reason) || "" })))),
+              key: i, role: "listitem", style: style.failureRow,
+            },
+              React.createElement("span", { style: style.failureFormat }, (f && f.format) || "?"),
+              React.createElement("span", { style: style.failureReason }, (f && f.reason) || "")))),
           React.createElement("div", { style: style.note },
             t("fileImport.failures.hint"),
             React.createElement("a", {
@@ -477,6 +494,10 @@
         const bundle = entry.bundle === true;
         const turns = typeof entry.turns === "number" ? entry.turns : 0;
         const blocked = singleBlocked(entry);
+        // 未识别（有失败清单、也没识别出格式）时的卡片只留必要信息：计数恒为 0、
+        // skipReason 与「全部解析失败」是同一句话，留着只会把重点淹掉。
+        const hasFailures = Array.isArray(entry.failures) && entry.failures.length > 0;
+        const unrecognized = hasFailures && !entry.detectedFormat;
         const counts = [
           t("fileImport.turns", { n: turns }),
           t("fileImport.messages", { n: entry.messages || 0 }),
@@ -489,15 +510,15 @@
             badge(entry.detectedFormat, detectedByText(entry.detectedBy)),
             React.createElement("span", { style: style.title, title: entry.path },
               bundle ? t("fileImport.bundle") : entryName(entry)),
-            React.createElement("span", { style: style.meta }, counts.join(" · "))),
+            unrecognized ? null : React.createElement("span", { style: style.meta }, counts.join(" · "))),
           entry.path ? React.createElement("div", { style: style.metaPath }, entry.path) : null,
           bundle ? React.createElement("div", { style: style.note }, t("fileImport.bundle")) : null,
           entry.cwd ? React.createElement("div", { style: style.metaPath }, t("fileImport.cwd") + "：" + entry.cwd) : null,
           entry.createdAt ? React.createElement("div", { style: style.metaPath }, t("fileImport.createdAt") + "：" + fmtTime(entry.createdAt)) : null,
           entry.note ? React.createElement("div", { style: style.note }, t("fileImport.note", { note: entry.note })) : null,
           degrade ? React.createElement("div", { style: style.note }, degrade) : null,
-          entry.skipReason ? React.createElement("div", { style: style.warn }, t("fileImport.skipReason", { reason: entry.skipReason })) : null,
-          !bundle && turns === 0 && !entry.skipReason ? React.createElement("div", { style: style.warn }, t("fileImport.noTurns")) : null,
+          entry.skipReason && !unrecognized ? React.createElement("div", { style: style.warn }, t("fileImport.skipReason", { reason: entry.skipReason })) : null,
+          !bundle && turns === 0 && !entry.skipReason && !hasFailures ? React.createElement("div", { style: style.warn }, t("fileImport.noTurns")) : null,
           renderFailures(entry),
           React.createElement("div", { style: style.actions },
             React.createElement("button", {
