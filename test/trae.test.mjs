@@ -3,12 +3,14 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { convertTraeJson } from '../lib/convert/trae.mjs'
 import { listTraeDatabases, readTraeDb, readTraeDbSummaries } from '../lib/sources/trae.mjs'
 import { discoverSessions } from '../lib/discovery.mjs'
+import { apply } from '../lib/index.mjs'
+import { hostAbs } from './_support/host-path.mjs'
 
 function fixtureSessions() {
   return {
@@ -16,7 +18,7 @@ function fixtureSessions() {
       {
         sessionId: 'trae-1',
         title: 'Trae import fixture',
-        directory: 'C:/workspace/trae-demo',
+        directory: hostAbs('C:/workspace/trae-demo'),
         createdAt: '2026-09-30T12:00:00.000Z',
         messages: [
           { id: 'm1', role: 'user', content: 'Fix the failing test' },
@@ -110,7 +112,7 @@ test('Trae discovery expands workspaceStorage databases without scanning unrelat
     async readSessions(kind, path) {
       assert.equal(kind, 'trae')
       assert.equal(path, dbPath)
-      return [{ id: 'trae-1', title: 'Trae import fixture', directory: 'C:/workspace/trae-demo', createdAt: 1780000000000, lastActiveAt: 1780000001000 }]
+      return [{ id: 'trae-1', title: 'Trae import fixture', directory: hostAbs('C:/workspace/trae-demo'), createdAt: 1780000000000, lastActiveAt: 1780000001000 }]
     },
   }
   const result = await discoverSessions({ path: root, format: 'trae', host, imports: {} })
@@ -130,5 +132,130 @@ test('Trae database path helper accepts a direct state.vscdb file', async () => 
     assert.deepEqual(await listTraeDatabases(host, path), [path])
   } finally {
     rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+// ── import_trae 集成（mock ctx + 真实临时库）──────────────────────────
+// Trae 的 User 根下每个打开过的工作区都有一个 state.vscdb，绝大多数从没开过
+// Trae 对话：目录模式必须静默跳过这些库，只对「有条目却认不出」的库大声失败。
+
+function makeCtx() {
+  const sessions = new Map()
+  const persistence = {
+    sessions,
+    async list() { return [...sessions.values()].map((s) => s.meta) },
+    async create(meta) {
+      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
+      sessions.set(meta.id, { meta, events: [] })
+    },
+    async append(id, events) { sessions.get(id).events.push(...events) },
+    async inspect(id) { return sessions.get(id) },
+    async readFrom(id, fromSeq = 0) { const s = sessions.get(id); return { meta: s.meta, events: s.events.slice(fromSeq) } },
+  }
+  const registered = []
+  const workspaces = new Map()
+  const fs = {
+    async resolve(path) { return { targetKey: path, displayPath: path } },
+    async stat(target) {
+      let s
+      try { s = statSync(target.targetKey) } catch { return undefined }
+      if (s.isDirectory()) return { type: 'directory' }
+      return { type: 'file', size: s.size, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
+    },
+    async listDir(target) {
+      return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => {
+        const path = join(target.targetKey, e.name)
+        return { name: e.name, type: e.isDirectory() ? 'directory' : 'file', target: { targetKey: path, displayPath: path } }
+      })
+    },
+    processPath(target) { return target.targetKey },
+  }
+  const workspaceRegistry = {
+    async resolveByPath(p) { return workspaces.get(p) ?? null },
+    async create(p) { const ws = { path: p, attachSession: async () => {} }; workspaces.set(p, ws); return ws },
+  }
+  const ctx = {
+    fs,
+    sessionPersistence: persistence,
+    webServer: { register() {} },
+    inject(serviceList, cb) {
+      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
+      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
+      return undefined
+    },
+    get(service) {
+      if (service === 'workspaceRegistry') return workspaceRegistry
+      if (service === 'sessionPersistence') return persistence
+      return undefined
+    },
+    tools: { register(def) { registered.push(def); return () => {} } },
+    on() { return () => {} },
+  }
+  apply(ctx)
+  const tool = registered.find((d) => d.name === 'import_chat')
+  return { persistence, execute: (args) => tool.execute({ format: 'trae', ...args }) }
+}
+
+function makeStateDb(dir, rows) {
+  mkdirSync(dir, { recursive: true })
+  const db = new DatabaseSync(join(dir, 'state.vscdb'))
+  db.exec('CREATE TABLE ItemTable (key TEXT PRIMARY KEY, value BLOB NOT NULL)')
+  const insert = db.prepare('INSERT INTO ItemTable (key, value) VALUES (?, ?)')
+  for (const [key, value] of rows) insert.run(key, JSON.stringify(value))
+  db.close()
+  return join(dir, 'state.vscdb')
+}
+
+function makeUserRoot() {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-trae-user-'))
+  makeStateDb(join(root, 'workspaceStorage', 'with-chat'), [['memento/icube-ai-agent-storage', fixtureSessions()]])
+  makeStateDb(join(root, 'workspaceStorage', 'no-chat'), [['workbench.panel.width', 320]])
+  makeStateDb(join(root, 'globalStorage'), [['workbench.theme', 'dark']])
+  return root
+}
+
+test('import_trae 目录模式：跳过没有 Trae 会话的工作区库，不计失败；重导幂等', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  const root = makeUserRoot()
+  try {
+    const { persistence, execute } = makeCtx()
+    const first = await execute({ path: root })
+    assert.equal(first.mode, 'batch')
+    assert.equal(first.imported, 1)
+    assert.equal(first.failed, 0)
+    assert.equal(first.results.filter((r) => r.status === 'failed').length, 0)
+    assert.equal(persistence.sessions.size, 1)
+
+    const preview = await execute({ path: root, preview: true })
+    assert.equal(preview.results.filter((r) => r.status === 'failed').length, 0)
+
+    const again = await execute({ path: join(root, 'workspaceStorage') })
+    assert.equal(again.alreadyImported, 1)
+    assert.equal(again.failed, 0)
+    assert.equal(persistence.sessions.size, 1)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
+  }
+})
+
+test('import_trae 失败要大声：全目录无会话报错；有条目却认不出的库计失败', async () => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  const root = mkdtempSync(join(tmpdir(), 'dsh-trae-user-'))
+  try {
+    makeStateDb(join(root, 'workspaceStorage', 'no-chat'), [['workbench.panel.width', 320]])
+    const { execute } = makeCtx()
+    await assert.rejects(() => execute({ path: root }), /未找到 Trae Work 会话/)
+    await assert.rejects(() => execute({ path: root, preview: true }), /未找到 Trae Work 会话/)
+
+    // 键在、条目在，但没有可识别的 id/消息 → 疑似格式漂移，不能当成「没有会话」吞掉
+    const drifted = makeStateDb(join(root, 'workspaceStorage', 'drifted'), [['memento/icube-ai-agent-storage', { list: [{ unknownShape: true }] }]])
+    await assert.rejects(() => execute({ path: drifted }), /没有可识别会话/)
+    makeStateDb(join(root, 'workspaceStorage', 'with-chat'), [['memento/icube-ai-agent-storage', fixtureSessions()]])
+    const mixed = await execute({ path: root })
+    assert.equal(mixed.imported, 1)
+    assert.equal(mixed.failed, 1)
+    assert.match(mixed.results.find((r) => r.status === 'failed').error, /没有可识别会话/)
+  } finally {
+    rmSync(root, { recursive: true, force: true })
   }
 })
