@@ -158,3 +158,26 @@ test('导入归属外置 registry：日志无标记，环境变更声明在首�
   assert.equal(out.events[2].data.message.source.kind, 'plugin')
   assert.equal(out.events[3].data.source.kind, 'plugin')
 })
+
+test('数组 content 的直连提问开新轮，含 tool_result 的数组只做配对', () => {
+  const raw = qoder([
+    userRec([{ type: 'text', text: '读一下' }, { type: 'text', text: 'README' }]),
+    assistantRec([
+      { type: 'text', text: '好的' },
+      { type: 'tool_use', id: 'toolu_a', name: 'read_file', input: { path: 'README.md' } },
+    ]),
+    userRec([{ type: 'tool_result', tool_use_id: 'toolu_a', content: [{ type: 'text', text: '# 标题' }] }]),
+    assistantRec([{ type: 'text', text: '读完了' }]),
+    userRec([{ type: 'text', text: '第二问' }]),
+    assistantRec([{ type: 'text', text: '二答' }]),
+  ])
+  const out = convertQoderJsonl(raw, { sourcePath: '/p/x/' + SID + '.jsonl' })
+  assert.equal(out.turns.length, 2)
+  assert.equal(out.turns[0].prompt, '读一下\nREADME')
+  assert.equal(out.turns[0].steps.length, 2)
+  assert.equal(out.turns[1].prompt, '第二问')
+  assert.equal(out.toolCalls, 1)
+  assert.equal(out.droppedToolResults, 0)
+  assert.equal(out.title, '读一下 README')
+  assertToolPairing(out.events)
+})
