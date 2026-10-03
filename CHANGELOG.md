@@ -2,6 +2,30 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.24.0] - 2026-10-03
+
+[中文](#cn-0.24.0) | [English](#en-0.24.0)
+
+<h3 id="cn-0.24.0">新增功能</h3>
+
+- **新增 Trae Work 会话导入**：新来源 `trae`（`import_trae` / `import_chat({ format: 'trae' })`、面板来源列表、`scan_discover`）。只读打开 Trae 的 VS Code 风格 `state.vscdb`，从 `ItemTable` 的已知会话键（主键 `memento/icube-ai-agent-storage`，另有旧版/变体回退键）提取会话并按会话 id 去重；用户与助手消息成为可继续的 DSH 会话，智能体的计划步骤（思考 / 工具 / 参数 / 结果）落成可读文本，只有工具行的会话不产生空回合。`path` 接受 Trae 的 `User` 根、`workspaceStorage`、`globalStorage` 或单个 `state.vscdb`；默认发现根覆盖 Trae / Trae CN / TRAE SOLO / TRAE SOLO CN 在 Windows、macOS、Linux 上的 `User` 目录。目录模式只展开这两种已知布局、不递归扫描用户目录：从没开过 Trae 对话的工作区库静默跳过，整个目录都没有会话时明确报错，有会话条目却一条都认不出的库计为失败（疑似存储格式变化）。重导沿用一库多会话的增量语义。
+
+<h3 id="cn-0.24.0">其他变更</h3>
+
+- SQLite 库类来源（opencode / mimocode / teleagent / kilocode / zcode / goose / zed / crush / trae）的 dry-run 预览与各自的导入编排同住 `lib/sources/<src>.mjs`，行为不变。
+- `test/panel-toast.test.mjs` 读入面板 bundle 后先归一 CRLF：Windows 上 `core.autocrlf=true` 检出时该用例此前恒失败，连带 pre-push 钩子拦下推送。
+
+<h3 id="en-0.24.0">New Features</h3>
+
+- **Trae Work session import**: new source `trae` (`import_trae` / `import_chat({ format: 'trae' })`, the panel source list, and `scan_discover`). Trae's VS Code-style `state.vscdb` is opened read-only; sessions are taken from known `ItemTable` keys (primary `memento/icube-ai-agent-storage`, plus fallback keys for older and variant builds) and de-duplicated by session id. User and assistant messages become a resumable DSH session, the agent's plan steps (thought / tool / arguments / result) are rendered as readable text, and tool-only sessions produce no empty turns. `path` accepts a Trae `User` root, `workspaceStorage`, `globalStorage`, or a single `state.vscdb`; default discovery covers the `User` directories of Trae / Trae CN / TRAE SOLO / TRAE SOLO CN on Windows, macOS and Linux. Directory mode expands only those two known layouts and never walks the user's files: workspace databases that never held a Trae chat are skipped silently, a directory with no sessions at all fails loudly, and a database whose session entries cannot be recognised counts as a failure (a likely storage-format change). Re-imports follow the usual per-database incremental semantics.
+
+<h3 id="en-0.24.0">Chores</h3>
+
+- Dry-run previews for the SQLite-backed sources (opencode / mimocode / teleagent / kilocode / zcode / goose / zed / crush / trae) now live next to their import orchestration in `lib/sources/<src>.mjs`; behavior is unchanged.
+- `test/panel-toast.test.mjs` normalizes CRLF after reading the panel bundle: on Windows with `core.autocrlf=true` the case always failed and blocked the pre-push hook.
+
+**Full Changelog**: [v0.23.2...v0.24.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.23.2...v0.24.0)
+
 ## [0.23.2] - 2026-10-01
 
 [中文](#cn-0.23.2) | [English](#en-0.23.2)
