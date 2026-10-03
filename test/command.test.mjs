@@ -367,3 +367,43 @@ test('/attach-workspaces：dedicated 模式把所有导入会话挂到单个工�
   assert.ok(out.text.includes('已挂接 1'), out.text)
   assert.ok(env.attached.some((a) => a.ws === dedicatedDir), '会话挂到 dedicated workspace: ' + JSON.stringify(env.attached))
 })
+
+// REQ-42 /import auto：任意本地文件（三级探测）——generic 文档与未知格式各走各的
+test('REQ-42 /import auto：generic 文档直接导入（内容标记命中）', async () => {
+  const { cmd, sessions } = setup()
+  const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-auto-')), 'long-tail.json')
+  writeFileSync(file, JSON.stringify({
+    interchange: 'dsh-chat-import',
+    version: 1,
+    meta: { id: 'auto-generic', createdAt: 1700000000000 },
+    title: '长尾会话',
+    provider: 'demo-tool',
+    turns: [{ prompt: '问一句', steps: [{ content: [{ type: 'text', text: '答一句' }] }] }],
+  }), 'utf8')
+
+  const out = await cmd.handler({ rawInput: 'auto ' + file })
+  assert.equal(out.kind, 'success', out.text)
+  assert.ok(out.text.includes('已导入'), 'text: ' + out.text)
+  assert.ok([...sessions.keys()].some((id) => id.includes('auto-generic')), [...sessions.keys()].join(','))
+})
+
+test('REQ-42 /import auto：未识别文件如实报跳过（不产出空壳会话）', async () => {
+  const { cmd, sessions } = setup()
+  const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-junk-')), 'junk.jsonl')
+  writeFileSync(file, '{"foo":1}\n{"bar":2}\n', 'utf8')
+
+  const out = await cmd.handler({ rawInput: 'auto ' + file })
+  assert.equal(out.kind, 'success', out.text)
+  assert.ok(out.text.includes('跳过'), 'text: ' + out.text)
+  assert.equal(sessions.size, 0)
+})
+
+test('REQ-42 /import local-jsonl 与 auto 同义（强制解析器留给工具面 parseFormat）', async () => {
+  const { cmd } = setup()
+  const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-lj-')), 'cmd-sess.jsonl')
+  writeFileSync(file, simpleClaudeJsonl('cmd-sess-lj'), 'utf8')
+
+  const out = await cmd.handler({ rawInput: 'local-jsonl ' + file })
+  assert.equal(out.kind, 'success', out.text)
+  assert.ok(out.text.includes('已导入'), 'text: ' + out.text)
+})

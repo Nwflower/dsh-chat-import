@@ -5296,6 +5296,13 @@ test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-im
   assert.equal(imp.kind, 'exact')
   assert.equal(typeof sessions.handler, 'function')
   assert.equal(typeof imp.handler, 'function')
+  // 从文件导入一族（面板「从文件导入」）：预览/导入、路径浏览、上传三步、暂存维护
+  for (const path of ['/api-import/file', '/api-import/browse', '/api-import/upload/init', '/api-import/upload/chunk', '/api-import/upload/complete', '/api-import/uploads']) {
+    const route = webRoutes.find((r) => r.path === path)
+    assert.ok(route, 'route ' + path + ' 已注册')
+    assert.equal(route.kind, 'exact')
+    assert.equal(typeof route.handler, 'function')
+  }
   // 只加路由，不加工具：import_chat 分流 18 来源 + import_agents + doctor + import_mcp + import_settings + scan/export_chat/list/retract + bundle 导出/还原 + verify = 12，注册数不变
   assert.equal(registered.length, 12)
 })
@@ -6314,4 +6321,53 @@ test('import_kimi 新 Kimi Code：state.json 缺失时按 workspaces.json 回退
   assert.ok(saved)
   assert.equal(saved.meta.cwd, workDir)
   assert.equal(attached.length, 1)
+})
+
+// ---- 从文件导入（本地文件三级探测 / generic 文档）----
+test('从文件导入：generic 文档经 local-jsonl 落盘，dry-run 预览带识别信息并符合 output schema', async () => {
+  const file = 'D:\\demo\\downloads\\long-tail.json'
+  const doc = JSON.stringify({
+    interchange: 'dsh-chat-import',
+    version: 1,
+    meta: { id: 'gen-1', createdAt: 1700000000000 },
+    title: '长尾工具会话',
+    provider: 'demo-tool',
+    turns: [{ prompt: '问一句', steps: [{ content: [{ type: 'text', text: '答一句' }] }] }],
+  })
+  const { ctx, persistence } = makeCtx({ [file]: doc })
+  apply(ctx)
+  const def = chatDef(ctx, 'local-jsonl')
+
+  const preview = await def.execute({ path: file, dryRun: true })
+  assert.equal(preview.mode, 'single')
+  assert.equal(preview.detectedFormat, 'generic')
+  assert.equal(preview.detectedBy, 'marker')
+  assert.equal(preview.turns, 1)
+  assert.equal(preview.title, '长尾工具会话')
+  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, preview), [])
+  assert.equal(persistence.sessions.size, 0) // 预览零副作用
+
+  const out = await def.execute({ path: file })
+  assert.equal(out.status, 'imported')
+  assert.ok(persistence.sessions.has(out.sessionId))
+  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, out), [])
+})
+
+test('从文件导入：未识别文件 dry-run 给出全量失败清单（符合 schema、不落盘）', async () => {
+  const file = 'D:\\demo\\downloads\\junk.jsonl'
+  const { ctx, persistence } = makeCtx({ [file]: '{"foo":1}\n{"bar":2}\n' })
+  apply(ctx)
+  const def = chatDef(ctx, 'local-jsonl')
+
+  const bad = await def.execute({ path: file, dryRun: true })
+  assert.equal(bad.turns, 0)
+  assert.ok(Array.isArray(bad.failures) && bad.failures.length > 0)
+  assert.ok(bad.failures.every((f) => typeof f.format === 'string' && typeof f.reason === 'string'))
+  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, bad), [])
+  assert.equal(persistence.sessions.size, 0)
+
+  // 强制指定错解析器：同样明确失败（不静默产出空会话）
+  const forced = await def.execute({ path: file, dryRun: true, parseFormat: 'claude' })
+  assert.equal(forced.turns, 0)
+  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, forced), [])
 })
