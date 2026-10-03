@@ -157,3 +157,38 @@
 `convertDshJsonl` 导入为可继续 DSH 会话。跨机器：A 机导出 → B 机（无原路径）
 还原 0 skipped；`originalCwd` 不可达时回退到 bundle 文件所在目录归组，
 结果报告 `cwdAvailable: false` + `groupedTo`（不静默）。
+
+## 5. generic 文档作为导入格式
+
+§1 的 turns 文档带上内容标记后就是**可导入的文件**（面板「从文件导入」会自动命中；
+也可用 `/import auto <path>` 或 `import_chat({ format: "local-jsonl" })`）：
+
+```jsonc
+{
+  "interchange": "dsh-chat-import",   // 内容标记：探测层第一级判据
+  "version": 1,                        // 只认 1；其它值整体拒绝并点名版本
+  "meta": { "id": "…", "createdAt": 1710000000000, "cwd": "C:\\work", "sourceId": "…" },
+  "title": "会话标题（可选）",
+  "provider": "source-tool（可选，缺省 generic）",
+  "model": "…（可选）",
+  "turns": [ /* 与 §1 同构 */ ]
+}
+```
+
+- **探测**：文件导入的第一级判据就是内容标记——`"interchange"` 命中本格式，
+  `"bundle"`（§4 便携包）转 `restore_bundle`。标记按契约出现在文档顶部，
+  探测只扫前 64KB；命中后用 mark 权威判据，不再逐格式猜。
+- **校验与降级**（D4 失败要大声，绝不静默）：未知内容块类型、拿不到合法载荷的图片
+  （降级为 `[image]` 文本并计入 `imagesDegraded`）、畸形的轮与步、没有对应调用的
+  工具结果、input/output 不是非负整数的 `usage` 全部计数并随结果透出；0 轮文档给出
+  `skipReason`，导入端据此拒绝产不出对话的空壳会话。
+- **会话 id**：一律由插件铸造（`import-<slug>`，slug 优先取 `meta.sourceId`、其次
+  `meta.id`）——文档只提供 slug 来源，命名约定与副本命名（`import-<id>-<n>`）不由来源决定；
+  工具面可用 `sessionId` 显式覆盖。
+- **字段能力**：`turns[i].time` / `steps[j].time` / `toolResults[k].time`、
+  `steps[j].usage`、`turns[i].compaction` / `shadowed`、`promptBlocks` 与各源
+  转换器产出的 IR 同构，§2 能力矩阵与 §3 降级规则逐条适用。
+- **用途**：长尾来源的落点。任意外部工具的转录写成这份文档即可按普通文件导入，
+  不需要为每个来源内置转换器（识别失败的三个出口之一就是它）；它是**导入侧**契约，
+  导出/备份方向仍走 §4 便携包（事件级无损）。
+

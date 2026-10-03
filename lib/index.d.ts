@@ -77,6 +77,8 @@ export interface ImportOptions {
 
 export type LocalJsonlFormat =
   | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder' | 'vibe'
+  /** interchange v1 会话文档（内容标记 "interchange":"dsh-chat-import"；长尾来源与 skill 路线的落点）。 */
+  | 'generic'
 
 /** import_chat 的源格式枚举（值 = 来源短名，与面板来源 / discovery FORMATS 一致）。 */
 export type ChatFormat =
@@ -100,7 +102,7 @@ export interface ImportChatOptions extends ImportOptions {
   lineage?: 'tail'
   /** 仅 reasonix 目录：canonical（默认）只折叠有严格语义前缀及明确 parent_id 谱系证明的恢复祖先；physical 逐文件导入。 */
   lineageMode?: 'canonical' | 'physical'
-  /** 仅 local-jsonl：强制按指定格式解析；缺省自动识别。 */
+  /** 仅 local-jsonl：强制按指定格式解析；缺省自动识别（内容标记 > 路径特征 > 逐格式试跑）。 */
   parseFormat?: LocalJsonlFormat
 }
 
