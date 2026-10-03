@@ -114,7 +114,7 @@ For full tool / command usage, see **[docs/USAGE.md](docs/USAGE.md)**.
 | Capability | Entry Point | Description |
 | --- | --- | --- |
 | Import | Sidebar panel "Import" tab | Import conversations from other agents, preserving reasoning, tool call results, and system prompts (optional) |
-| Import from file | Panel "Import from file" / `/import auto <path>` | Any local file or directory: three-level detection (explicit format > content marker > parser trial), preview first, an optional "search subfolders?" prompt for directories, and a skill pointer when every parser fails |
+| Import from file | Panel "Import from file" / `/import auto <path>` | Any local file or directory: three-level detection (explicit format > content marker > parser trial), preview first, an optional "search subfolders?" prompt for directories, and — when every parser fails — a ready-to-send agent task brief plus a registered `dsh-chat-import-convert` skill |
 | Retract Import | Sidebar panel "History" tab | View import history and delete sessions created by this plugin with one click |
 | Export | Context tool | Serialize DSH sessions back to external agents |
 | Ignore | Automatic + `/ignores` commands | Archive / delete / workspace-removal auto-registers the source so rescans skip it; `/ignore`, `/unignore` manage the table |
@@ -125,6 +125,7 @@ For full tool / command usage, see **[docs/USAGE.md](docs/USAGE.md)**.
 | --- | --- |
 | [Usage Reference](docs/USAGE.md) | Full parameters, examples, and edge cases for every tool / command |
 | [Interchange Protocol](docs/INTERCHANGE.md) | Interchange v1 protocol and bundle format |
+| [Conversion Guide](docs/INTERCHANGE-GUIDE.md) | Agent-facing skill instructions: convert any transcript into an importable interchange v1 document |
 | [Settings Migration](docs/SETTINGS-MIGRATION.md) | DSH 0.1.5 → 0.1.7 plugin settings-page migration (measured errors, compatibility recipe) |
 | [Changelog](CHANGELOG.md) | Version history |
 | [Roadmap](docs/ROADMAP.md) | Shipped / planned |

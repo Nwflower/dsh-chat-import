@@ -114,7 +114,7 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 | 能力 | 入口 | 说明 |
 | --- | --- | --- |
 | 导入 | 侧边栏面板「导入」页 | 从其他Agents导入对话，保留推理过程、工具调用结果和系统提示词（可选） |
-| 文件导入 | 面板「从文件导入」/ `/import auto <path>` | 任意本地文件或目录：三级探测（显式格式 > 内容标记 > 逐格式试跑）、预览先行、目录可问「是否搜索子文件夹」；识别失败摊开各解析器原因并给 Skill 指引 |
+| 文件导入 | 面板「从文件导入」/ `/import auto <path>` | 任意本地文件或目录：三级探测（显式格式 > 内容标记 > 逐格式试跑）、预览先行、目录可问「是否搜索子文件夹」；识别失败摊开各解析器原因，一键复制可直接发给 Agent 的任务模板，并注册 `dsh-chat-import-convert` 转换 skill |
 | 撤回导入 | 侧边栏面板「历史」页 | 展示导入记录，一键删除本插件创建的会话。 |
 | 导出 | 上下文工具 | DSH 会话序列化回外部Agents |
 | 忽略 | 自动 + `/ignores` 命令 | 归档 / 删除 / 删工作区自动登记源，重扫跳过；`/ignore`、`/unignore` 管理忽略表 |
@@ -125,6 +125,7 @@ import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 | --- | --- |
 | [使用详解](docs/USAGE.zh-CN.md) | 每个工具 / 命令的完整参数、示例与边界行为 |
 | [互转协议](docs/INTERCHANGE.md) | Interchange v1 协议与 bundle 格式 |
+| [转换指南](docs/INTERCHANGE-GUIDE.zh-CN.md) | 给 Agent 的 Skill 指令：把任意转录转成可导入的 interchange v1 文档 |
 | [设置页迁移](docs/SETTINGS-MIGRATION.zh-CN.md) | DSH 0.1.5 → 0.1.7 插件设置页迁移（实测报错、兼容写法） |
 | [更新日志](CHANGELOG.md) | 版本历史（英文） |
 | [路线图](docs/ROADMAP.md) | 已实现 / 规划 |

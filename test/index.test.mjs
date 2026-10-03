@@ -271,6 +271,8 @@ function makeCtx(tree, opts = {}) {
     fs,
     sessionPersistence: hostPersistence,
     webServer: webServerStub,
+    // skills 同是可选服务：opts.services.skills 提供时 inject 回调才会执行（与 webServer 同口径）
+    skills: services.skills,
     get(service) {
       if (service === 'workspaceRegistry') return workspaceRegistry
       if (service === 'sessionPersistence') return hostPersistence
@@ -346,6 +348,16 @@ test('apply 注册十二个工具（import_chat 分发器 + import_agents + doct
       assert.equal(def.output.schema.oneOf.length, 4)
     }
   }
+})
+
+test('apply 把转换指南注册为运行时 skill（skills 服务在场时）', () => {
+  const skills = []
+  const { ctx } = makeCtx({}, { services: { skills: { register(def) { skills.push(def); return () => {} } } } })
+  apply(ctx)
+  assert.equal(skills.length, 1)
+  assert.equal(skills[0].name, 'dsh-chat-import-convert')
+  assert.ok(skills[0].content.includes('"interchange": "dsh-chat-import"'))
+  // 缺席口径由其余所有用例覆盖：makeCtx({}) 无 skills 服务，apply 照常完成
 })
 
 // issue #20：DSH 更新后 defineTool 恒暴露 output.render（内部调用 userRender），

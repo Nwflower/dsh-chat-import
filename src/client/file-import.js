@@ -27,8 +27,8 @@
       HostButton = null;
     }
 
-    // 识别失败时指给用户的「Skill」：把任意格式转成受支持的 interchange v1 文档。
-    const INTERCHANGE_DOC_URL = "https://github.com/Nwflower/dsh-chat-import/blob/main/docs/INTERCHANGE.md";
+    // 识别失败时指给用户的「Skill」：interchange 转换指南（Agent 用，双语）。URL 按界面
+    // 语言走 i18n 键 fileImport.failures.guideUrl（zh → .zh-CN.md，en → .md），不写死常量。
     const FILE_AREA_COLLAPSED_KEY = "chat-import.fileArea.collapsed";
     const FILE_AREA_ID = "chat-import-file-area";
     const FILE_FAILURES_ID = "chat-import-file-failures";
@@ -428,12 +428,21 @@
       const copyFailures = async () => {
         const path = preview && preview.data ? (preview.data.path || pathInput.trim()) : pathInput.trim();
         const list = failureList();
-        const lines = [t("fileImport.failures.summary.head", { path })];
-        if (list.length > 0) lines.push(t("fileImport.failures.allFailed", { n: list.length }));
-        for (const f of list) {
-          lines.push(t("fileImport.failures.line", { format: (f && f.format) || "?", reason: (f && f.reason) || "" }));
+        // 复制出去的是「可直接发给 Agent 的任务包」：任务说明 + 指南链接 + 源路径 +
+        // 产出要求，末尾附逐解析器失败原因供参考——Agent 拿到不再需要回头找用户要上下文。
+        const lines = [
+          t("fileImport.failures.task.head", { url: t("fileImport.failures.guideUrl") }),
+          "",
+          t("fileImport.failures.task.path", { path }),
+          "",
+          t("fileImport.failures.task.req"),
+        ];
+        if (list.length > 0) {
+          lines.push("", t("fileImport.failures.task.reasons", { n: list.length }));
+          for (const f of list) {
+            lines.push("- " + t("fileImport.failures.line", { format: (f && f.format) || "?", reason: (f && f.reason) || "" }));
+          }
         }
-        lines.push(t("fileImport.failures.hint") + INTERCHANGE_DOC_URL + t("fileImport.failures.hintSuffix"));
         try {
           await window.navigator.clipboard.writeText(lines.join("\n"));
           setCopied(true);
@@ -485,7 +494,7 @@
           React.createElement("div", { style: style.note },
             t("fileImport.failures.hint"),
             React.createElement("a", {
-              href: INTERCHANGE_DOC_URL, target: "_blank", rel: "noreferrer", style: style.link,
+              href: t("fileImport.failures.guideUrl"), target: "_blank", rel: "noreferrer", style: style.link,
             }, t("fileImport.failures.hintLink")),
             t("fileImport.failures.hintSuffix")));
       };
