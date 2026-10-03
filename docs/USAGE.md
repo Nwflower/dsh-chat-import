@@ -204,6 +204,23 @@ Non-DSH targets **transfer instead of importing**: the plugin runs the source th
 
 > **A landing toast appears when an import finishes** (the official `shell.overlay` Toast: top-center, auto-dismissed after about six seconds): "Import done → <workspace path> (workspace created); N left ungrouped". The panel's result bar still carries the full counts — this one exists so that you know **where it landed** even after switching tabs or collapsing the right sidebar; transfers (importing into something other than DSH) toast the written file path instead. **Sessions skipped by the idempotency check are reported by the same toast**: "Skipped N conversation(s) that are unchanged or cannot be appended safely" plus a **Re-import as a new session** button (i.e. `force`, minting a new session; actionable toasts hold for 15 seconds). The panel's old in-panel bottom banner is gone — it is this toast now. On host versions without the official `Toast` component the plugin falls back to a self-drawn banner in the same place, action button included (see docs/architecture.md D17).
 
+### Import from file — any local file and the long tail
+
+The discovery list covers the built-in sources only. When the file in hand comes from somewhere else (a web-app export, your own script, an unsupported tool's storage), use **Import from file**:
+
+- **Panel**: the collapsible "Import from file" area at the top of the import tab. Three equivalent ways in — drop files / directories onto the dashed zone (or click it to pick files; when the browser only holds `File` objects the chunked **upload channel** stages them under `$DSH_HOME/dsh-chat-import/uploads/`), type a local path (the desktop host reads it directly, no size limit), or press **Browse…** (a native OS dialog when the host provides one, otherwise an in-panel directory listing).
+- **Command**: `/import auto <path>` (`local-jsonl` is the same); the tool surface is `import_chat({ format: "local-jsonl", path })`, with `parseFormat` to force a parser.
+
+**Detection (three levels)**: explicit `format` > **content marker** (interchange document / `.dshbundle` backup, sniffed from the file head only) > path hints ordering the parsers that are then tried one by one. The winning format and the criterion (`detectedFormat` / `detectedBy`) are shown in the preview.
+
+**Preview first**: choosing a path runs a read-only preview (zero side effects) — detected format, title, turn / message / tool-call counts, cwd, timestamps and degradation counts. A directory expands into a checkable list of entries (recognised ones checked by default); "Import selected" imports them one by one.
+
+**A failed detection is not a dead end**: the preview card lists **every candidate parser and its reason for failing**, plus three exits — retry with a forced format, copy the failure summary, or convert the file into an [interchange v1 document](INTERCHANGE.md#5-generic-文档作为导入格式) (the `"interchange": "dsh-chat-import"` marker, which any tool or script can produce) and import that. A file with 0 turns or no recognisable format disables the import button — a blank, unopenable session is never produced.
+
+**Portable bundles**: a `.dshbundle.json` is recognised as a backup and imported through `restore_bundle` (two-layer fingerprint check, restored as a continuable session) instead of being treated as a plain transcript.
+
+**Upload staging**: chunked uploads are idempotent per (sha256, size) — a page refresh or a dropped connection resumes from the received byte count, and re-uploading the same file transfers nothing. A file only becomes importable after the whole-file fingerprint checks out. Limits: 256 MiB per file, 2 GiB of staging, incomplete uploads reclaimed after 24 hours. Imported staging files are **kept** (the re-import semantics key on them); unreferenced ones can be removed from the panel's staging-cleanup action.
+
 ### `/import` slash command & `/resume-*` handoff
 
 The plugin also registers a **`/import <source> <path>`** slash command (available where the dsh `commands` service is mounted): type it directly in a session to import without a model round-trip — the same pipeline and the same idempotent / incremental / `force` / context-budget semantics as the `import_*` tools. `<source>` accepts the short name (`claude`, `codex`, …), the client source id (`claude-code`), or the full tool name (`import_claude`); `<path>` is a transcript file or a session directory / data root (single-file import vs. directory batch as usual).

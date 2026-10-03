@@ -83,7 +83,7 @@ dsh plugin --profile web add dsh-chat-import                    # npm package
 ## Usage
 
 1. Import conversations via GUI
-  Open the import window from the "Import sessions" button at the bottom of the left sidebar (with the DSH Claude Style theme, that button sits in the account menu at the bottom left), select the conversations you want to import, and import with one click.
+  Open the import window from the "Import sessions" button at the bottom of the left sidebar (with the DSH Claude Style theme, that button sits in the account menu at the bottom left), select the conversations you want to import, and import with one click. When the file in hand comes from somewhere else (a web-app export, your own script, a tool this plugin does not list), use **Import from file** at the top of the same window: drop a file or directory, type a local path, or press Browse…, confirm in the preview, then import (a failed detection lists every candidate format's reason and offers a way out).
 
   <table>
     <tr>
@@ -114,6 +114,7 @@ For full tool / command usage, see **[docs/USAGE.md](docs/USAGE.md)**.
 | Capability | Entry Point | Description |
 | --- | --- | --- |
 | Import | Sidebar panel "Import" tab | Import conversations from other agents, preserving reasoning, tool call results, and system prompts (optional) |
+| Import from file | Panel "Import from file" / `/import auto <path>` | Any local file or directory: three-level detection (explicit format > content marker > parser trial), preview first, failures spelled out; unsupported tools can be converted into an interchange v1 document |
 | Retract Import | Sidebar panel "History" tab | View import history and delete sessions created by this plugin with one click |
 | Export | Context tool | Serialize DSH sessions back to external agents |
 | Ignore | Automatic + `/ignores` commands | Archive / delete / workspace-removal auto-registers the source so rescans skip it; `/ignore`, `/unignore` manage the table |

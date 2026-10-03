@@ -2,6 +2,26 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">新增功能</h3>
+
+- **从文件导入**：面板导入页新增「从文件导入」区，任意本地文件或目录都能进导入管线——拖放 / 文件选择（浏览器只有 `File` 对象时分片上传到暂存）、本机路径直读、「浏览…」（宿主有原生目录选择器时弹系统对话框，否则在面板内列目录）。阶段固定为**识别 → 只读预览 → 导入**：预览卡片给出识别格式与判据、标题、轮 / 消息 / 工具调用计数、cwd、时间与降级计数；目录展开为可勾选条目，「导入所选」逐条导入。命令面同步为 `/import auto <路径>`（`local-jsonl` 同义），工具面 `import_chat({ format: "local-jsonl" })` 的 dry-run 结果现在带 `detectedFormat` / `detectedBy` / `failures`。
+- **三级探测与失败出路**：显式格式 > 内容标记（interchange 文档 / `.dshbundle` 便携包，只扫文件头）> 路径特征排序后逐格式试跑。识别失败不再是一句「未识别」——预览里摊开**每个候选格式的失败原因**，并给三个出口：换格式重试、复制失败摘要、或把文件转成 interchange v1 文档后重新导入。识别不出或 0 轮的文件禁用导入，绝不产出侧栏看不见的空壳会话。
+- **interchange v1 文档成为一等导入格式**（`parseFormat: "generic"`，契约见 docs/INTERCHANGE.md §5）：带 `"interchange": "dsh-chat-import"` 与 `version: 1` 的 turns 文档可直接导入，是长尾工具与脚本产出的落点。版本不符整体拒绝；未知内容块、拿不到字节的图片、畸形轮步、孤儿工具结果、非法用量全部计数上报。`.dshbundle.json` 在文件导入里被识别为备份包并转 `restore_bundle`（双层指纹校验），不会被当成普通转录。
+- **上传通道**：`POST /api-import/upload/init|chunk|complete` 三步，按 (sha256, size) 幂等——刷新或断线后从已收字节续传，同一文件重复上传零重传；整文件指纹校验通过才产出可导入路径。配额单文件 256MiB、暂存 2GiB、未完成 24 小时回收；文件名 sanitize 且落点固定在 `$DSH_HOME/dsh-chat-import/uploads/`。导入后的暂存件保留（重导语义以它为源键），维护路由可清理未被 registry 引用的件。
+- **路径浏览消费宿主能力**：`POST /api-import/browse` 优先使用宿主的 `ctx.directoryPicker`（native 系统对话框 / browse 清单），服务缺席时退回 `ctx.fs.listDir` 自绘清单，旧宿主上浏览能力不消失。
+
+<h3 id="en-unreleased">New Features</h3>
+
+- **Import from file**: the import tab gains an "Import from file" area — any local file or directory can enter the import pipeline by drag & drop / file picker (chunked upload into staging when the browser only holds a `File` object), a directly typed local path, or **Browse…** (a native OS dialog when the host provides one, otherwise an in-panel directory listing). The flow is fixed: **detect → read-only preview → import**. The preview card shows the detected format and criterion, title, turn / message / tool-call counts, cwd, timestamps and degradation counts; a directory expands into checkable entries and "Import selected" imports them one by one. The command surface mirrors it as `/import auto <path>` (`local-jsonl` is the same), and the tool surface's dry-run now returns `detectedFormat` / `detectedBy` / `failures` for `import_chat({ format: "local-jsonl" })`.
+- **Three-level detection with a way out**: explicit format > content marker (interchange document / `.dshbundle` backup, sniffed from the file head only) > path hints ordering the parsers that are then tried one by one. A failed detection is no longer a single "unrecognized" line — the preview lists **every candidate parser's reason for failing** and offers three exits: retry with a forced format, copy the failure summary, or convert the file into an interchange v1 document and import that. Files with no detection or 0 turns disable the import button; a blank session that never shows up in the sidebar is never produced.
+- **The interchange v1 document is now a first-class import format** (`parseFormat: "generic"`, contract in docs/INTERCHANGE.md §5): a turns document carrying `"interchange": "dsh-chat-import"` and `version: 1` imports directly, which is the landing spot for long-tail tools and scripted conversions. A mismatched version is rejected wholesale; unknown content blocks, images without usable bytes, malformed turns or steps, orphan tool results and invalid usage are all counted and reported. A `.dshbundle.json` is recognised as a backup archive during file import and routed to `restore_bundle` (two-layer fingerprint check) instead of being treated as a plain transcript.
+- **Upload channel**: `POST /api-import/upload/init|chunk|complete` — idempotent per (sha256, size), so a refresh or a dropped connection resumes from the received byte count and re-uploading the same file transfers nothing; a path only becomes importable after the whole-file fingerprint checks out. Limits: 256 MiB per file, 2 GiB of staging, incomplete uploads reclaimed after 24 hours; names are sanitized and staging stays under `$DSH_HOME/dsh-chat-import/uploads/`. Imported staging files are kept (the re-import semantics key on them) and a maintenance route removes the ones no registry entry references.
+- **Path browsing consumes host capability**: `POST /api-import/browse` prefers the host's `ctx.directoryPicker` (native OS dialog / browse listing) and falls back to a self-drawn `ctx.fs.listDir` listing when the service is absent, so browsing does not disappear on older hosts.
+
 ## [0.24.0] - 2026-10-03
 
 [中文](#cn-0.24.0) | [English](#en-0.24.0)

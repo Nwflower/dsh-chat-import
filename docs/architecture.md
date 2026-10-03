@@ -189,3 +189,18 @@
 - **代价**：V2 的压缩正文分 `summary` 与 `recent` 两个字段（V2 模型两段都看，见 `session/compaction.ts` 的 `<summary>` / `<recent-context>`），检查点正文因此是两段之和：比 V1 的「摘要 + 保留窗口仍以轮呈现」更粗（保留窗口变成文本），换来的是与源侧投影逐字一致。非 `completed` 的 compaction 行（running/failed）不是模型可见边界，正文按普通内容保留、绝不静默丢。V2 原生工具名（`shell`/`subagent`/`patch`、`path` 取代 `filePath`）按「未知名原样保留」处理，不新造 DSH 侧对照（迁移后的历史行里仍是 V1 名，两套都要能读）。
 - **重审条件**：opencode 再换存储世代（第三种表名/库）时按同一分派扩一项；V2 若开始删除 V1 三表，本决策无需改动（分派已覆盖）。反向导出（`export_chat({ format: 'opencode' })`）目前仍写 V1 `opencode import` 能吃的 JSON，V2 的 `session import` 契约未验证前不改。
 
+---
+
+## D20. 从文件导入：三级探测 + generic 文档 + 上传通道（2026-10 定）
+
+- **背景**：发现列表只覆盖内置来源，而「手上有一个文件」是最常见的入口形态：网页版导出（无官方格式）、自写脚本产物、长尾工具的原生存储——以及 issue #70 那类「我下载了一个导出文件，却无处可导」。此前的文件路径只有 `import_chat({ format: "local-jsonl" })`：只收 `.jsonl`、失败只给一句「未识别」（死胡同：既不说支持什么，也不给出路）、面板完全没有文件入口；远程部署（浏览器只有 `File` 对象、拿不到路径）更是无路可走。
+- **决定**：
+  1. **三级探测**（`lib/convert/local-jsonl.mjs`）：显式 `format` 覆盖 > **内容标记**（`"interchange":"dsh-chat-import"` → generic；`"bundle"` → 便携包转 `restore_bundle`；只扫前 64KB）> 路径特征排序候选后逐个试跑。结果带 `detectedFormat` / `detectedBy` / `failures`（**每个**候选格式的失败原因，全量而非只记第一条）。
+  2. **generic 文档成为一等导入格式**（`lib/convert/generic.mjs`，契约见 INTERCHANGE.md §5）：INTERCHANGE §1 的 turns 文档带版本与内容标记即可导入。这是长尾来源与 skill 路线的落点——写一份 JSON 比内置一个转换器便宜，也不必让 LLM 手写 DSH 事件日志（seq / surfaceOp / protected head / V3-V4 形状任一不合就整份被宿主拒载）。**不选 DSH 会话日志当撰写格式**：它是存储格式，不是 authoring 格式。校验按 D4 大声计数（未知块 / 图片降级 / 畸形轮步 / 孤儿结果 / 非法 usage / 0 轮 skipReason）。
+  3. **上传通道**（`lib/upload.mjs` + 三条路由）：init / chunk / complete 三步，按 (sha256, size) 幂等（刷新或断线从已收字节续传，同一文件零重传），整文件指纹校验通过才产出可导入路径；配额单文件 256MiB / 暂存 2GiB、未完成 24h 回收、文件名 sanitize 且落点固定在 `$DSH_HOME/dsh-chat-import/uploads/<uuid>/`。暂存件导入后**保留**（D13 的重导语义以它为源键），未被 registry 引用的件由维护入口清理。
+  4. **一个编排、三个入口**：`lib/file-import.mjs` 同时服务面板 `/api-import/file`、`/import auto <path>` 与 `local-jsonl` 工具面（`parseFormat` 增补 `generic`）；预览复用 import-core 的 preview 家族，零新状态机；目录批量复用 `importDirectory`，vibe 形态目录（`messages.jsonl` + `meta.json`）经该来源自己的 `vibeDeriveArgs` 补 meta（不重写第二份映射）。
+  5. **浏览按钮消费宿主能力**：`ctx.directoryPicker` 的 native（系统对话框）/ browse（清单）两后端，缺席时退回 `ctx.fs.listDir` 自绘清单——能力不因宿主旧而消失。
+- **代价**：探测要跑多个转换器（失败路径比成功路径更贵，故内容标记与路径特征都前置于试跑）；`convertLocalJsonl` 的结果多了三个键，工具 / 命令 / 面板三处都要透出；上传是唯一新增的「无盘来源」数据面，配额与暂存生命周期因此成为长期维护项；generic 是一份要跟着 IR 演进的第二契约（靠能力矩阵与同一个 `synthesizeSession` 收敛）。
+- **重审条件**：宿主提供文件选择服务（不限目录）时，浏览改走该服务并删掉 fs 兜底清单；出现被广泛采用的会话交换标准时，评估把 generic 换成或映射到该标准。
+
+
