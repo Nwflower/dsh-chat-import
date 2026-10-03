@@ -246,6 +246,31 @@ test('预览路由：目录 → 批量条目（可识别 + 未识别带失败清
   } finally { h.cleanup() }
 })
 
+test('目录搜索范围：recursive:false 只扫当前层，recursive:true 才下钻（子文件夹询问的两条分支）', async () => {
+  const dir = join(BASE, 'vault2')
+  const sub = join(dir, 'nested')
+  const top = join(dir, 'session.jsonl')
+  const deep = join(sub, 'deep.json')
+  const h = makeHarness({ [dir]: 'dir', [sub]: 'dir', [top]: DSH_LOG, [deep]: GENERIC_DOC })
+  try {
+    // 回车/预览先走的方式：仅当前层（面板据此弹「是否搜索子文件夹」）
+    const shallow = await invoke(h, '/api-import/file', { path: dir, preview: true, recursive: false })
+    assert.equal(shallow.data.kind, 'batch')
+    assert.equal(shallow.data.total, 1)
+    assert.deepEqual(shallow.data.results.map((r) => r.path), [top])
+    // 用户选「包含子文件夹」后重扫
+    const deepScan = await invoke(h, '/api-import/file', { path: dir, preview: true, recursive: true })
+    assert.equal(deepScan.data.total, 2)
+    assert.ok(deepScan.data.results.some((r) => r.path === deep))
+    // 导入同样认这个开关：只导当前层那一个
+    const imported = await invoke(h, '/api-import/file', { path: dir, recursive: false })
+    assert.equal(imported.data.kind, 'batch')
+    assert.equal(imported.data.total, 1)
+    assert.equal(imported.data.imported, 1)
+    assert.equal(h.persistence.sessions.size, 1)
+  } finally { h.cleanup() }
+})
+
 test('导入路由：单文件落成可继续会话并写 registry；重复导入走幂等', async () => {
   const file = join(BASE, 'downloads', 'session.jsonl')
   const h = makeHarness({ [file]: DSH_LOG })
@@ -308,27 +333,6 @@ test('导入路由：未知 target 拒绝；缺 path/uploadId 拒绝', async () 
   } finally { h.cleanup() }
 })
 
-test('浏览路由：info 报能力（无 directoryPicker 时回退 fs）；list 列目录；pick 在非 native 下拒绝', async () => {
-  const dir = join(BASE, 'vault')
-  const file = join(dir, 'session.jsonl')
-  const h = makeHarness({ [dir]: 'dir', [file]: DSH_LOG })
-  try {
-    const info = await invoke(h, '/api-import/browse', { mode: 'info' })
-    assert.equal(info.data.ok, true)
-    assert.equal(info.data.kind, 'fs')
-    assert.ok(typeof info.data.home === 'string' && info.data.home.length > 0)
-    const list = await invoke(h, '/api-import/browse', { mode: 'list', path: dir })
-    assert.equal(list.data.ok, true)
-    assert.equal(list.data.kind, 'fs')
-    assert.ok(list.data.entries.some((e) => e.name === 'session.jsonl' && e.type === 'file'))
-    assert.ok(Array.isArray(list.data.crumbs) && list.data.crumbs.length > 0)
-    const pick = await invoke(h, '/api-import/browse', { mode: 'pick' })
-    assert.equal(pick.status, 400)
-    const notDir = await invoke(h, '/api-import/browse', { mode: 'list', path: file })
-    assert.equal(notDir.status, 400)
-  } finally { h.cleanup() }
-})
-
 test('转投：从文件导入可直接转到外部工具格式（中间会话导出后撤回）', async () => {
   const file = join(BASE, 'downloads', 'session.jsonl')
   const h = makeHarness({ [file]: DSH_LOG })
@@ -344,35 +348,6 @@ test('转投：从文件导入可直接转到外部工具格式（中间会话�
     // 中间会话的去向如实上报：撤回成功（purged）或撤回失败但保留（kept + 原因）。
     // （本 mock 的 sessions Map 不是工件存储——撤回走 locate/扫描磁盘工件，故只断言上报口径。）
     assert.equal((data.purged || 0) + (data.kept || 0), 1)
-  } finally { h.cleanup() }
-})
-
-test('浏览路由：browse 后端（directoryPicker）时按宿主清单返回', async () => {
-  const h = makeHarness({}, {
-    services: {
-      directoryPicker: {
-        capability: () => ({
-          kind: 'browse',
-          async list(path) {
-            return {
-              path: path || '/home/u',
-              home: '/home/u',
-              crumbs: [{ name: 'home', path: '/home' }],
-              entries: [{ name: 'Downloads', path: '/home/u/Downloads', hidden: false }],
-              truncated: false,
-            }
-          },
-        }),
-      },
-    },
-  })
-  try {
-    const info = await invoke(h, '/api-import/browse', { mode: 'info' })
-    assert.equal(info.data.kind, 'browse')
-    const list = await invoke(h, '/api-import/browse', { mode: 'list' })
-    assert.equal(list.data.kind, 'browse')
-    assert.equal(list.data.entries[0].name, 'Downloads')
-    assert.equal(list.data.crumbs[0].path, '/home')
   } finally { h.cleanup() }
 })
 

@@ -199,8 +199,8 @@
   2. **generic 文档成为一等导入格式**（`lib/convert/generic.mjs`，契约见 INTERCHANGE.md §5）：INTERCHANGE §1 的 turns 文档带版本与内容标记即可导入。这是长尾来源与 skill 路线的落点——写一份 JSON 比内置一个转换器便宜，也不必让 LLM 手写 DSH 事件日志（seq / surfaceOp / protected head / V3-V4 形状任一不合就整份被宿主拒载）。**不选 DSH 会话日志当撰写格式**：它是存储格式，不是 authoring 格式。校验按 D4 大声计数（未知块 / 图片降级 / 畸形轮步 / 孤儿结果 / 非法 usage / 0 轮 skipReason）。
   3. **上传通道**（`lib/upload.mjs` + 三条路由）：init / chunk / complete 三步，按 (sha256, size) 幂等（刷新或断线从已收字节续传，同一文件零重传），整文件指纹校验通过才产出可导入路径；配额单文件 256MiB / 暂存 2GiB、未完成 24h 回收、文件名 sanitize 且落点固定在 `$DSH_HOME/dsh-chat-import/uploads/<uuid>/`。暂存件导入后**保留**（D13 的重导语义以它为源键），未被 registry 引用的件由维护入口清理。
   4. **一个编排、三个入口**：`lib/file-import.mjs` 同时服务面板 `/api-import/file`、`/import auto <path>` 与 `local-jsonl` 工具面（`parseFormat` 增补 `generic`）；预览复用 import-core 的 preview 家族，零新状态机；目录批量复用 `importDirectory`，vibe 形态目录（`messages.jsonl` + `meta.json`）经该来源自己的 `vibeDeriveArgs` 补 meta（不重写第二份映射）。
-  5. **浏览按钮消费宿主能力**：`ctx.directoryPicker` 的 native（系统对话框）/ browse（清单）两后端，缺席时退回 `ctx.fs.listDir` 自绘清单——能力不因宿主旧而消失。
-- **代价**：探测要跑多个转换器（失败路径比成功路径更贵，故内容标记与路径特征都前置于试跑）；`convertLocalJsonl` 的结果多了三个键，工具 / 命令 / 面板三处都要透出；上传是唯一新增的「无盘来源」数据面，配额与暂存生命周期因此成为长期维护项；generic 是一份要跟着 IR 演进的第二契约（靠能力矩阵与同一个 `synthesizeSession` 收敛）。
-- **重审条件**：宿主提供文件选择服务（不限目录）时，浏览改走该服务并删掉 fs 兜底清单；出现被广泛采用的会话交换标准时，评估把 generic 换成或映射到该标准。
+  5. **交互按「不跟宿主抢手势」定形**（2026-10 收口）：面板**不注册拖放**——把会话文件拖到 DSH 窗口会被宿主当成「给当前对话加附件」，抢过来只会让用户困惑；给文件的入口是系统文件框（「选择…」→ 隐藏 `<input type=\"file\" multiple>` → 上传通道）与**路径回车**两种。路径是目录时**显式弹窗问「是否搜索子文件夹」**：先按当前层扫一遍（`recursive:false`），用户选「包含子文件夹」才重扫（目录树可能很大，不做无谓下钻）。弹窗用**宿主内置预设样式的 Modal / Button**（`@deepseek-ai/dsh-client-ui-primitives`，与落点 Toast 同一条 require 通道 + 同一条降级策略），不引入 Electron 原生对话框，也不自造一套视觉。原先的 `/api-import/browse`（目录选择器 / 自绘清单）随「浏览…」按钮一并删除——它的唯一消费者就是那个按钮。
+- **代价**：探测要跑多个转换器（失败路径比成功路径更贵，故内容标记与路径特征都前置于试跑）；`convertLocalJsonl` 的结果多了三个键，工具 / 命令 / 面板三处都要透出；上传是唯一新增的「无盘来源」数据面，配额与暂存生命周期因此成为长期维护项；generic 是一份要跟着 IR 演进的第二契约（靠能力矩阵与同一个 `synthesizeSession` 收敛）；路径输入意味着目录要先扫一层再问（多一次轻量扫描，换掉「默默递归几十万文件」的风险）；识别失败的出路只剩「复制摘要 + 交给 Agent 按 Skill 转换」，用户手上有明确解析器目标时需要走工具面（`import_chat` 的 `parseFormat`）。
+- **重审条件**：宿主自身的拖放/附件交互改为不吞文件（或提供「拖到导入面板」的排他区域）时，可重新评估拖放入口；宿主提供文件（非目录）选择服务时，「选择…」改走该服务；出现被广泛采用的会话交换标准时，评估把 generic 换成或映射到该标准。
 
 

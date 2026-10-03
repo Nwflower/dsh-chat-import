@@ -5296,8 +5296,8 @@ test('REQ-41 apply 注册 webServer 路由（POST /api-import/sessions + /api-im
   assert.equal(imp.kind, 'exact')
   assert.equal(typeof sessions.handler, 'function')
   assert.equal(typeof imp.handler, 'function')
-  // 从文件导入一族（面板「从文件导入」）：预览/导入、路径浏览、上传三步、暂存维护
-  for (const path of ['/api-import/file', '/api-import/browse', '/api-import/upload/init', '/api-import/upload/chunk', '/api-import/upload/complete', '/api-import/uploads']) {
+  // 从文件导入一族（面板「从文件导入」）：预览/导入、上传三步、暂存维护
+  for (const path of ['/api-import/file', '/api-import/upload/init', '/api-import/upload/chunk', '/api-import/upload/complete', '/api-import/uploads']) {
     const route = webRoutes.find((r) => r.path === path)
     assert.ok(route, 'route ' + path + ' 已注册')
     assert.equal(route.kind, 'exact')
