@@ -90,6 +90,28 @@ test('serializeOpencodeJson：assistant 的必填用量字段写 0 并计入 usa
   assert.deepEqual(degs, [{ id: 'usage-unknown', kind: 'usageUnknown', strategy: 'text-fallback', count: out.usageUnknown }])
 })
 
+test('serializeOpencodeJson：事件带 provider 回报 usage → tokens 如实回填，不计 usageUnknown', () => {
+  const out = serialize({
+    extra: [],
+  })
+  // 基线：合成事件无 usage → 全部写 0
+  assert.ok(out.usageUnknown > 0)
+  const withUsage = serializeOpencodeJson({
+    meta: { version: 2, id: 'import-sess-1', createdAt: T, cwd: 'D:\\demo\\proj' },
+    events: syntheticEvents().map((e) => e.type === 'assistant/message' && e.data.message.id === 'a1'
+      ? { ...e, data: { ...e.data, usage: { inputTokens: 100, outputTokens: 20, cacheReadTokens: 30, cacheWriteTokens: 40, reasoningTokens: 5 } } }
+      : e),
+    sessionUuid: 'import-sess-1',
+    cwd: 'D:\\demo\\proj',
+    title: '构建失败排查',
+  })
+  const doc = JSON.parse(withUsage.json)
+  const a1 = doc.messages.find((m) => m.parts.some((p) => p.type === 'text' && p.text === '先看日志。'))
+  assert.deepEqual(a1.info.tokens, { input: 100, output: 20, reasoning: 5, cache: { read: 30, write: 40 } })
+  // 只有带 usage 的那条不计；另一条 assistant 仍写 0 并计数
+  assert.equal(withUsage.usageUnknown, 1)
+})
+
 test('serializeOpencodeJson：thinking → reasoning part（带必填 time.start），工具调用/结果 → tool part', () => {
   const doc = JSON.parse(serialize().json)
   const types = doc.messages.flatMap((m) => m.parts.map((p) => p.type))

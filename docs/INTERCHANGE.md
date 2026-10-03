@@ -40,7 +40,9 @@
           ],
           "toolResults": [
             { "toolCallId": "call-1", "content": [{ "type": "text", "text": "…" }], "isError": false }
-          ]
+          ],
+          "time": 1767224650000,        // 可选：该步助手消息的源时间戳（毫秒）
+          "usage": { "inputTokens": 100, "outputTokens": 20, "cacheReadTokens": 30 }  // 可选：provider 回报用量
         }
       ],
       "aborted": false,                 // 可选：该轮被中断
@@ -54,6 +56,12 @@
 - `content` 块类型与 DSH 会话事件同构：`text` / `reasoning` / `image` / `tool-call` / `tool-result`
   （`tool-result` 块出现在 `toolResults[].content` 内，或作为消息 content 块）。
 - 回合模型：一条用户提问 = 一个 `turn`；一条助手消息（含其工具调用与结果）= 一个 `step`。
+- `turns[i].time` / `steps[j].time` / `toolResults[k].time`（可选，毫秒）：源转录的逐记录
+  时间戳，是宿主耗时统计的原料（模型耗时 = step.start→assistant/message，工具耗时 =
+  tool/call→tool/result）；事件时间只前进不倒退，全缺时取会话创建时间（这些耗时即为 0）。
+  首 token 延迟与输出速度**任何源都不可导**：外部转录没有流块时间戳，`stream` 恒为 `[]`。
+- `steps[j].usage`（可选）：provider 回报的 token 用量（DSH TokenUsage 形状），写入
+  `assistant/message.data.usage` 供宿主 token 统计折叠；input/output 不是非负整数时整份丢弃。
 - 配对不变量：每个 `toolCalls[].id` 必须有对应 `toolResults[].toolCallId`（缺失时
   `synthesizeSession` 兜底补发空结果——`sourceEventSeqs` 关联仍成立）。
 - 图片块有两种状态：**待落地** `{ type:'image', data:<base64>, mediaType, name? }`（转换层
@@ -71,32 +79,37 @@
 
 描述「源格式能记录什么」；缺能力 = 该源固有的有损项，不是插件缺陷。
 
-| 源 | toolResults | reasoning | images | cwd | branches | attachments | compacted |
-| --- | --- | --- | --- | --- | --- | --- | --- |
-| claude | ✅ | ✅ | ✅（提问 / 助手 / 工具结果内的 base64 截图） | ✅ | — | ✅ | — |
-| codex | ✅ | ✅（summary 可读；密文不可读） | ✅（`input_image` 的 data URL） | ✅ | — | ✅ | — |
-| chatgpt | ✅（无结构化参数） | — | — | — | ✅（mapping DAG） | ✅ | — |
-| cursor | —（导入器补空结果） | — | — | — | — | — | — |
-| gemini | ✅ | ✅ | — | ✅ | — | — | — |
-| reasonix | ✅ | ✅ | — | ✅ | — | — | — |
-| opencode | ✅ | ✅ | ✅（带内联字节的 file part） | ✅ | — | ✅ | ✅ |
-| teleagent | ✅ | ✅ | — | ✅ | — | ✅ | ✅（样本 compaction 无 tail_start_id → 不裁剪，全量导入） |
-| zcode | ✅ | ✅ | ✅（带内联字节的 file part） | ✅ | — | — | ✅ |
-| grokbuild | ✅ | ✅（summary 明文可读；encrypted_content 密文不可读） | ✅（`images[]` 的 data URL） | ✅ | — | ✅ | ✅（compaction_meta 交接摘要进原生检查点） |
-| openclaw | ✅ | — | — | ✅ | — | — | — |
-| hermes | ✅ | ✅ | — | ✅ | — | — | — |
-| pi | ✅ | ✅ | ✅（带字节的 image 块） | ✅ | ✅（树形） | — | ✅ |
-| kimi | ✅ | ✅ | —（只有自有 blob 存储的 `blobref:` 引用，插件取不到字节 → 占位 + 计数） | ✅ | — | — | — |
-| workbuddy | ✅ | ✅ | — | ✅ | — | — | — |
-| continue | ✅ | ✅ | — | ✅ | — | — | ✅（history 不裁剪，摘要挂 reasoning 块） |
-| cline | ✅ | ✅ | — | ✅ | — | — | ✅（compaction 侧车不改写主转写） |
-| goose | ✅ | ✅ | — | ✅ | — | — | — |
-| zed | ✅ | ✅ | —（`item.Image` 无内联字节 → 占位 + 计数） | ✅ | — | — | ✅（Compaction 摘要挂 reasoning 块） |
-| crush | ✅ | ✅ | — | ✅ | — | — | ✅（自动摘要消息挂 reasoning 块） |
-| dsh | ✅ | ✅ | ✅（原生附件引用原样带过，不重复存） | ✅ | — | ✅ | — |
+| 源 | toolResults | reasoning | images | cwd | branches | attachments | compacted | timestamps | usage |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| claude | ✅ | ✅ | ✅（提问 / 助手 / 工具结果内的 base64 截图） | ✅ | — | ✅ | — | ✅（逐行） | ✅（含 cache 读写桶） |
+| codex | ✅ | ✅（summary 可读；密文不可读） | ✅（`input_image` 的 data URL） | ✅ | — | ✅ | — | ✅（行信封） | — |
+| chatgpt | ✅（无结构化参数） | — | — | — | ✅（mapping DAG） | ✅ | — | ✅（`create_time`） | — |
+| cursor | —（导入器补空结果） | — | — | — | — | — | — | — | — |
+| gemini | ✅ | ✅ | — | ✅ | — | — | — | — | — |
+| reasonix | ✅ | ✅ | — | ✅ | — | — | — | ✅（v2 行 `createdAt`） | ✅（v2 行 `usage`，守卫映射） |
+| opencode | ✅ | ✅ | ✅（带内联字节的 file part） | ✅ | — | ✅ | ✅ | ✅（消息级） | ✅（V1 `message.data.tokens`；kilocode / mimocode 同） |
+| teleagent | ✅ | ✅ | — | ✅ | — | ✅ | ✅（样本 compaction 无 tail_start_id → 不裁剪，全量导入） | — | — |
+| zcode | ✅ | ✅ | ✅（带内联字节的 file part） | ✅ | — | — | ✅ | ✅（消息级） | — |
+| grokbuild | ✅ | ✅（summary 明文可读；encrypted_content 密文不可读） | ✅（`images[]` 的 data URL） | ✅ | — | ✅ | ✅（compaction_meta 交接摘要进原生检查点） | —（逐行无时间戳） | — |
+| openclaw | ✅ | — | — | ✅ | — | — | — | ✅（逐行） | — |
+| hermes | ✅ | ✅ | — | ✅ | — | — | — | ✅（逐消息 `ts`） | — |
+| pi | ✅ | ✅ | ✅（带字节的 image 块） | ✅ | ✅（树形） | — | ✅ | — | — |
+| kimi | ✅ | ✅ | —（只有自有 blob 存储的 `blobref:` 引用，插件取不到字节 → 占位 + 计数） | ✅ | — | — | — | ✅（逐行） | — |
+| workbuddy | ✅ | ✅ | — | ✅ | — | — | — | ✅（逐行） | — |
+| continue | ✅ | ✅ | — | ✅ | — | — | ✅（history 不裁剪，摘要挂 reasoning 块） | —（history 项无时间戳） | — |
+| cline | ✅ | ✅ | — | ✅ | — | — | ✅（compaction 侧车不改写主转写） | ✅（仅 assistant 的 `ts`） | — |
+| goose | ✅ | ✅ | — | ✅ | — | — | — | ✅（逐消息） | — |
+| zed | ✅ | ✅ | —（`item.Image` 无内联字节 → 占位 + 计数） | ✅ | — | — | ✅（Compaction 摘要挂 reasoning 块） | —（线程级才有时间） | — |
+| crush | ✅ | ✅ | — | ✅ | — | — | ✅（自动摘要消息挂 reasoning 块） | ✅（`created_at` / `finished_at`） | — |
+| trae | ✅ | — | — | ✅ | — | — | — | ✅（逐消息） | — |
+| dsh | ✅ | ✅ | ✅（原生附件引用原样带过，不重复存） | ✅ | — | ✅ | — | ✅（原生事件时间原样透传） | ✅（原生 usage 原样透传） |
 
 「—」= 该源固有缺能力（不是插件缺陷）；`images` 列的 ✅ 指该源能提供图片字节、导入后由
 宿主附件服务持久化（能否落成取决于宿主是否提供 `ctx.attachments`，见 §3 的 `attachment-skipped`）。
+`timestamps` 列的 ✅ 指逐记录时间戳会透传进会话事件时间（宿主据此刻出真实的逐步模型耗时与
+工具耗时）；`usage` 列的 ✅ 指 provider 回报的 token 用量写入 `assistant/message.data.usage`
+（宿主 token 统计可见）。首 token 延迟与输出速度任何源都标不出：外部转录没有流块时间戳，
+不伪造（见 §1 的 IR 说明）。
 
 ## 3. 降级规则表
 
@@ -115,7 +128,7 @@
 | `compacted-unavailable` | compacted | text-fallback | 无压缩摘要 → 超长会话由预算三层保护被动截断 |
 | `injection-skipped` | — | skip-placeholder | 非人类注入消息（system-reminder 等）不进入会话 → 跳过并计数 |
 | `orphan-tool-result` | toolResults | skip-placeholder | 源日志无对应 tool/call 的工具结果（中途开始的 transcript）→ 丢弃并计数 |
-| `usage-unknown` | — | text-fallback | 目标格式要求用量计数（opencode 的 `cost` / `tokens` 是解码必填）而 DSH 会话日志没有这些计数 → 写 0 并显式报告 |
+| `usage-unknown` | — | text-fallback | 目标格式要求用量计数（opencode 的 `cost` / `tokens` 是解码必填）而事件没有 provider 回报 usage → 写 0 并显式报告（事件带 usage 时如实回填，不计此项） |
 
 ## 4. 便携 bundle
 
