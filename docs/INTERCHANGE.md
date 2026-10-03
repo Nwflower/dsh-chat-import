@@ -102,6 +102,7 @@
 | zed | ✅ | ✅ | —（`item.Image` 无内联字节 → 占位 + 计数） | ✅ | — | — | ✅（Compaction 摘要挂 reasoning 块） | —（线程级才有时间） | — |
 | crush | ✅ | ✅ | — | ✅ | — | — | ✅（自动摘要消息挂 reasoning 块） | ✅（`created_at` / `finished_at`） | — |
 | trae | ✅ | — | — | ✅ | — | — | — | ✅（逐消息） | — |
+| vibe | ✅ | ✅ | ✅（内联 base64 图片块） | ✅ | — | ✅ | ✅（context_boundary compaction 原生检查点） | — | — |
 | dsh | ✅ | ✅ | ✅（原生附件引用原样带过，不重复存） | ✅ | — | ✅ | — | ✅（原生事件时间原样透传） | ✅（原生 usage 原样透传） |
 
 「—」= 该源固有缺能力（不是插件缺陷）；`images` 列的 ✅ 指该源能提供图片字节、导入后由

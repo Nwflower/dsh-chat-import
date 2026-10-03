@@ -3,7 +3,7 @@
     const SOURCES = [
       // DSH 两代置顶（紧随「全部来源」）：这是本插件自己的会话格式，最常被用来做迁移/续聊
       "", "dsh", "dsh4", "claude-code", "codex", "chatgpt", "cursor", "gemini", "antigravity", "reasonix",
-      "opencode", "mimocode", "teleagent", "kilocode", "zcode", "grokbuild", "openclaw", "pi", "hermes", "kimi", "qoder", "workbuddy", "qwen", "trae", "continue", "cline", "goose", "zed", "crush",
+      "opencode", "mimocode", "teleagent", "kilocode", "zcode", "grokbuild", "openclaw", "pi", "hermes", "kimi", "qoder", "workbuddy", "qwen", "trae", "vibe", "continue", "cline", "goose", "zed", "crush",
     ];
     // 「导入到」下拉：'dsh' = 照常建可继续的 DSH 会话（默认）；其余 = 转投到该工具自己的
     // 格式（服务端 lib/transfer.mjs，与 export_chat 的目标保持一致）。值顺序 = 展示顺序。
@@ -15,7 +15,7 @@
       claude: "claude-code", codex: "codex", chatgpt: "chatgpt", cursor: "cursor",
       gemini: "gemini", antigravity: "antigravity", reasonix: "reasonix", opencode: "opencode", mimocode: "mimocode", teleagent: "teleagent", kilocode: "kilocode", zcode: "zcode",
       grokbuild: "grokbuild", openclaw: "openclaw", pi: "pi", hermes: "hermes",
-      kimi: "kimi", qoder: "qoder", workbuddy: "workbuddy", qwen: "qwen", trae: "trae", continue: "continue", cline: "cline", goose: "goose", zed: "zed", crush: "crush", dsh: "dsh", dsh4: "dsh4",
+      kimi: "kimi", qoder: "qoder", workbuddy: "workbuddy", qwen: "qwen", trae: "trae", vibe: "vibe", continue: "continue", cline: "cline", goose: "goose", zed: "zed", crush: "crush", dsh: "dsh", dsh4: "dsh4",
     };
     // 来源展示名（产品名不翻译）
     const SOURCE_LABELS = {
@@ -25,7 +25,7 @@
       kilocode: "Kilo Code",
       zcode: "ZCode", grokbuild: "Grok Build", openclaw: "OpenClaw", pi: "Pi",
       hermes: "Hermes", kimi: "Kimi CLI", qoder: "Qoder CLI", workbuddy: "WorkBuddy",
-      qwen: "QwenWork", trae: "Trae Work", continue: "Continue", cline: "Cline", goose: "Goose", zed: "Zed", crush: "Crush",
+      qwen: "QwenWork", trae: "Trae Work", vibe: "Mistral Vibe", continue: "Continue", cline: "Cline", goose: "Goose", zed: "Zed", crush: "Crush",
       // DSH 按会话日志代次拆两项（与 discovery 的 format 一一对应）：V0–V3 归 "dsh"，V4+ 归 "dsh4"。
       // 这里是中性短名（会话行提示/aria 用）；下拉里的完整展示名（「DSH V3 会话格式」）走 i18n。
       dsh: "DSH V3", dsh4: "DSH V4",
@@ -47,6 +47,8 @@
     SOURCE_BADGES.teleagent = { color: "#0B57D0", text: "TA" };
     // Trae 的官方图标不在当前静态图标包中 → 使用中性缩写卡，避免伪造品牌标。
     SOURCE_BADGES.trae = { color: "#3B82F6", text: "Tr" };
+    // Mistral Vibe 使用品牌橙色缩写卡
+    SOURCE_BADGES.vibe = { color: "#F97316", text: "Vi" };
     // 品牌标查询（lobehub 官方标优先）：SOURCE_LOGOS 在 logos.js 声明，两个表都按 discovery
     // format 短名键控，所以 source id 要先过 SOURCE_MARK_KEY（claude-code → claude）。
     // 返回 null = 这个来源没有官方品牌标，调用方回退 SOURCE_BADGES 的手绘卡。
