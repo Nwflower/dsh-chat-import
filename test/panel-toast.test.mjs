@@ -13,7 +13,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+// core.autocrlf=true 的 Windows 检出会把 bundle 变成 CRLF；按 LF 切函数前先归一
+const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
 /** 取出 bundle 里 4 空格基准缩进的顶层函数源码（函数体到同样缩进的收尾 `}`）。 */
 function topLevelFunction(name) {
