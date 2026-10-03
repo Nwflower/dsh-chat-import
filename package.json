@@ -7,7 +7,7 @@
   "types": "./lib/index.d.ts",
   "icon": "assets/import.svg",
   "bin": {
-    "dsh-chat-import": "./bin/dsh-chat-import.mjs"
+    "dsh-chat-import": "bin/dsh-chat-import.mjs"
   },
   "exports": {
     ".": {
