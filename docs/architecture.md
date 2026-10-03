@@ -48,10 +48,11 @@
 
 ## D6. 已知体量热点与治理方向（2026-09 定）
 
-- **背景**：AI 辅助开发使代码增长快于人工维护速度；当前热点：`lib/discovery.mjs`（约 2390 行）、`lib/tools.mjs`（约 1660 行）、`lib/import-variants.mjs`（约 900 行）。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片。）
+- **背景**：AI 辅助开发使代码增长快于人工维护速度；当前热点：`lib/discovery.mjs`（约 2390 行）、`lib/tools.mjs`（约 1660 行）。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片；`lib/import-variants.mjs` 曾以 1029 行触发停止线，SQLite 库类来源的 dry-run 预览已按来源迁入 `lib/sources/<src>.mjs`，余约 750 行。）
 - **决定**：治理方向不是「按行数强拆」，而是：
   - `discovery.mjs` 按**来源族**拆（每种来源的发现逻辑内聚，与 D3 的来源流水线对齐）；
   - `tools.mjs` 按**工具分组**拆（import / export / purge 各自的工具定义与 handler 同文件）；
+  - `import-variants.mjs` 只留 chatgpt / grokbuild / hermes / kimi 这类「源形态特殊」的编排与预览；有 `lib/sources/<src>.mjs` 的来源，其预览与导入编排同住该文件，不回流 `import-variants.mjs`；
   - 拆分提案由体量停止线（AGENTS.md）或定期架构巡检触发，一次只拆一个文件，拆完门禁全绿再下一个。
 - **代价**：拆分期间 import 路径变动，需要全量测试护航（现有覆盖率护栏足够）。
 - **重审条件**：无；这是进行中的方向而非禁令。

@@ -54,7 +54,7 @@ npm run build          # 发布面自检：client bundle 新鲜度 + files 完�
 
 1. `lib/convert/<src>.mjs`：纯转换器，文件头写清存储契约；不读磁盘、不 import 宿主服务。
 2. `lib/convert/index.mjs`：re-export 该转换器及发现层需要的纯函数。
-3. 数据库源额外加 `lib/sources/<src>.mjs`（host 面）：`node:sqlite` 只读打开，列用 `PRAGMA table_info` 自适应；读不到返回 `null`。
+3. 数据库源额外加 `lib/sources/<src>.mjs`（host 面）：`node:sqlite` 只读打开，列用 `PRAGMA table_info` 自适应；读不到返回 `null`。该来源的导入编排与 dry-run 预览也放在这里，不进 `lib/import-variants.mjs`。
 4. 登记发现层、工具层、面板层、来源标签、资源与文档；该来源在 @lobehub/icons 里有官方品牌标时，跑 `node scripts/gen-logos.mjs` 补进 `src/client/logos.js`（生成物，勿手改）。
 5. 补测试：转换器单测、发现层单测、工具层集成测试；SQLite 源用真实临时库造夹具。
 6. 门禁全绿：`npm test` / `lint` / `check:linux` / `check:links` / `build`。
