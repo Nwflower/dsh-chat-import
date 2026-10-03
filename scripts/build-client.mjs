@@ -39,6 +39,7 @@ const FRAGMENTS = [
   'settings.js',  // 设置页「会话导入」分区 + 同步设置
   'tabs.js',      // ImportTabContent / SidebarImportTab / HistoryPanel / SearchableSelect
   'discovery.js', // DiscoveryPanel（发现 + 多选导入主面板）
+  'file-import.js', // FileImportPanel（「从文件导入」折叠区：上传 / 路径浏览 / 预览 / 目录批处理）
   'footer.js',    // LogoIcon / 设置导航图标 / footer 车道量法
   'entry.js',     // ImportButton + apply()（槽注册、tab 类型注册）
 ]

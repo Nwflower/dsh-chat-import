@@ -19,7 +19,9 @@
           tabBtn("import", t("tab.import")),
           tabBtn("history", t("tab.history"))),
         tab === "import"
-          ? React.createElement(DiscoveryPanel, null)
+          ? React.createElement(React.Fragment, null,
+            React.createElement(FileImportPanel, null),
+            React.createElement(DiscoveryPanel, null))
           : React.createElement(HistoryPanel, null));
     }
 
@@ -108,6 +110,27 @@
         }
       };
 
+      // 清理上传暂存：删掉**未被 imports registry 引用**的上传件（含全部未完成上传）。
+      // 被引用的暂存件是重导语义的源键（源增长 → 增量续写依赖文件仍在），一律保留。
+      const runStagingCleanup = async () => {
+        setBusy(true);
+        setNote(null);
+        setError(null);
+        try {
+          const resp = await fetch("/api-import/uploads", {
+            method: "POST", headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ mode: "cleanup", confirm: true }),
+          });
+          const data = await readJson(resp);
+          if (data && data.ok === true) setNote(t("history.staging.done", { removed: data.removed || 0, kept: data.kept || 0 }));
+          else setError((data && data.error) || t("error.route"));
+        } catch (err) {
+          setError(String((err && err.message) || err));
+        } finally {
+          setBusy(false);
+        }
+      };
+
       const confirmDialog = confirm && React.createElement("div", {
         style: {
           position: "absolute", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 2,
@@ -122,9 +145,11 @@
         },
           React.createElement("div", { style: { fontWeight: 600, marginBottom: "8px" } }, t("history.confirm.title")),
           React.createElement("div", { style: { fontSize: "13px", color: colors.dim, marginBottom: "14px", lineHeight: 1.5 } },
-            confirm.kind === "all"
-              ? t("history.confirm.all", { n: confirm.count || 0 })
-              : t("history.confirm.one", { id: confirm.sessionId || "" })),
+            confirm.kind === "staging"
+              ? t("history.confirm.staging")
+              : confirm.kind === "all"
+                ? t("history.confirm.all", { n: confirm.count || 0 })
+                : t("history.confirm.one", { id: confirm.sessionId || "" })),
           React.createElement("div", { style: { display: "flex", gap: "8px", justifyContent: "flex-end" } },
             React.createElement("button", {
               style: style.toolBtn, disabled: busy,
@@ -133,7 +158,9 @@
             React.createElement("button", {
               style: { ...style.primaryBtn, flex: "none", width: "auto", padding: "6px 14px" },
               disabled: busy,
-              onClick: () => runPurge(confirm.kind === "all" ? { all: true } : { sessionId: confirm.sessionId }),
+              onClick: () => (confirm.kind === "staging"
+                ? runStagingCleanup()
+                : runPurge(confirm.kind === "all" ? { all: true } : { sessionId: confirm.sessionId })),
             }, t("history.confirm.ok")))));
 
       const body = React.createElement(React.Fragment, null,
@@ -147,6 +174,12 @@
               title: t("history.cleanup.title"),
               onClick: runCleanup,
             }, t("history.cleanup")),
+            React.createElement("button", {
+              style: style.toolBtn,
+              disabled: busy || loading,
+              title: t("history.staging.title"),
+              onClick: () => setConfirm({ kind: "staging" }),
+            }, t("history.staging")),
             React.createElement("button", {
               style: { ...style.toolBtn, color: colors.error, borderColor: colors.error },
               disabled: busy || loading || entries.length === 0,
