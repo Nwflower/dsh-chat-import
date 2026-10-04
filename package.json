@@ -1,7 +1,7 @@
 {
   "name": "dsh-chat-import",
   "description": "Import conversation history from 25+ AI coding agents into DeepSeek Harness as resumable sessions — tool calls, reasoning and results kept intact, with reverse export. | 把 25+ AI 编程 Agent 的聊天记录导入 DeepSeek Harness 继续对话，保留工具调用、推理与结果，支持反向导出。",
-  "version": "0.24.0",
+  "version": "0.24.1",
   "type": "module",
   "main": "./lib/index.mjs",
   "types": "./lib/index.d.ts",
