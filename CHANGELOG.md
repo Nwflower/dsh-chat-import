@@ -2,39 +2,37 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
-## [Unreleased]
+## [0.24.1] - 2026-10-04
 
-[中文](#cn-unreleased) | [English](#en-unreleased)
+[中文](#cn-0.24.1) | [English](#en-0.24.1)
 
-<h3 id="cn-unreleased">新增功能</h3>
+<h3 id="cn-0.24.1">新增功能</h3>
 
 - **从文件导入**：面板导入页新增「从文件导入」区，任意本地文件或目录都能进导入管线——**填本机路径回车**（桌面端 host 直读，无大小限制；路径是目录时用**宿主内置预设样式的 Modal** 问「是否搜索子文件夹」，选「仅当前目录」先扫一层、选「包含子文件夹」再递归），或点「**选择…**」用系统文件框挑文件（浏览器只有 `File` 对象时分片上传到暂存）。**不注册拖放**：把会话文件拖到 DSH 窗口会被宿主当作「给当前对话加附件」，面板不与宿主抢这个手势。阶段固定为**识别 → 只读预览 → 导入**：预览卡片给出识别格式与判据、标题、轮 / 消息 / 工具调用计数、cwd、时间与降级计数；目录展开为可勾选条目，「导入所选」逐条导入。命令面同步为 `/import auto <路径>`（`local-jsonl` 同义），工具面 `import_chat({ format: "local-jsonl" })` 的 dry-run 结果现在带 `detectedFormat` / `detectedBy` / `failures`。
 - **三级探测与失败出路**：显式格式 > 内容标记（interchange 文档 / `.dshbundle` 便携包，只扫文件头）> 路径特征排序后逐格式试跑。识别失败不再是一句「未识别」——卡片给一句结论「所有对话格式解析器全部解析失败（N 个）」，**失败清单默认收起**（展开后每行「解析器：原因」，等宽两列、可滚动；或一次复制整段摘要），未识别条目不再显示恒为 0 的轮/消息/工具调用计数、也不重复「未能识别」；结论下面一行是出路：把 interchange v1 文档规范当作 **Skill 指令**交给自己的 Agent 转换一次再导入（文案：「请使用 … 作为 Skill 指令，让你的 Agent 将此格式转成受支持的对话文件格式。」）。面板只做自动识别与 DSH 落点（不摆格式 / 目标下拉；覆盖与转投属低频精确控制，留在工具与命令面）。识别不出或 0 轮的文件禁用导入，绝不产出侧栏看不见的空壳会话。
 - **interchange v1 文档成为一等导入格式**（`parseFormat: "generic"`，契约见 docs/INTERCHANGE.md §5）：带 `"interchange": "dsh-chat-import"` 与 `version: 1` 的 turns 文档可直接导入，是长尾工具与脚本产出的落点。版本不符整体拒绝；未知内容块、拿不到字节的图片、畸形轮步、孤儿工具结果、非法用量全部计数上报。`.dshbundle.json` 在文件导入里被识别为备份包并转 `restore_bundle`（双层指纹校验），不会被当成普通转录。
 - **上传通道**：`POST /api-import/upload/init|chunk|complete` 三步，按 (sha256, size) 幂等——刷新或断线后从已收字节续传，同一文件重复上传零重传；整文件指纹校验通过才产出可导入路径。配额单文件 256MiB、暂存 2GiB、未完成 24 小时回收；文件名 sanitize 且落点固定在 `$DSH_HOME/dsh-chat-import/uploads/`。导入后的暂存件保留（重导语义以它为源键），维护路由可清理未被 registry 引用的件。
-
 - **Agent 转换指南与失败摘要任务模板**：新增双语文档 `docs/INTERCHANGE-GUIDE.md` / `.zh-CN.md`——给 Agent 的 Skill 指令（任务说明、最小合法示例、字段必填表、自检清单、常见错误后果表），`docs/INTERCHANGE.md` 保持维护者视角的协议规范并在头部互链。识别失败的「复制失败摘要」从「路径 + 原因清单」升级为可直接发给 Agent 的任务模板（任务说明 + 指南链接 + 源路径 + 六条产出要求 + 逐解析器失败原因），面板出路链接按界面语言分链到对应语言的转换指南。
-
 - **转换指南注册为宿主 skill**：插件把 `docs/INTERCHANGE-GUIDE.md` 注册为运行时 skill `dsh-chat-import-convert`（`skills` 是可选宿主服务，旧宿主 / headless 缺席时记警告跳过，不影响导入），DSH 内的 Agent 可直接调用它拿到转换指令；识别失败的提示小字改为「请复制失败摘要给 Agent」，任务模板引导优先调用该 skill，GitHub 链接作兜底。
 
-<h3 id="cn-unreleased">问题修复</h3>
+<h3 id="cn-0.24.1">问题修复</h3>
 
 - **Qoder 导入不再产出侧栏看不见的空会话**：新版 Qoder 把直连提问写成块数组 content（`[{ type: "text", … }]`），此前转换器只认字符串提问，数组提问被当成工具结果静默丢弃，整段对话 0 轮导入、会话被宿主判为 blank。现在不含 `tool_result` 的块数组按 text 块拼接为提问并开新轮，含 `tool_result` 的数组照旧只做调用配对；旧版字符串提问不受影响。
 
-<h3 id="en-unreleased">New Features</h3>
+<h3 id="en-0.24.1">New Features</h3>
 
 - **Import from file**: the import tab gains an "Import from file" area — any local file or directory can enter the import pipeline by **typing a local path and pressing Enter** (the desktop host reads it directly, no size limit; for a directory the host's built-in preset **Modal** asks whether to search subfolders — "this folder only" scans one level, "include subfolders" rescans recursively) or by pressing **Choose…** to pick files with the OS dialog (chunked upload into staging when the browser only holds a `File` object). The panel registers **no drop target**: dropping a session file onto the DSH window is taken by the host as "attach to the current conversation", so it does not fight the host for that gesture. The flow is fixed: **detect → read-only preview → import**. The preview card shows the detected format and criterion, title, turn / message / tool-call counts, cwd, timestamps and degradation counts; a directory expands into checkable entries and "Import selected" imports them one by one. The command surface mirrors it as `/import auto <path>` (`local-jsonl` is the same), and the tool surface's dry-run now returns `detectedFormat` / `detectedBy` / `failures` for `import_chat({ format: "local-jsonl" })`.
 - **Three-level detection with a way out**: explicit format > content marker (interchange document / `.dshbundle` backup, sniffed from the file head only) > path hints ordering the parsers that are then tried one by one. A failed detection is no longer a single "unrecognized" line — the card leads with "Every conversation-format parser failed (N)", the **failure list starts collapsed** (expand for a scrollable monospace "parser: reason" table, or copy the whole summary in one go), an unrecognised entry no longer shows all-zero turn/message/tool-call counts nor repeats "unrecognized", and the line below the verdict is the way out: hand the interchange v1 specification to your own agent as a **skill instruction** and let it convert the file once (the panel wording: "Use … as a skill instruction and have your agent convert this format into a supported conversation file format."). The panel itself does auto-detection and DSH landing only (no format / target dropdowns; overriding and transferring are low-frequency precise controls and stay on the tool and command surfaces). Files with no detection or 0 turns disable the import button; a blank session that never shows up in the sidebar is never produced.
 - **The interchange v1 document is now a first-class import format** (`parseFormat: "generic"`, contract in docs/INTERCHANGE.md §5): a turns document carrying `"interchange": "dsh-chat-import"` and `version: 1` imports directly, which is the landing spot for long-tail tools and scripted conversions. A mismatched version is rejected wholesale; unknown content blocks, images without usable bytes, malformed turns or steps, orphan tool results and invalid usage are all counted and reported. A `.dshbundle.json` is recognised as a backup archive during file import and routed to `restore_bundle` (two-layer fingerprint check) instead of being treated as a plain transcript.
 - **Upload channel**: `POST /api-import/upload/init|chunk|complete` — idempotent per (sha256, size), so a refresh or a dropped connection resumes from the received byte count and re-uploading the same file transfers nothing; a path only becomes importable after the whole-file fingerprint checks out. Limits: 256 MiB per file, 2 GiB of staging, incomplete uploads reclaimed after 24 hours; names are sanitized and staging stays under `$DSH_HOME/dsh-chat-import/uploads/`. Imported staging files are kept (the re-import semantics key on them) and a maintenance route removes the ones no registry entry references.
-
 - **Agent conversion guide and failure-summary task brief**: new bilingual docs `docs/INTERCHANGE-GUIDE.md` / `.zh-CN.md` — skill instructions for agents (task statement, minimal valid document, required-field tables, a pre-delivery checklist, and a mistake→consequence table), while `docs/INTERCHANGE.md` stays the maintainer-facing protocol specification and cross-links to them. On a failed detection, "Copy failure summary" now copies a ready-to-send agent task brief (task statement + guide link + source path + six output requirements + per-parser failure reasons) instead of a bare path-and-reasons list, and the panel's way-out link points at the conversion guide in the UI's language.
-
 - **Conversion guide registered as a host skill**: the plugin registers `docs/INTERCHANGE-GUIDE.md` as the runtime skill `dsh-chat-import-convert` (`skills` is an optional host service — older or headless hosts skip with a logged warning, imports unaffected), so an agent inside DSH can invoke the guide directly; the failed-detection hint now reads "Copy the failure summary to your agent", and the copied task brief points at the skill first with the GitHub link as fallback.
 
-<h3 id="en-unreleased">Bug Fixes</h3>
+<h3 id="en-0.24.1">Bug Fixes</h3>
 
 - **Qoder imports no longer produce blank sessions hidden from the sidebar**: recent Qoder versions write direct user prompts as a block-array content (`[{ type: "text", … }]`). The converter only recognised string prompts, so array prompts were silently discarded as tool results, the whole conversation imported with 0 turns and the host treated the session as blank. A block array without `tool_result` now becomes the prompt (text blocks joined) and opens a new turn, an array carrying `tool_result` is still only paired with its calls, and older string prompts are unaffected.
+
+**Full Changelog**: [v0.24.0...v0.24.1](https://github.com/Nwflower/dsh-chat-import/compare/v0.24.0...v0.24.1)
 
 ## [0.24.0] - 2026-10-03
 
