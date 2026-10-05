@@ -6,10 +6,10 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { discoverSessions, clearScanCache, clearInflightScans, FORMATS, defaultRoots } from '../lib/discovery.mjs'
+import { discoverSessions, clearScanCache, clearInflightScans, FORMATS, defaultRoots, layoutProject } from '../lib/discovery.mjs'
 import { SOURCES } from '../lib/discovery/registry.mjs'
 import { DB_SUMMARY_FORMATS } from '../lib/discovery-host.mjs'
-import { memoryHost } from './_support/discovery-host.mjs'
+import { memoryHost, withDirs } from './_support/discovery-host.mjs'
 
 beforeEach(() => {
   clearScanCache()
@@ -62,4 +62,21 @@ test('FORMATS 顺序固定（工具 schema enum 与默认扫描 / 流式产出�
 test('sessionsFromHost 的来源与 host.readSessions 读取器表一一对应（新增 SQLite 来源两侧都要登记）', () => {
   const needed = SOURCES.filter((s) => s.sessionsFromHost).map((s) => s.format).sort()
   assert.deepEqual([...DB_SUMMARY_FORMATS].sort(), needed)
+})
+
+// dsh 与 dsh4 是同一目录布局的两个代次桶：布局项目名（记录无 cwd、大 .zstd 快路径时的回退）
+// 两者同口径。此前 layoutProject 的 switch 只登记了 dsh，dsh4 条目的项目恒为 null。
+test('layoutProject / 扫描：dsh4 与 dsh 同用 workspace 键解码出项目名', async () => {
+  const p4 = '/h/sessions/--a~002Eb--/sid/session.v4.jsonl'
+  assert.equal(layoutProject(p4, 'dsh4'), '--a.b--')
+  const root = join(HOME, 'dsh-home-layout', 'sessions')
+  const file = join(root, '--proj~0020x--', 'session-v4', 'session.v4.jsonl')
+  const body = [
+    JSON.stringify({ type: 'session', id: 'session-v4', createdAt: 1700000000000 }),
+    JSON.stringify({ type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '无 cwd 的 V4 日志' }] } }),
+  ].join('\n')
+  const host = memoryHost(withDirs(root, new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: body }]])))
+  const { sessions } = await discoverSessions({ path: root, format: 'dsh4', host, imports: {}, cache: new Map() })
+  assert.equal(sessions.length, 1)
+  assert.equal(sessions[0].project, '--proj x--')
 })
