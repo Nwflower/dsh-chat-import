@@ -18,6 +18,7 @@ import { apply } from '../lib/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { resolveRegistryDir, loadImports, rememberImport, removeImport } from '../lib/imports.mjs'
 import { forgetIgnore } from '../lib/ignore.mjs'
+import { renderImportText } from '../lib/tools/import-render.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx as makeHostCtx, makePersistence as makeHostPersistence, forbiddenFs, chatDef } from './_support/fake-host.mjs'
 
@@ -311,6 +312,12 @@ test('撤回后重导：墓碑拦截；解除忽略后副本仍在 → backfill 
   const blocked = await imp.execute({ path: src })
   assert.equal(blocked.status, 'ignored')
   assert.equal(blocked.skipReason, 'ignored:retracted')
+  // 原因码结构化透出（面板与工具层据此点名「被什么挡住」，不再只剩一句「跳过」），
+  // 且仍能过 import_chat 的输出 schema（宿主按 schema 校验返回值）
+  assert.equal(blocked.reason, 'retracted')
+  assert.deepEqual(validateJsonSchemaValue(imp.output.schema, blocked), [])
+  assert.match(renderImportText(blocked, { sourceLabel: 'Claude Code' }),
+    /^未导入：该源有忽略记录（该次导入已被撤回（retract \/ purge））。解除忽略：\/unignore/)
 
   // 手动解除忽略：既有语义恢复——副本仍在时重导走 legacy 回填基线（幂等跳过）
   await forgetIgnore(resolveRegistryDir(), src)

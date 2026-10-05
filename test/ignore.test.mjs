@@ -114,6 +114,7 @@ test('decideSingle：墓碑命中跳过且不产出记录；force 显式越权�
     sourcePath: 'D:\\src\\a.jsonl', budget: 0, archivedIds: new Set(), importFormat: 'claude',
   })
   assert.equal(ignored.status, 'ignored')
+  assert.equal(ignored.reason, 'retracted', '原因码结构化透出：面板 / 工具层据此点名被什么挡住')
   assert.equal(ignored.skipReason, 'ignored:retracted')
   assert.equal(ignored.__record, undefined, '忽略不覆盖 registry 记录')
 
@@ -138,7 +139,9 @@ test('decideMulti：命中子会话跳过并保留已知记录，其余照常导
     stat: null, args: {}, fingerprint: 'f', persisted: new Set(['import-old']),
     sourcePath, subTable: 'sessions', budget: 0, archivedIds: new Set(), importFormat: 'opencode',
   })
-  assert.equal(decision.skipped, 1)
+  // 忽略不再混进 skipped：计数分开，否则「跳过 1」会把「一个会话都没建」读成已处理
+  assert.equal(decision.skipped, 0)
+  assert.equal(decision.ignored, 1)
   assert.equal(decision.imported, 1)
   assert.deepEqual(decision.results.find((r) => r.sessionId === 'import-old'), {
     path: sourcePath, status: 'ignored', sessionId: 'import-old', reason: 'archived',

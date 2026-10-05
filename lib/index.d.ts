@@ -268,6 +268,8 @@ export interface SingleImportResult extends ImportReport {
   secrets?: SecretLocation[]
   permissionCount?: number
   skipReason?: string
+  /** 忽略墓碑的原因码（`archived` / `retracted` / `workspace-deleted`）：仅在 `status: 'ignored'` 时出现。 */
+  reason?: string
   alreadyImported: boolean
   /** 落盘的 cwd 经 cwdRemap 改写时的命中报告（与预览同口径）。 */
   cwdRemap?: CwdRemapReport
@@ -298,6 +300,8 @@ export interface BatchImportResult {
   /** 其中「重导另铸副本」的条数（已含在 imported 里，单独点名便于解释新增会话）。 */
   reimported?: number
   skipped: number
+  /** 被忽略墓碑挡下的条数（`archived` / `retracted` / `workspace-deleted`），与 `skipped` 分开计。 */
+  ignored?: number
   failed: number
   missingFromSource?: string[]
   /** 本批落成宿主附件的图片总数（>0 才占键）。 */

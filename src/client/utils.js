@@ -110,8 +110,38 @@
     // 批量结果摘要（single/batch 混合计数；t 为 useTranslate 返回的翻译函数）。
     // reimported：重导另铸副本（用户在 DSH 里续聊过 / 旧记录无基线 / force），
     // 单独计数——它既不是「追加进已有会话」，也不是用户没见过的普通新增。
+    // ignored：被忽略墓碑（撤回 / 归档 / 删除的工作区）挡下——单独计数并点名原因。
+    // 并进「跳过」时，一条会话都没建的结果会被读成「已处理」（见 lib/ignore.mjs）。
+    function ignoreReasonCode(r) {
+      if (!r) return "";
+      if (typeof r.reason === "string" && r.reason) return r.reason;
+      const s = r.skipReason;
+      return typeof s === "string" && s.indexOf("ignored:") === 0 ? s.slice("ignored:".length) : "";
+    }
+
+    // 忽略原因的去重清单：批量条目只带计数，原因在服务端去重后的 ignoredReasons 里
+    function ignoreReasonsOf(results) {
+      const codes = [];
+      for (const r of results || []) {
+        const list = Array.isArray(r && r.ignoredReasons) ? r.ignoredReasons : [ignoreReasonCode(r)];
+        for (const code of list) if (code && codes.indexOf(code) === -1) codes.push(code);
+      }
+      return codes;
+    }
+
+    // 原因码 → 面板文案（未知码走兜底文案并原样带出码，不假装认识）
+    function fmtIgnoreReasons(codes, t) {
+      if (!codes || codes.length === 0) return "";
+      const known = ["archived", "retracted", "workspace-deleted"];
+      return t("ignore.reasonSuffix", {
+        reason: codes.map((code) => known.indexOf(code) !== -1
+          ? t("ignore.reason." + code)
+          : t("ignore.reason.other", { code })).join(t("result.separator")),
+      });
+    }
+
     function fmtImportResult(results, t) {
-      const c = { imported: 0, replaced: 0, reimported: 0, already: 0, appended: 0, skipped: 0, failed: 0, images: 0, imagesDegraded: 0, ungrouped: 0, workspaceCreated: 0 };
+      const c = { imported: 0, replaced: 0, reimported: 0, already: 0, appended: 0, skipped: 0, ignored: 0, failed: 0, images: 0, imagesDegraded: 0, ungrouped: 0, workspaceCreated: 0 };
       for (const r of results || []) {
         if (r.status === "failed") { c.failed++; continue; }
         c.images += r.images || 0;
@@ -125,6 +155,7 @@
           c.already += r.alreadyImported || 0;
           c.appended += r.appended || 0;
           c.skipped += r.skipped || 0;
+          c.ignored += r.ignored || 0;
           c.failed += r.failed || 0;
         } else if (r.status === "imported") {
           if (r.reimported) c.reimported++;
@@ -132,6 +163,7 @@
         } else if (r.status === "replaced") c.replaced++;
         else if (r.status === "already-imported") c.already++;
         else if (r.status === "appended") c.appended++;
+        else if (r.status === "ignored") c.ignored++;
         else c.skipped++;
       }
       const bits = [];
@@ -141,6 +173,8 @@
       if (c.appended) bits.push(t("result.appended", { n: c.appended }));
       if (c.already) bits.push(t("result.already", { n: c.already }));
       if (c.skipped) bits.push(t("result.skipped", { n: c.skipped }));
+      // 忽略墓碑与「跳过」分开报，并带上原因（撤回 / 归档 / 删除的工作区）
+      if (c.ignored) bits.push(t("result.ignored", { n: c.ignored }) + fmtIgnoreReasons(ignoreReasonsOf(results), t));
       if (c.failed) bits.push(t("result.failed", { n: c.failed }));
       // 图片：落成宿主附件与降级占位分开报（服务端 images / imagesDegraded，批量与单项同口径）
       if (c.images) bits.push(t("result.images", { n: c.images }));

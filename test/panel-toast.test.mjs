@@ -116,6 +116,13 @@ test('面板内自绘黄条已并入官方 Toast（动作按钮 = 原来的「�
 })
 
 test('导入成功路径把落点提示推给 Toast（面板不在眼前时也能看到）', () => {
-  assert.match(source, /showAppToast\(toastText, skipped\.length > 0/, '导入结果处理里要调用落点提示并带动作')
+  assert.match(source, /showAppToast\(toastText, toastActions\.length > 0 \? toastActions : null\)/, '导入结果处理里要调用落点提示并带动作')
+})
+
+test('被忽略墓碑挡下时给动作出口（Toast 的「仍然导入」= force 越权重试）', () => {
+  // 结果行与 Toast 都要点名「被忽略」，并说明永久解除走 /unignore
+  assert.match(source, /const ignoredLine = ignored\.length > 0\s*\n\s*\? t\("toast\.ignored"/, '被忽略的条数要进 Toast 文案')
+  assert.match(source, /label: t\("toast\.forceImport"\), onClick: \(\) => doImport\(ignored, \{ force: true \}\)/, '动作 = 用 force 越权重导这批会话')
+  assert.match(source, /const ignored = force \? \[\] : ignoredItems\(data\.results, items\)/, 'force 轮本身不再提示（否则点了按钮又弹一条）')
 })
 

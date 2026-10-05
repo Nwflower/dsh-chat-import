@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { registerPanelRoutes } from '../lib/panel.mjs'
+import { registerPanelRoutes, summarizeImport } from '../lib/panel.mjs'
 
 function setup() {
   const routes = []
@@ -90,4 +90,28 @@ test('面板路由：settings 服务缺席时 /prefs 读回默认值并标 avail
   assert.equal(out.data.ok, true)
   assert.equal(out.data.available, false)
   assert.equal(out.data.value.importSystemPrompt, true)
+})
+
+test('面板摘要：忽略墓碑的原因码透出（single 单条 / batch 去重清单）', () => {
+  // 单文件：status + 原因码都到面板，面板才能把「被忽略」与「没内容可导」分开说
+  assert.deepEqual(
+    summarizeImport({ mode: 'single', status: 'ignored', reason: 'retracted', skipReason: 'ignored:retracted', sessionId: 's' }),
+    { mode: 'single', status: 'ignored', sessionId: 's', skipReason: 'ignored:retracted', reason: 'retracted' },
+  )
+  // 批量：计数（ignored）+ 去重后的原因码清单（逐条明细已丢，原因不能也丢）
+  const batch = summarizeImport({
+    mode: 'batch', total: 4, imported: 1, skipped: 0, ignored: 3, failed: 0,
+    results: [
+      { path: 'a', status: 'imported' },
+      { path: 'b', status: 'ignored', reason: 'workspace-deleted' },
+      { path: 'c', status: 'ignored', reason: 'workspace-deleted' },
+      { path: 'd', status: 'ignored', reason: 'archived' },
+    ],
+  })
+  assert.equal(batch.ignored, 3)
+  assert.equal(batch.skipped, 0)
+  assert.deepEqual(batch.ignoredReasons, ['workspace-deleted', 'archived'])
+  // 没有忽略条目时不占键（面板据此判断「有没有被墓碑挡下」）
+  const clean = summarizeImport({ mode: 'batch', total: 1, imported: 1, skipped: 0, ignored: 0, failed: 0, results: [{ path: 'a', status: 'imported' }] })
+  assert.equal('ignoredReasons' in clean, false)
 })

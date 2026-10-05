@@ -124,6 +124,16 @@
       return items.filter((it) => paths.has(it.sourcePath));
     }
 
+    /** 本次请求里被忽略墓碑挡下（ignored）的条目——Toast 的「仍然导入」用 force 越权重导的
+     *  这一批（永久解除走 /unignore）。批量结果只带计数、定位不到逐条时按整批重试：宁可多导
+     *  用户显式点过一次的那批，也不给一个点了没反应的按钮。 */
+    function ignoredItems(results, items) {
+      const list = results || [];
+      if (list.some((r) => r && typeof r.ignored === "number" && r.ignored > 0)) return items;
+      const paths = new Set(list.filter((r) => r && r.status === "ignored").map((r) => r.sourcePath));
+      return items.filter((it) => paths.has(it.sourcePath));
+    }
+
     /** 单条导入（非 force / 非归档 / 非多会话源）成功后，本地把该行标成已导入即可、不重扫：
      *  返回要打标的 sourcePath；其余情况返回 ""（走 epoch 重扫，但不清空旧列表）。重扫只为
      *  刷新状态，而只有这条路径的状态变化是可确定的（multi 源的 partial 语义、force 另铸 id
@@ -603,12 +613,23 @@
           // 眼前（批量导入时切走 tab / 收起右栏），两件事都得浮出来；动作按钮就是原来
           // 面板内黄条的「忽略警告」。有动作时 holdMs 更长（15s），够点。
           const skipped = force ? [] : alreadyImportedItems(data.results, items);
+          // 忽略墓碑挡下的条目同样不能让结果只剩一个「跳过 1」：说清原因，并给一次
+          // 「仍然导入」（force 越权）的动作出口（永久解除仍是 /unignore）。
+          const ignored = force ? [] : ignoredItems(data.results, items);
           const landed = landingToast(data.results, t);
           const skipLine = skipped.length > 0 ? t("toast.skipped", { n: skipped.length }) : "";
-          const toastText = [landed, skipLine].filter(Boolean).join(t("result.separator"));
-          showAppToast(toastText, skipped.length > 0
-            ? [{ label: t("toast.ignore"), onClick: () => doImport(skipped, { force: true }) }]
-            : null);
+          const ignoredLine = ignored.length > 0
+            ? t("toast.ignored", { n: ignored.length, reason: fmtIgnoreReasons(ignoreReasonsOf(data.results), t) })
+            : "";
+          const toastText = [landed, skipLine, ignoredLine].filter(Boolean).join(t("result.separator"));
+          const toastActions = [];
+          if (skipped.length > 0) {
+            toastActions.push({ label: t("toast.ignore"), onClick: () => doImport(skipped, { force: true }) });
+          }
+          if (ignored.length > 0) {
+            toastActions.push({ label: t("toast.forceImport"), onClick: () => doImport(ignored, { force: true }) });
+          }
+          showAppToast(toastText, toastActions.length > 0 ? toastActions : null);
           setSelected(new Map());
           const donePath = localImportedPath(data.results, force, archiveSources);
           if (donePath) {

@@ -63,6 +63,35 @@ test('已导入跳过：每种原因都说清楚（命令面与工具同一份�
   assert.match(renderImportText({ mode: 'single', sessionId: 's', alreadyImported: true }, FILE_SPEC), /源文件未变化/)
 })
 
+test('忽略墓碑：单文件与批量都点名原因并给出出路，不再混进「跳过」', () => {
+  // 单文件：原因码 + 两条出路（永久解除 / 一次性越权）
+  const single = renderImportText({ mode: 'single', status: 'ignored', sessionId: 's', reason: 'retracted' }, FILE_SPEC)
+  assert.match(single, /^未导入：该源有忽略记录（该次导入已被撤回（retract \/ purge））。/)
+  assert.match(single, /解除忽略：\/unignore <sessionId\|sourcePath>（永久）；或 force:true 越权导入一次/)
+  // 只有合并串（skipReason）时同样认得出原因
+  assert.match(renderImportText({ mode: 'single', status: 'ignored', sessionId: 's', skipReason: 'ignored:archived' }, FILE_SPEC),
+    /会话在 DSH 里被归档/)
+  // 批量：计数单独报 + 逐条原因 + 出路；未知原因码原样带出，不假装认识
+  const batch = renderImportText({
+    mode: 'batch', total: 3, imported: 1, skipped: 0, ignored: 2, failed: 0,
+    results: [
+      { path: 'a', status: 'imported' },
+      { path: 'b', status: 'ignored', reason: 'workspace-deleted' },
+      { path: 'c', status: 'ignored', reason: 'workspace-deleted' },
+    ],
+  }, SESSION_SPEC)
+  assert.ok(batch.includes('忽略 2 个（所属工作区已被删除）'), batch)
+  assert.ok(batch.includes('  - b：被忽略墓碑挡下（所属工作区已被删除）'), batch)
+  assert.ok(batch.includes('解除忽略：/unignore'), batch)
+  assert.ok(!batch.includes('跳过 2 个'), '忽略不能落进「跳过」计数：' + batch)
+  assert.ok(renderImportText({
+    mode: 'batch', total: 1, ignored: 1, results: [{ path: 'x', status: 'ignored', reason: 'weird' }],
+  }, FILE_SPEC).includes('忽略记录（weird）'))
+  // 没有忽略条目时不出出路那一行（普通批量结果不受影响）
+  const plain = renderImportText({ mode: 'batch', total: 1, imported: 1, skipped: 0, failed: 0, results: [{ path: 'a', status: 'imported' }] }, FILE_SPEC)
+  assert.ok(!plain.includes('/unignore'), plain)
+})
+
 test('renderImportResult：同一段文案包成文本块', () => {
   assert.deepEqual(renderImportResult({}, { mode: 'single', sessionId: 's', alreadyImported: true }, FILE_SPEC),
     [{ type: 'text', text: '会话 s 已存在，跳过导入：源文件未变化。' }])

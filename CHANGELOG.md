@@ -2,6 +2,20 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">问题修复</h3>
+
+- **导入被忽略墓碑拦下时不再只剩一个「跳过」**：服务端把墓碑原因按结构化字段透出（`reason`：`archived` / `retracted` / `workspace-deleted`），批量计数把 `ignored` 从 `skipped` 里拆出来；面板结果行单列「忽略 N（原因）」，工具与命令面文案改为「未导入：该源有忽略记录（原因）」。此前这类导入返回 200、`ok: true`，条目状态 `ignored` 被并进「跳过 N」——一条会话都没建，读起来却像已处理。面板另给一个「仍然导入」的动作出口（一次性 `force` 越权，不解除墓碑；永久解除仍是 `/unignore`），结果行与 Toast 都点名原因。
+- **`skipped` 计数口径收窄**：批量结果的 `skipped` 只统计「无可导入内容」，被忽略墓碑挡下的条数计入新的 `ignored`；面板路由摘要另带 `ignoredReasons`（去重后的原因码），面板据此点名原因。
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+- **An import blocked by an ignore tombstone no longer reads as a bare "skipped"**: the server now exposes the tombstone reason as a structured field (`reason`: `archived` / `retracted` / `workspace-deleted`), and batch counting splits `ignored` out of `skipped`; the panel's result line reports "ignored N (reason)" and the tool / command wording became "not imported: this source has an ignore record (reason)". Previously such an import answered 200 with `ok: true` while its `ignored` status was folded into "skipped N" — no session had been created, yet it read as handled. The panel gained an **Import anyway** action (a one-shot `force` that does not clear the tombstone; `/unignore` is still the permanent way out), and both the result line and the toast name the reason.
+- **Narrower `skipped`**: in batch results `skipped` now counts only "nothing importable", while tombstone-blocked entries count toward the new `ignored`; the panel route's summary also carries `ignoredReasons` (de-duplicated reason codes) so the panel can name them.
+
 ## [0.25.0] - 2026-10-05
 
 [中文](#cn-0.25.0) | [English](#en-0.25.0)

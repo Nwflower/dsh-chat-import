@@ -261,16 +261,25 @@
       const singleBlocked = (entry) => !entry
         || (entry.bundle !== true && (!(typeof entry.turns === "number" && entry.turns > 0) || !!entry.skipReason));
 
-      const importSingle = async () => {
+      // 被忽略墓碑挡下时（status:'ignored'）：结果行点名原因，Toast 再给一次「仍然导入」
+      //（force 越权）的出口；永久解除仍是 /unignore。opts 由 Toast 动作传入（行内按钮的点击
+      // 事件当 opts 时没有 force 键，等同普通导入）。
+      const importSingle = async (opts) => {
         if (!preview || preview.kind !== "single" || singleBlocked(preview.data)) return;
+        const force = !!(opts && opts.force === true);
         setBusy(true);
         setError(null);
         setResult(null);
         try {
-          const r = await postJson("/api-import/file", { ...preview.source, preview: false });
+          const r = await postJson("/api-import/file", { ...preview.source, preview: false, ...(force ? { force: true } : {}) });
           if (r.ok) {
             setResult(fmtImportResult([r.data], t));
-            showAppToast(landingToast([r.data], t));
+            if (r.data && r.data.status === "ignored") {
+              showAppToast(t("toast.ignored", { n: 1, reason: fmtIgnoreReasons(ignoreReasonsOf([r.data]), t) }),
+                [{ label: t("toast.forceImport"), onClick: () => importSingle({ force: true }) }]);
+            } else {
+              showAppToast(landingToast([r.data], t));
+            }
           } else {
             setError(r.error || t("fileImport.error.route"));
           }
@@ -282,19 +291,26 @@
       };
 
       // 目录批处理：逐个串行导入（服务端每次一件，串行才能拿到确定的 i/N 进度）
-      const importBatch = async () => {
+      const importBatch = async (opts) => {
+        const force = !!(opts && opts.force === true);
+        // 重试只针对上一轮被忽略墓碑挡下的那几件：force 会另铸副本，已成功的不再导一遍
+        const only = Array.isArray(opts && opts.paths) ? opts.paths : null;
         const entries = (preview && preview.kind === "batch" ? preview.data.results || [] : [])
-          .filter((e) => batchSel && batchSel.has(e.path) && isImportableEntry(e));
+          .filter((e) => (only ? only.indexOf(e.path) !== -1 : batchSel && batchSel.has(e.path)) && isImportableEntry(e));
         if (entries.length === 0) return;
         setBusy(true);
         setError(null);
         setResult(null);
         const results = [];
+        const ignoredPaths = [];
         try {
           for (let i = 0; i < entries.length; i++) {
             setProgress({ i: i + 1, n: entries.length });
             try {
-              const r = await postJson("/api-import/file", { path: entries[i].path, preview: false });
+              const r = await postJson("/api-import/file", {
+                path: entries[i].path, preview: false, ...(force ? { force: true } : {}),
+              });
+              if (r.ok && r.data && r.data.status === "ignored") ignoredPaths.push(entries[i].path);
               results.push(r.ok ? r.data : { status: "failed", error: r.error || t("fileImport.error.route") });
             } catch (err) {
               // 单条失败不中断整批：记进 results，汇总时按「失败 N」如实报出
@@ -303,8 +319,11 @@
           }
           const summary = fmtImportResult(results, t);
           setResult(summary);
-          // 目录批处理是长动作：汇总走官方 Toast（面板可能已不在眼前）
-          showAppToast(summary);
+          // 目录批处理是长动作：汇总走官方 Toast（面板可能已不在眼前）；被忽略挡下的那几件
+          // 带一个「仍然导入」（force）的动作出口
+          showAppToast(summary, ignoredPaths.length > 0
+            ? [{ label: t("toast.forceImport"), onClick: () => importBatch({ force: true, paths: ignoredPaths }) }]
+            : null);
         } finally {
           setProgress(null);
           setBusy(false);
