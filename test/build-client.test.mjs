@@ -6,7 +6,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync, statSync } from 'node:fs'
-import { FRAGMENTS, assemble, inlineModule } from '../scripts/build-client.mjs'
+import { FRAGMENTS, assemble, clientFragmentGlobals, inlineModule } from '../scripts/build-client.mjs'
 
 test('inlineModule：去掉顶格 export、非空行缩进 4 格、顶部带来源标记', () => {
   const out = inlineModule('lib/x.mjs', [
@@ -56,6 +56,23 @@ test('FRAGMENTS 里的内联模块都是可以 import 的真实模块（测试�
     const exported = await import(new URL('../' + name, import.meta.url))
     assert.ok(Object.keys(exported).length > 0, name + ' 应有导出')
   }
+})
+
+test('clientFragmentGlobals：片段共享作用域的全部顶层名字（eslint 逐片 no-undef 用）', () => {
+  const globals = clientFragmentGlobals()
+  // bundle 头部：浏览器全局 / factory 参数 / React 与 hooks 解构 / h
+  for (const name of ['window', 'fetch', 'ResizeObserver', 'require', 'React', 'useState', 'useLayoutEffect', 'h']) {
+    assert.equal(globals[name], 'readonly', name)
+  }
+  assert.equal(globals.module, 'writable')
+  // 片段与内联模块的顶层声明；let 记 writable（entry.js 跨片给 localeSvc 赋值）
+  for (const name of ['DICT', 'COLORS', 'postJson', 'DiscoveryPanel', 'SessionRow', 'NO_WORKSPACE_KEY', 'measureFooterLane', 'apply']) {
+    assert.equal(globals[name], 'readonly', name)
+  }
+  assert.equal(globals.localeSvc, 'writable')
+  // 函数体内的局部不是全局
+  assert.equal(globals.scanKey, undefined)
+  assert.equal(globals.toolBtn, undefined)
 })
 
 test('assemble：与磁盘上的 lib/client.js 一致；被 import 时不写盘', () => {

@@ -25,7 +25,7 @@
 //                                          # 宿主正在 HMR 加载的 lib/client.js（写它会触发宿主
 //                                          # 重新加载面板，实验配置会被真实 UI 看到）
 //
-// 作为模块被 import（测试 / eslint.config.mjs）时只导出组装函数，不读写任何文件。
+// 作为模块被 import（测试 / eslint.config.mjs）时只导出组装函数与片段全局名单，不写任何文件。
 import { readFileSync, renameSync, unlinkSync, writeFileSync } from 'node:fs'
 import { resolve, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -136,11 +136,37 @@ export function assemble() {
   return [normalize(HEADER), ...FRAGMENTS.map(fragment), normalize(FOOTER)].join('\n\n') + '\n'
 }
 
+/**
+ * 片段共享作用域里的全部顶层名字 → eslint 的 globals（eslint.config.mjs 据此给 src/client/
+ * 逐文件开 no-undef，跨片名字拼错在片段文件的行号上直接报出）。来源与组装同一份清单：
+ * bundle 头部 `/* global … *\/` 声明的浏览器全局、factory 参数 require、头部声明（React /
+ * hooks / h / module / exports）、每个片段（含内联模块）的顶层声明（4 空格基准缩进处的
+ * function / class / const / let / var，含头部那条解构）。let / var 记 writable（跨片赋值
+ * 合法，如 entry.js 给 localeSvc 赋值），其余 readonly。
+ * @returns {Record<string, 'readonly'|'writable'>}
+ */
+export function clientFragmentGlobals() {
+  const globals = { require: 'readonly' }
+  const browser = /^\/\* global ([^*]+)\*\//.exec(HEADER)
+  for (const name of browser[1].split(',')) globals[name.trim()] = 'readonly'
+  for (const text of [HEADER, ...FRAGMENTS.map(fragment)]) {
+    for (const line of text.split('\n')) {
+      const decl = /^ {4}(?:async\s+)?(function\*?|class|const|let|var)\s+(?:([A-Za-z_$][\w$]*)|\{([^}]*)\})/.exec(line)
+      if (!decl) continue
+      const access = decl[1] === 'let' || decl[1] === 'var' ? 'writable' : 'readonly'
+      const names = decl[2] ? [decl[2]] : decl[3].split(',').map((part) => part.split(':').pop().trim()).filter(Boolean)
+      for (const name of names) globals[name] = access
+    }
+  }
+  return globals
+}
+
 function main() {
   const bundle = assemble()
 
-  // 语法门禁：bundle 必须能整体 parse 才允许落盘 / 通过校验（只 parse 不执行——引用未定义的
-  // 名字这类错误由 eslint 对 lib/client.js 整体 lint 兜住，见 eslint.config.mjs）。
+  // 语法门禁：bundle 必须能整体 parse 才允许落盘 / 通过校验。只 parse 不执行、不查引用——
+  // 引用未定义 / 声明未使用这类错误由 eslint 兜住（片段逐文件 + lib/client.js 整体，见
+  // eslint.config.mjs）。
   try {
     new vm.Script(bundle, { filename: 'lib/client.js' })
   } catch (error) {

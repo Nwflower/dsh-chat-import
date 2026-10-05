@@ -8,6 +8,8 @@
 //   argsIgnorePattern '^_' — 接口契约位参数（如 provider 的 control/options）未消费时加 _ 前缀；
 //   ignoreRestSiblings — omit 模式（`({ isSummary, ...rest })`、`{ __action, ..., ...pub }`）。
 // dev/ 是 gitignore 的本地工程面（永不提交，CI 无此目录），排除在 lint 面外。
+import { clientFragmentGlobals } from './scripts/build-client.mjs'
+
 export default [
   {
     ignores: ['dev/**'],
@@ -34,14 +36,21 @@ export default [
     },
   },
   {
-    // src/client/ 是 lib/client.js 的分片源：片段共享 bundle 的 factory 作用域
-    //（禁 import/export，跨片直接引用彼此的顶层声明），逐文件 lint 必然误报
-    // no-undef / no-unused-vars——这两条的检查职责由 scripts/build-client.mjs 的
-    // 整体语法门禁承担。其余规则（eqeqeq / no-constant-condition）照常生效。
+    // src/client/ 是 lib/client.js 的分片源：片段共享 bundle 的 factory 作用域（禁 import/
+    // export，跨片直接引用彼此的顶层声明），按 script 解析。两条引用规则的分工：
+    //   - no-undef：全局名单由 scripts/build-client.mjs 的 clientFragmentGlobals 生成（与组装
+    //     同一份片段表 + bundle 头部声明），跨片名字拼错在片段文件的行号上直接报出；
+    //   - no-unused-vars 只查函数内的局部（vars: 'local'）：顶层声明是否被别的片段用到，
+    //     逐文件看不出来——这一半由下面对生成物 lib/client.js 的整体 lint 兜住（整份 bundle
+    //     是一个作用域，未用的顶层声明在那里照常报错）。
+    // build-client 的 vm 语法门禁只做 parse，不查引用，替代不了这两条。
     files: ['src/client/**'],
+    languageOptions: {
+      sourceType: 'script',
+      globals: clientFragmentGlobals(),
+    },
     rules: {
-      'no-undef': 'off',
-      'no-unused-vars': 'off',
+      'no-unused-vars': ['error', { vars: 'local', caughtErrorsIgnorePattern: '^_', argsIgnorePattern: '^_', ignoreRestSiblings: true }],
     },
   },
 ]
