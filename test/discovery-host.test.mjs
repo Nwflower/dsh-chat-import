@@ -7,6 +7,9 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
+import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
 import { makeDiscoveryHost } from '../lib/discovery-host.mjs'
 
 // 伪 fs：files 是 path → 文本；streamText 按 chunkSize 分块 yield（模拟宿主流式读）；
@@ -112,4 +115,17 @@ test('readBytes：经宿主 readBytes 有界读原始字节；超限 / 缺失返
   assert.equal(await host.readBytes('/s.zstd', 4), null)
   assert.equal(await host.readBytes('/missing.zstd', 1024), null)
   assert.equal(ctx.calls.bytes, 3)
+})
+
+test('readSessions：读取器异常（非 SQLite 文件）原样抛出交给发现层上报；未知格式返回 null', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-host-db-'))
+  try {
+    const bogus = join(dir, 'opencode.db')
+    writeFileSync(bogus, 'definitely not a sqlite database file '.repeat(200))
+    const host = makeDiscoveryHost({ fs: { resolve: async (p) => p } })
+    await assert.rejects(() => host.readSessions('opencode', bogus))
+    assert.equal(await host.readSessions('no-such-format', bogus), null)
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
 })

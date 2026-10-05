@@ -217,3 +217,52 @@ test('dsh：小 .zstd 经 host.readBytes 读字节解压取元数据；host 读�
   const fallback = await discoverSessions({ path: root, format: 'dsh', host: bare, imports: {}, cache: new Map() })
   assert.deepEqual(fallback.sessions.map((e) => [e.sessionId, e.title, e.project]), [['session-zstd-dir', null, '--w--']])
 })
+
+// 失败要大声：单个目标扫描失败仍只跳过该目标（其余来源照常产出），但失败进 warnings 并写宿主
+// 日志；失败结果不进 TTL 缓存（下次发现重试并再次上报）。
+test('warnings：读取器异常记入 { format, target, error }、写日志、不进 TTL 缓存', async (t) => {
+  const warn = t.mock.method(console, 'warn', () => {})
+  const dbPath = join(HOME, '.zcode', 'cli', 'db', 'db.sqlite')
+  const host = memoryHost(new Map([[dbPath, { type: 'file', text: 'SQLite format 3', mtimeMs: 1786000000000 }]]))
+  host.dbSessions = () => { throw Object.assign(new Error('database is locked'), { code: 'ERR_SQLITE_ERROR' }) }
+  const cache = createScanCache()
+  const first = await discoverSessions({ path: dbPath, format: 'zcode', host, imports: {}, cache })
+  assert.deepEqual(first.sessions, [])
+  assert.deepEqual(first.warnings, [{ format: 'zcode', target: dbPath, error: 'ERR_SQLITE_ERROR: database is locked' }])
+  assert.equal(warn.mock.callCount(), 1)
+  assert.match(String(warn.mock.calls[0].arguments[0]), /zcode/)
+  const second = await discoverSessions({ path: dbPath, format: 'zcode', host, imports: {}, cache })
+  assert.equal(host.counters.db, 2, '失败结果不缓存：第二次发现重试读取器')
+  assert.equal(second.warnings.length, 1)
+})
+
+test('warnings：目录探测里一个来源抛 TypeError 不影响其它来源，成功时 warnings 为空数组', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const root = join(HOME, 'mixed')
+  const files = withDirs(root, new Map([
+    [join(root, 'opencode.db'), { type: 'file', text: 'SQLite format 3', mtimeMs: 1786000000000 }],
+    [join(root, '.claude', 'projects', 'p', 's-1.jsonl'), { type: 'file', mtimeMs: 1786000001000, text: j({ sessionId: 's-1', type: 'user', message: { role: 'user', content: '照常发现' } }) }],
+  ]))
+  const host = memoryHost(files)
+  host.dbSessions = (kind) => (kind === 'opencode' ? null.rows : null) // 读取器里的程序错误（TypeError）
+  const res = await discoverSessions({ path: root, host, imports: {}, cache: new Map() })
+  assert.deepEqual(res.sessions.map((e) => [e.format, e.sessionId]), [['claude', 's-1']])
+  assert.deepEqual(res.warnings.map((w) => [w.format, w.target]), [['opencode', root]])
+  assert.match(res.warnings[0].error, /TypeError|Cannot read/)
+  const ok = await discoverSessions({ path: join(root, '.claude', 'projects'), format: 'claude', host, imports: {}, cache: new Map() })
+  assert.deepEqual(ok.warnings, [])
+})
+
+test('warnings：hermes state.db 打不开时上报并回退扫 JSONL（降级仍有结果）', async (t) => {
+  t.mock.method(console, 'warn', () => {})
+  const root = join(HOME, '.hermes')
+  const files = withDirs(root, new Map([
+    [join(root, 'state.db'), { type: 'file', text: 'SQLite format 3', mtimeMs: 1786000000000 }],
+    [join(root, 'sessions', 'h-1.jsonl'), { type: 'file', mtimeMs: 1786000001000, text: [j({ type: 'session', id: 'h-1' }), j({ role: 'user', content: '回退 JSONL' })].join('\n') }],
+  ]))
+  const host = memoryHost(files)
+  host.dbSessions = () => { throw new Error('unable to open database file') }
+  const res = await discoverSessions({ path: root, format: 'hermes', host, imports: {}, cache: new Map() })
+  assert.deepEqual(res.sessions.map((e) => [e.sessionId, e.title]), [['h-1', '回退 JSONL']])
+  assert.deepEqual(res.warnings.map((w) => [w.format, w.error]), [['hermes', 'unable to open database file']])
+})
