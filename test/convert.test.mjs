@@ -9,6 +9,7 @@ import { dirname, join } from 'node:path'
 import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, parseTimeMs, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents, isEnvInjectionEvent } from '../lib/convert/index.mjs'
 import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 import { synthesizeSession } from '../lib/convert/core.mjs'
+import { contentText } from '../lib/convert/util.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const load = (name) => readFileSync(join(fixtures, name), 'utf8')
@@ -440,6 +441,18 @@ test('parseTime: 解析 ISO 时间戳', () => {
   const before = Date.now()
   const fallback = parseTime(undefined)
   assert.ok(fallback >= before && fallback - before < 1000)
+})
+
+test('contentText: 字符串原样、块数组按 type 取 text，各源差异走显式选项', () => {
+  const blocks = [{ type: 'text', text: ' a ' }, { type: 'image' }, { type: 'output_text', text: 'b' }, { type: 'text', text: '' }, 'x', null]
+  assert.equal(contentText(' raw '), ' raw ')
+  assert.equal(contentText(' raw ', { trim: true }), 'raw')
+  assert.equal(contentText(blocks), ' a \n')
+  assert.equal(contentText(blocks, { skipEmpty: true }), ' a ')
+  assert.equal(contentText(blocks, { types: null, sep: '' }), ' a b')
+  assert.equal(contentText(blocks, { types: ['output_text'], trim: true }), 'b')
+  assert.equal(contentText(undefined), '')
+  assert.equal(contentText({ text: 'not an array' }), '')
 })
 
 test('parseTimeMs: 秒/毫秒自适应取整，truncSeconds 截到整秒，拿不到为 null', () => {
