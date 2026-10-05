@@ -1,11 +1,27 @@
-// crush.test.mjs — Crush 源转换核心单元测试（自包含合成数据，不掺真实会话）
-import { test } from 'node:test'
+// crush.test.mjs — Crush 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据，不掺真实会话）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import {
   convertCrushJson, parseCrushProjects, crushUserDataDir, crushRegistryPath, crushProjectDbPath,
 } from '../lib/convert/crush.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -247,4 +263,141 @@ test('路径解析：用户级目录三平台 + projects.json 与项目库路径
   assert.equal(crushRegistryPath('/h/u', {}, 'linux'), '/h/u/.local/share/crush/projects.json')
   assert.equal(crushProjectDbPath('/home/u/proj', 'linux'), '/home/u/proj/.crush/crush.db')
   assert.equal(crushProjectDbPath('D:\\proj', 'win32'), 'D:\\proj\\.crush\\crush.db')
+})
+
+// ---- import_crush 集成（真实 SQLite 临时库，项目内 .crush/） ----
+
+// 合成 Crush 会话库（sessions/messages/read_files 三表；parts 是 wrapper JSON 数组）
+const CRUSH_SID = 'a8f1c3d2-0000-4000-8000-000000000001'
+const CRUSH_CREATED = 1768000001
+const CRUSH_UPDATED = 1768000123
+function crushPartsUser(t) {
+  return JSON.stringify([{ type: 'text', data: { text: t } }, { type: 'finish', data: { reason: 'stop' } }])
+}
+function crushFixture() {
+  return {
+    sessions: [
+      {
+        id: CRUSH_SID, title: 'Add retry to fetch', message_count: 4,
+        prompt_tokens: 12043, completion_tokens: 812, cost: 0.0412,
+        created_at: CRUSH_CREATED, updated_at: CRUSH_UPDATED,
+      },
+      // 子会话：不单独成会话
+      { id: 'parent$$toolcall', parent_session_id: CRUSH_SID, title: 'New Agent Session', message_count: 1, created_at: CRUSH_CREATED, updated_at: CRUSH_UPDATED },
+    ],
+    messages: [
+      { id: 'm1', session_id: CRUSH_SID, role: 'user', created_at: CRUSH_CREATED + 1, updated_at: CRUSH_CREATED + 1, parts: crushPartsUser('add a retry to fetch') },
+      {
+        id: 'm2', session_id: CRUSH_SID, role: 'assistant', created_at: CRUSH_CREATED + 2, updated_at: CRUSH_CREATED + 2, model: 'claude-sonnet-4-20250514', provider: 'anthropic',
+        parts: JSON.stringify([
+          { type: 'reasoning', data: { thinking: 'Need to look at fetch.go', signature: '', tool_id: '', responses_data: null } },
+          { type: 'tool_call', data: { id: 'call_abc123', name: 'view', input: '{"file_path":"internal/fetch/fetch.go"}', provider_executed: false, finished: true } },
+          { type: 'finish', data: { reason: 'tool_use', time: CRUSH_CREATED + 3 } },
+        ]),
+      },
+      {
+        id: 'm3', session_id: CRUSH_SID, role: 'tool', created_at: CRUSH_CREATED + 3, updated_at: CRUSH_CREATED + 3, finished_at: CRUSH_CREATED + 3,
+        parts: JSON.stringify([
+          { type: 'tool_result', data: { tool_call_id: 'call_abc123', name: 'view', content: 'package fetch\n', is_error: false } },
+          { type: 'finish', data: { reason: 'stop' } },
+        ]),
+      },
+      { id: 'm4', session_id: CRUSH_SID, role: 'assistant', created_at: CRUSH_CREATED + 4, updated_at: CRUSH_CREATED + 4, parts: crushPartsUser('Done — added backoff.') },
+    ],
+  }
+}
+
+function makeCrushDb(fixture) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-crush-'))
+  const projectDir = join(dir, 'proj')
+  const dbPath = join(projectDir, '.crush', 'crush.db')
+  mkdirSync(join(projectDir, '.crush'), { recursive: true })
+  const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, parent_session_id TEXT, title TEXT NOT NULL,
+    message_count INTEGER NOT NULL DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER, cost REAL,
+    updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL, summary_message_id TEXT, todos TEXT);
+  CREATE TABLE messages (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL,
+    parts TEXT NOT NULL DEFAULT '[]', model TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+    finished_at INTEGER, provider TEXT, is_summary_message INTEGER NOT NULL DEFAULT 0);
+  CREATE TABLE files (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, path TEXT NOT NULL, content TEXT NOT NULL,
+    version INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, UNIQUE(path, session_id, version));
+  CREATE TABLE read_files (session_id TEXT, path TEXT, read_at INTEGER NOT NULL, PRIMARY KEY(path, session_id));`)
+  for (const s of fixture.sessions) {
+    const cols = Object.keys(s)
+    db.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => s[c]))
+  }
+  for (const m of fixture.messages) {
+    const cols = Object.keys(m)
+    db.prepare(`INSERT INTO messages (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => m[c]))
+  }
+  db.close()
+  return { dbPath, projectDir }
+}
+
+test('import_crush 项目内单库：批量形态、子会话不导入、parts 配对落盘、schema 校验', async () => {
+  const { dbPath, projectDir } = makeCrushDb(crushFixture())
+  const { ctx, persistence, attached } = makeCtx({}) // stat 不在 tree 里 → 按真实 DB 文件处理
+  apply(ctx)
+  const def = chatDef(ctx, 'crush')
+  const value = await def.execute({ path: dbPath })
+
+  assert.equal(value.mode, 'batch')
+  assert.equal(value.total, 1) // 子会话在读取层被过滤
+  assert.equal(value.imported, 1)
+  assert.equal(value.failed, 0)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get('import-' + CRUSH_SID)
+  assert.ok(saved)
+  // DB 里没有 cwd 列 → 项目路径由「库目录以 .crush 结尾 → 父目录」推导
+  assert.equal(saved.meta.cwd, projectDir)
+  assert.equal(saved.meta.createdAt, CRUSH_CREATED * 1000) // Unix 秒 → 毫秒
+  assert.match(saved.events.at(-1).data.title, /^Crush · /)
+  assert.ok(saved.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(saved.events)
+
+  const result = saved.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.sourceEventSeqs, [saved.events.find((e) => e.type === 'tool/call').seq])
+  assert.equal(result.data.message.content[0].content[0].text, 'package fetch\n')
+  const reasoning = saved.events
+    .flatMap((e) => (e.type === 'assistant/message' ? e.data.message.content : []))
+    .filter((b) => b.type === 'reasoning')
+  assert.deepEqual(reasoning, [{ type: 'reasoning', text: 'Need to look at fetch.go' }])
+  assert.equal(attached.length, 1)
+})
+
+test('import_crush 目录模式：接受项目目录或数据目录；sessionIds 过滤；preview 零副作用', async () => {
+  const { dbPath, projectDir } = makeCrushDb(crushFixture())
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'crush')
+
+  const viaProject = await def.execute({ path: projectDir, sessionIds: [CRUSH_SID] })
+  assert.equal(viaProject.mode, 'batch')
+  assert.equal(viaProject.imported, 1)
+  assert.equal(persistence.sessions.has('import-' + CRUSH_SID), true)
+
+  const preview = await def.execute({ path: dbPath, preview: true })
+  assert.equal(preview.preview, true)
+  assert.equal(preview.total, 1)
+  assert.ok(preview.results.some((r) => String(r.title).startsWith('Crush · ')))
+  assert.equal(persistence.sessions.size, 1) // 预览零副作用
+})
+
+test('import_crush 幂等：重复导入同一库只落盘一次；非 Crush 库大声报错', async () => {
+  const { dbPath } = makeCrushDb(crushFixture())
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'crush')
+  const first = await def.execute({ path: dbPath })
+  const second = await def.execute({ path: dbPath })
+  assert.equal(first.imported, 1)
+  assert.equal(second.imported, 0)
+  assert.equal(second.alreadyImported, 1)
+  assert.equal(persistence.sessions.size, 1)
+
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-crush-bad-'))
+  const bogus = join(dir, 'crush.db')
+  writeFileSync(bogus, 'not a sqlite db')
+  await assert.rejects(() => def.execute({ path: bogus }), /Crush/)
 })

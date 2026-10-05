@@ -1,9 +1,28 @@
-// zed.test.mjs — Zed 源转换核心单元测试（自包含合成数据，不掺真实会话）
-import { test } from 'node:test'
+// zed.test.mjs — Zed 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据，不掺真实会话）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertZedJson, zedFolderPaths, zedDataDir, zedThreadsDir, zedThreadsDbPath } from '../lib/convert/zed.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
+import { zstdCompressSync } from 'node:zlib'
+import { Buffer } from 'node:buffer'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -289,4 +308,125 @@ test('路径解析：三平台各自正确（macOS 用 Application Support、Win
     'C:\\Users\\u\\AppData\\Local\\Zed')
   assert.equal(zedThreadsDir('/h/u', {}, 'linux'), '/h/u/.local/share/zed/threads')
   assert.equal(zedThreadsDbPath('/h/u', {}, 'linux'), '/h/u/.local/share/zed/threads/threads.db')
+})
+
+// ---- import_zed 集成（真实 SQLite 临时库，zstd blob） ----
+
+// 合成 Zed 线程库（threads 单表；data_type=zstd 是上游实际写入的形态）
+const ZED_ID = '2f8b1c6e-0000-4000-8000-000000000001'
+const ZED_CWD = hostAbs('D:/demo/zed-proj')
+const ZED_TS = '2026-09-15T13:38:45.123456789+00:00'
+function zedThreadPayload({ title = '修登录页分页', version = '0.3.0', withTool = true } = {}) {
+  const messages = [
+    { User: { id: 'u1', content: [{ Text: '修一下登录页分页' }] } },
+  ]
+  if (withTool) {
+    messages.push({
+      Agent: {
+        content: [
+          { Thinking: { text: '先读文件', signature: null } },
+          {
+            ToolUse: {
+              id: 'toolu_01', name: 'read_file', raw_input: '{"path":"a.ts"}',
+              input: { type: 'json', value: { path: 'a.ts' } }, is_input_complete: true, thought_signature: null,
+            },
+          },
+        ],
+        tool_results: {
+          toolu_01: { tool_use_id: 'toolu_01', tool_name: 'read_file', is_error: false, content: [{ Text: 'export const a = 1' }], output: null },
+        },
+        reasoning_details: null,
+      },
+    })
+  }
+  messages.push({ Agent: { content: [{ Text: '已修好。' }], tool_results: {}, reasoning_details: null } })
+  return { title, updated_at: ZED_TS, version, messages }
+}
+
+function makeZedDb(threads) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-zed-'))
+  const dbPath = join(dir, 'threads.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE threads (
+    id TEXT PRIMARY KEY, summary TEXT NOT NULL, updated_at TEXT NOT NULL,
+    data_type TEXT NOT NULL, data BLOB NOT NULL, parent_id TEXT,
+    folder_paths TEXT, folder_paths_order TEXT, created_at TEXT)`)
+  for (const t of threads) {
+    db.prepare('INSERT INTO threads (id, summary, updated_at, data_type, data, parent_id, folder_paths, folder_paths_order, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(t.id, t.summary, ZED_TS, 'zstd', zstdCompressSync(Buffer.from(JSON.stringify(t.payload), 'utf8')), t.parent || null, t.folderPaths ?? ZED_CWD, '0', ZED_TS)
+  }
+  db.close()
+  return dbPath
+}
+
+test('import_zed 单库文件：zstd 解压 + 批量形态 + 逐线程落盘 + schema 校验', async () => {
+  const dbPath = makeZedDb([
+    { id: ZED_ID, summary: '修登录页分页', payload: zedThreadPayload({}) },
+    { id: 'legacy-1', summary: '老库线程', payload: zedThreadPayload({ title: '老库线程', version: '0.2.0', withTool: false }) },
+    // 子代理线程（parent_id 非空）不落地
+    { id: 'sub-1', summary: '子代理', parent: ZED_ID, payload: zedThreadPayload({ title: '子代理' }) },
+  ])
+  const { ctx, persistence, attached } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'zed')
+  const value = await def.execute({ path: dbPath })
+
+  assert.equal(value.mode, 'batch')
+  assert.equal(value.total, 2) // 读取层已滤掉子代理线程
+  assert.equal(value.imported, 2)
+  assert.equal(value.failed, 0)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const first = persistence.sessions.get('import-' + ZED_ID)
+  assert.ok(first)
+  assert.equal(first.meta.cwd, ZED_CWD)
+  assert.equal(first.meta.createdAt, Date.parse(ZED_TS))
+  assert.match(first.events.at(-1).data.title, /^Zed · /)
+  assert.ok(first.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(first.events)
+  const result = first.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.sourceEventSeqs, [first.events.find((e) => e.type === 'tool/call').seq])
+  assert.equal(result.data.message.content[0].content[0].text, 'export const a = 1')
+  assert.equal(persistence.sessions.has('import-sub-1'), false)
+  assert.equal(attached.length, 2)
+})
+
+test('import_zed 目录模式定位 threads.db；sessionIds 过滤与 preview 同口径', async () => {
+  const dbPath = makeZedDb([
+    { id: ZED_ID, summary: '线程一', payload: zedThreadPayload({}) },
+    { id: 'second', summary: '线程二', payload: zedThreadPayload({ title: '线程二', withTool: false }) },
+  ])
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'zed')
+
+  const filtered = await def.execute({ path: join(dbPath, '..'), sessionIds: ['second'] })
+  assert.equal(filtered.mode, 'batch')
+  assert.equal(filtered.imported, 1)
+  assert.equal(persistence.sessions.has('import-' + ZED_ID), false)
+  assert.equal(persistence.sessions.has('import-second'), true)
+
+  const preview = await def.execute({ path: dbPath, preview: true })
+  assert.equal(preview.preview, true)
+  assert.equal(preview.total, 2)
+  assert.ok(preview.results.some((r) => String(r.title).startsWith('Zed · ')))
+  assert.equal(persistence.sessions.size, 1) // 预览零副作用
+})
+
+test('import_zed 幂等：重复导入同一库只落盘一次；非 Zed 库大声报错', async () => {
+  const dbPath = makeZedDb([{ id: ZED_ID, summary: '线程', payload: zedThreadPayload({}) }])
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'zed')
+  const first = await def.execute({ path: dbPath })
+  const second = await def.execute({ path: dbPath })
+  assert.equal(first.imported, 1)
+  assert.equal(second.imported, 0)
+  assert.equal(second.alreadyImported, 1)
+  assert.equal(persistence.sessions.size, 1)
+
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-zed-bad-'))
+  const bogus = join(dir, 'threads.db')
+  writeFileSync(bogus, 'not a sqlite db')
+  await assert.rejects(() => def.execute({ path: bogus }), /Zed/)
 })

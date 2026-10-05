@@ -1,9 +1,23 @@
-// openclaw.test.mjs — OpenClaw 源转换核心单元测试（自包含合成数据，无宿主依赖）
-import { test } from 'node:test'
+// openclaw.test.mjs — OpenClaw 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { convertOpenclawJson, openclawDisplayNames } from '../lib/convert/openclaw.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { join } from 'node:path'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证）。
@@ -259,4 +273,95 @@ test('convertOpenclawJson: 空输入无事件', () => {
   assert.equal(out.events.length, 0)
   assert.equal(out.turns.length, 0)
   assert.equal(out.title, '')
+})
+
+// ---- import_openclaw 集成（sessions.json 索引提供 displayName） ----
+
+test('import_openclaw 单文件：displayName 从同目录 sessions.json 派生、落盘、归组、schema 校验', async () => {
+  const tree = {
+    'D:\\demo\\openclaw\\sessions.json': JSON.stringify({
+      'agent:main:a': { sessionId: 'sess-openclaw-001', displayName: '重构登录模块' },
+    }),
+    'D:\\demo\\openclaw\\sess-openclaw-001.jsonl': [
+      '{"type":"session","id":"sess-openclaw-001","cwd":"/home/dev/proj","timestamp":"2026-03-06T10:00:00Z"}',
+      '{"type":"message","message":{"role":"user","content":"帮我看看构建失败"},"timestamp":"2026-03-06T10:01:00Z"}',
+      '{"type":"message","message":{"role":"assistant","content":"是缺少依赖。"},"timestamp":"2026-03-06T10:02:00Z"}',
+    ].join('\n'),
+  }
+  const { ctx, persistence, attached } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'openclaw')
+  const value = await def.execute({ path: 'D:\\demo\\openclaw\\sess-openclaw-001.jsonl' })
+
+  assert.equal(value.mode, 'single')
+  assert.equal(value.sessionId, 'import-sess-openclaw-001')
+  assert.equal(value.turns, 1)
+  assert.equal(value.messages, 2)
+  assert.equal(value.alreadyImported, false)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get('import-sess-openclaw-001')
+  assert.ok(saved)
+  assert.equal(saved.meta.cwd, '/home/dev/proj')
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
+  // displayName（sessions.json 索引）→ 标题钉 session/title 事件
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.equal(saved.events.at(-1).data.title, 'OpenClaw · 重构登录模块')
+  assert.ok(saved.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(saved.events)
+  assert.equal(attached.length, 1)
+  assert.equal(attached[0].id, 'import-sess-openclaw-001')
+})
+
+test('import_openclaw 目录批量：递归扫 .jsonl、逐文件独立会话、schema 校验', async () => {
+  const file = (id) => [
+    '{"type":"session","id":"' + id + '","cwd":"/home/dev/proj","timestamp":"2026-03-06T10:00:00Z"}',
+    '{"type":"message","message":{"role":"user","content":"问题"},"timestamp":"2026-03-06T10:01:00Z"}',
+    '{"type":"message","message":{"role":"assistant","content":"回答"},"timestamp":"2026-03-06T10:02:00Z"}',
+  ].join('\n')
+  const tree = {
+    'D:\\demo\\openclaw\\agents\\main\\sessions': 'dir',
+    'D:\\demo\\openclaw\\agents\\main\\sessions\\sessions.json': JSON.stringify({
+      a: { sessionId: 'sess-a', displayName: '会话A' },
+      b: { sessionId: 'sess-b', displayName: '会话B' },
+    }),
+    'D:\\demo\\openclaw\\agents\\main\\sessions\\sess-a.jsonl': file('sess-a'),
+    'D:\\demo\\openclaw\\agents\\main\\sessions\\sess-b.jsonl': file('sess-b'),
+  }
+  const { ctx, persistence } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'openclaw')
+  const value = await def.execute({ path: 'D:\\demo\\openclaw\\agents\\main\\sessions' })
+
+  assert.equal(value.mode, 'batch')
+  assert.equal(value.total, 2) // sessions.json 是 .json 非 .jsonl，不收集
+  assert.equal(value.imported, 2)
+  assert.equal(value.failed, 0)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+  const ids = [...persistence.sessions.keys()].sort()
+  assert.deepEqual(ids, ['import-sess-a', 'import-sess-b'])
+  // 标题来自 sessions.json displayName
+  assert.equal(persistence.sessions.get('import-sess-a').events.at(-1).type, 'session/title')
+  assert.equal(persistence.sessions.get('import-sess-b').events.at(-1).type, 'session/title')
+})
+
+test('import_openclaw 幂等：重复导入同一文件已存在则跳过', async () => {
+  const tree = {
+    'D:\\demo\\openclaw\\sess-static.jsonl': [
+      '{"type":"session","id":"sess-static","cwd":"/tmp/p","timestamp":"2026-03-06T10:00:00Z"}',
+      '{"type":"message","message":{"role":"user","content":"hi"},"timestamp":"2026-03-06T10:01:00Z"}',
+      '{"type":"message","message":{"role":"assistant","content":"ok"},"timestamp":"2026-03-06T10:02:00Z"}',
+    ].join('\n'),
+  }
+  const { ctx, persistence } = makeCtx(tree) // 无 sessions.json：deriveArgs 吞缺索引，仅无 displayName
+  apply(ctx)
+  const def = chatDef(ctx, 'openclaw')
+  const first = await def.execute({ path: 'D:\\demo\\openclaw\\sess-static.jsonl' })
+  const second = await def.execute({ path: 'D:\\demo\\openclaw\\sess-static.jsonl' })
+  assert.equal(first.alreadyImported, false)
+  assert.equal(first.sessionId, 'import-sess-static')
+  assert.equal(second.alreadyImported, true)
+  assert.equal(persistence.sessions.size, 1)
 })

@@ -1,9 +1,25 @@
-// cline.test.mjs — Cline 源转换核心单元测试（自包含合成数据，不掺真实会话）
-import { test } from 'node:test'
+// cline.test.mjs — Cline 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据，不掺真实会话）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertClineJson } from '../lib/convert/cline.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -305,4 +321,187 @@ test('非 Cline 结构（无 messages 数组 / 非法 JSON）→ skipReason，�
   const bad = convertClineJson('{not json')
   assert.equal(bad.meta, null)
   assert.equal(bad.skipReason, 'not a Cline session (invalid JSON)')
+})
+
+// ---- import_cline 集成 ----
+
+// 合成 Cline 会话（结构对齐 lib/convert/cline.mjs 的 v1 契约：Anthropic 原生块，
+// 工具结果是挂在 user 消息上的 tool_result 块）。元数据分工与上游一致：cwd/标题在
+// manifest（DB 优先，测试里命中 manifest 分支 —— DB 属真实 SQLite，见 cline-db.test.mjs）。
+const CLINE_SID = '01J8Z6Q0M4V7X2K9TB3N5R8WDA'
+const CLINE_CWD = hostAbs('D:/demo/cline-proj')
+const CLINE_TS = '2026-04-22T17:40:00.000Z'
+const CLINE_DIR = 'D:\\demo\\cline\\data\\sessions\\' + CLINE_SID + '\\'
+function clineSession(messages, over = {}) {
+  return JSON.stringify({
+    version: 1, updated_at: '2026-04-22T17:42:10.123Z', agent: 'lead', sessionId: CLINE_SID, messages, ...over,
+  })
+}
+function clineManifest(title) {
+  return JSON.stringify({
+    version: 1, session_id: CLINE_SID, started_at: CLINE_TS, cwd: CLINE_CWD,
+    workspace_root: CLINE_CWD, metadata: { title },
+  })
+}
+function clineUser(text) {
+  return { id: 'u1', role: 'user', content: [{ type: 'text', text }], ts: 1776879600000 }
+}
+function clineAssistant(blocks) {
+  return { id: 'a1', role: 'assistant', content: blocks, ts: 1776879601000 }
+}
+
+test('import_cline 压缩侧车：原生压缩检查点 + compacted/compactions 报告', async () => {
+  const src = CLINE_DIR + CLINE_SID + '.messages.json'
+  const { ctx, persistence } = makeCtx({
+    [src]: clineSession([
+      clineUser('第一件事'),
+      clineAssistant([{ type: 'text', text: '做完了' }]),
+      clineUser('第二件事'),
+      clineAssistant([{ type: 'text', text: '好的' }]),
+    ]),
+    [CLINE_DIR + CLINE_SID + '.json']: clineManifest('压缩过的会话'),
+    // Cline 的 SessionCompactionState：source_message_count 条 canonical 消息被折叠进摘要，
+    // messages.json 仍保全量（侧车只给摘要与边界）
+    [CLINE_DIR + CLINE_SID + '.compaction.json']: JSON.stringify({
+      version: 1,
+      updated_at: '2026-04-22T17:42:10.123Z',
+      conversation_id: CLINE_SID,
+      source_message_count: 2,
+      messages: [
+        { role: 'user', content: [{ type: 'text', text: 'Context summary:\n\n此前在改登录页。' }], metadata: { kind: 'compaction_summary', displayRole: 'system', userRunSpan: 1, summary: '此前在改登录页。', details: { readFiles: [], modifiedFiles: [] }, tokensBefore: 100, generatedAt: 1 } },
+        { role: 'user', content: [{ type: 'text', text: '第二件事' }] },
+        { role: 'assistant', content: [{ type: 'text', text: '好的' }] },
+      ],
+    }),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'cline')
+  const value = await def.execute({ path: src })
+  assert.equal(value.status, 'imported')
+  assert.equal(value.compacted, true)
+  assert.equal(value.compactions, 1)
+  const saved = persistence.sessions.get('import-' + CLINE_SID)
+  assert.ok(saved)
+  assert.equal(saved.events.filter((e) => e.type === 'compaction/summary').length, 1)
+  const ck = saved.events.find((e) => e.type === 'user/message' && typeof e.surfaceOp === 'object')
+  assert.equal(ck.data.source.plugin, 'compact')
+  assert.equal(ck.data.content[0].text, '此前在改登录页。')
+  // 全量历史留在日志里（压缩只影响模型投影）
+  assert.ok(saved.events.some((e) => JSON.stringify(e.data).includes('做完了')))
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+})
+
+test('import_cline 单文件导入：manifest 带出 cwd/标题/创建时间、落盘归组、schema 校验', async () => {
+  const src = CLINE_DIR + CLINE_SID + '.messages.json'
+  const { ctx, persistence, attached } = makeCtx({
+    [src]: clineSession([
+      clineUser('修一下登录页分页'),
+      clineAssistant([{ type: 'text', text: '已修好。' }]),
+    ]),
+    [CLINE_DIR + CLINE_SID + '.json']: clineManifest('修登录页分页'),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'cline')
+  const value = await def.execute({ path: src })
+
+  assert.equal(value.mode, 'single')
+  assert.equal(value.sessionId, 'import-' + CLINE_SID)
+  assert.equal(value.turns, 1)
+  assert.equal(value.messages, 2)
+  assert.equal(value.toolCalls, 0)
+  assert.equal(value.alreadyImported, false)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get('import-' + CLINE_SID)
+  assert.ok(saved)
+  assert.equal(saved.meta.cwd, CLINE_CWD)
+  assert.equal(saved.meta.createdAt, Date.parse(CLINE_TS)) // 只存在于 manifest / DB 索引
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^Cline · /)
+  assert.ok(saved.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(saved.events)
+  assert.equal(attached.length, 1)
+  assert.equal(attached[0].id, 'import-' + CLINE_SID)
+})
+
+test('import_cline 工具历史：tool_result 块配对、思考落盘、is_error 如实标记', async () => {
+  const src = CLINE_DIR + CLINE_SID + '.messages.json'
+  const { ctx, persistence } = makeCtx({
+    [src]: clineSession([
+      clineUser('跑一下测试'),
+      clineAssistant([
+        { type: 'thinking', thinking: '先用命令跑' },
+        { type: 'tool_use', id: 'toolu_1', name: 'run_tests', input: { command: 'npm test' } },
+      ]),
+      { id: 'u2', role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_1', content: 'ok 42 passed', is_error: false }] },
+      clineAssistant([{ type: 'text', text: '测试通过。' }]),
+    ]),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'cline')
+  const value = await def.execute({ path: src })
+  assert.equal(value.mode, 'single')
+  assert.equal(value.toolCalls, 1)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get(value.sessionId)
+  const result = saved.events.find((e) => e.type === 'tool/result')
+  assert.ok(result)
+  assert.deepEqual(result.sourceEventSeqs, [saved.events.find((e) => e.type === 'tool/call').seq])
+  assert.equal(result.data.message.content[0].content[0].text, 'ok 42 passed')
+  const reasoning = saved.events
+    .flatMap((e) => (e.type === 'assistant/message' ? e.data.message.content : []))
+    .filter((b) => b.type === 'reasoning')
+  assert.deepEqual(reasoning, [{ type: 'reasoning', text: '先用命令跑' }])
+})
+
+test('import_cline 幂等：重复导入同一文件已存在则跳过', async () => {
+  const src = CLINE_DIR + CLINE_SID + '.messages.json'
+  const { ctx, persistence } = makeCtx({
+    [src]: clineSession([clineUser('第一问'), clineAssistant([{ type: 'text', text: '一答' }])]),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'cline')
+  const first = await def.execute({ path: src })
+  const second = await def.execute({ path: src })
+  assert.equal(first.alreadyImported, false)
+  assert.equal(second.alreadyImported, true)
+  assert.equal(persistence.sessions.size, 1)
+})
+
+test('import_cline legacy：taskHistory 元数据 + api history 经真实工具入口导入', async () => {
+  const taskId = 'legacy-tool-001'
+  const root = 'D:\\demo\\Code\\User\\globalStorage\\saoudrizwan.claude-dev'
+  const src = root + '\\tasks\\' + taskId + '\\api_conversation_history.json'
+  const state = root + '\\state\\taskHistory.json'
+  const { ctx, persistence, attached } = makeCtx({
+    [src]: JSON.stringify([
+      { role: 'user', content: 'first question' },
+      { role: 'assistant', content: 'first answer' },
+      { role: 'user', content: 'stale question' },
+      { role: 'assistant', content: 'stale answer' },
+      { role: 'user', content: 'current question' },
+      { role: 'assistant', content: 'current answer' },
+    ]),
+    [state]: JSON.stringify([{
+      id: taskId, ts: 1786000000000, task: 'Legacy import', cwdOnTaskInitialization: hostAbs('D:/repo'),
+      modelId: 'claude-sonnet', conversationHistoryDeletedRange: [2, 3],
+    }]),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'cline')
+  const value = await def.execute({ path: src })
+
+  assert.equal(value.mode, 'single')
+  assert.equal(value.sessionId, 'import-' + taskId)
+  assert.equal(value.turns, 2)
+  assert.equal(value.messages, 4)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get(value.sessionId)
+  assert.ok(saved)
+  assert.equal(saved.meta.cwd, hostAbs('D:/repo'))
+  assert.equal(saved.meta.createdAt, 1786000000000)
+  assert.match(saved.events.at(-1).data.title, /^Cline · Legacy import/)
+  assert.equal(attached.length, 1)
 })
