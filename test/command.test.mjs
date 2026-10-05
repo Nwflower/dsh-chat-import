@@ -160,6 +160,25 @@ test('REQ-42 /import：幂等重导跳过（源未变）', async () => {
   assert.ok(second.text.includes('已存在'), '重导应幂等跳过: ' + second.text)
 })
 
+// /import 与 import_chat 工具共用同一份结果文案：跳过原因要说全。命令面曾自带一份
+// 简化文案，漏掉 appendedSkipped / backfilled——源文件长了却读不到 DSH 侧日志长度时，
+// 只会说「源文件未变化」。本 mock 的 sessionPersistence 没有可读事件面，正好落进该分支。
+test('REQ-42 /import：源增长但读不到 DSH 侧日志长度 → 如实说明跳过原因（与工具文案同源）', async () => {
+  const { cmd } = setup()
+  const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-grow-')), 'cmd-sess.jsonl')
+  writeFileSync(file, simpleClaudeJsonl('cmd-sess'), 'utf8')
+
+  const first = await cmd.handler({ rawInput: 'claude ' + file })
+  assert.equal(first.kind, 'success', first.text)
+  writeFileSync(file, simpleClaudeJsonl('cmd-sess') + [
+    JSON.stringify({ parentUuid: 'a-1', userType: 'user', cwd: 'D:\\no-such\\proj', sessionId: 'cmd-sess', type: 'user', message: { role: 'user', content: '再问一句' }, uuid: 'u-2', timestamp: '2026-08-01T10:00:02.000Z' }),
+    JSON.stringify({ parentUuid: 'u-2', userType: 'user', cwd: 'D:\\no-such\\proj', sessionId: 'cmd-sess', type: 'assistant', message: { role: 'assistant', content: '再答一句' }, uuid: 'a-2', timestamp: '2026-08-01T10:00:03.000Z' }),
+  ].join('\n') + '\n', 'utf8')
+  const again = await cmd.handler({ rawInput: 'claude ' + file })
+  assert.equal(again.kind, 'success', again.text)
+  assert.ok(again.text.includes('读不到 DSH 侧日志长度'), again.text)
+})
+
 test('REQ-42 /import：工具全名 import_claude 与客户端来源 id claude-code 均接受', async () => {
   const { cmd } = setup()
   const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-src3-')), 'cmd-sess.jsonl')

@@ -2267,6 +2267,8 @@ test('import_cursor replace:true：同 id 覆盖重导，标题与正文更新',
   tree[path] = load('cursor-dual-tool-same-step.jsonl')
   const replaced = await def.execute({ path, replace: true })
   assert.equal(replaced.status, 'replaced')
+  // 输出 schema 必须声明 replaced 状态（宿主按 schema 校验工具返回值）
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, replaced), [])
   assert.equal(replaced.sessionId, 'import-composer-abc')
   assert.equal(persistence.sessions.size, 1)
   const saved = persistence.sessions.get('import-composer-abc')
@@ -5752,6 +5754,21 @@ test('REQ-41 /api-import/import handler：单选导入（claude 夹具）→ imp
   assert.equal(persistence.sessions.size, 1)
 })
 
+// 面板多选一库多会话来源：只导所选会话。适用来源由 spec 的 multiSession 派生（面板曾在
+// 两处手写 opencode/mimocode/teleagent/zcode，漏了同样按 sessionIds 过滤的 kilocode）。
+// kilo.db 的 schema 是 opencode 超集，读取层按列自适应，用 opencode 夹具库即可。
+test('/api-import/import：kilocode 多选只导所选会话（multiSession 由 spec 派生）', async () => {
+  const dbPath = makeOpencodeDb(opencodeTestSessions())
+  const { ctx, persistence, webRoutes } = makeCtx({})
+  apply(ctx)
+  const route = webRoutes.find((r) => r.path === '/api-import/import')
+  const out = await invokeImportRoute(route, { items: [{ source: 'kilocode', sourcePath: dbPath, sessionId: 'ses-b' }] })
+  assert.equal(out.data.ok, true, JSON.stringify(out.data))
+  assert.equal(out.data.results[0].mode, 'batch')
+  assert.equal(out.data.results[0].imported, 1)
+  assert.deepEqual([...persistence.sessions.keys()], ['import-ses-b'])
+})
+
 test('REQ-41 /api-import/sessions handler：source dsh4 是已知来源（来源列表拆代次后不能漏）', async () => {
   // 面板的 SOURCE_FORMAT 与 discovery 的 FORMATS 必须同步：漏掉 dsh4 时面板会回
   // 「未知来源: dsh4」→ 列表空、默认「导入到」也拿不到 dshVersion。
@@ -6273,7 +6290,44 @@ test('cwdRemap：dry-run 预览与落盘的 cwd 同口径', async () => {
   assert.equal(preview.cwd, to, '预览即重映射后的 cwd')
   const value = await def.execute({ path: file, cwdRemap: [{ from, to }] })
   assert.equal(value.cwdRemap.mapped, to)
+  // 落盘结果同样带 cwdRemap 报告：输出 schema 的单文件导入分支必须声明它
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, preview), [])
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
   assert.equal(persistence.sessions.get(value.sessionId).meta.cwd, to, '落盘与预览一致')
+})
+
+// 目录导入 + replace:true（面板「刷新已导入」作用于目录源）：批量条目的状态是 replaced，
+// 输出 schema 的批量条目分支必须声明它。
+test('目录 replace:true：批量条目状态 replaced 且符合输出 schema', async () => {
+  const dir = 'D:\\demo\\proj'
+  const tree = { [dir]: 'dir', [dir + '\\sess-simple-001.jsonl']: load('sess-simple-001.jsonl') }
+  const { ctx } = makeCtx(tree)
+  apply(ctx)
+  const def = chatDef(ctx, 'claude')
+  const first = await def.execute({ path: dir })
+  assert.equal(first.imported, 1)
+  const replaced = await def.execute({ path: dir, replace: true })
+  assert.equal(replaced.mode, 'batch')
+  assert.deepEqual(replaced.results.map((r) => r.status), ['replaced'])
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, replaced), [])
+})
+
+// registry 记录指向的会话日志已不在（被删 / DSH_HOME 迁移）：一库多会话源重导时按无记录
+// 重建该会话，并在条目里点名 staleRegistry——输出 schema 必须声明该字段，否则宿主的输出
+// 校验会把整次导入判失败。
+test('一库多会话重导：子会话已被删时条目带 staleRegistry 且符合输出 schema', async () => {
+  const dbPath = makeOpencodeDb(opencodeTestSessions())
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'opencode')
+  const first = await def.execute({ path: dbPath })
+  assert.equal(first.imported, 2)
+  persistence.sessions.delete('import-ses-a')
+  const again = await def.execute({ path: dbPath })
+  const rebuilt = again.results.find((r) => r.staleRegistry)
+  assert.ok(rebuilt, '被删会话重建并点名 staleRegistry')
+  assert.deepEqual(rebuilt.staleRegistry, { previous: 'import-ses-a', reason: 'session-log-missing' })
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, again), [])
 })
 
 // Issue #61：Kimi Code 的 state.json 多数只写 workDir（旧版写 cwd，新版两者可能共存）。

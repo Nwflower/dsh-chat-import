@@ -1,54 +1,45 @@
 #!/usr/bin/env node
-// bin/dsh-chat-import.mjs — 独立 CLI（无 DSH host 也可用）
+// bin/dsh-chat-import.mjs — 独立 CLI（无 DSH host 也可用，只读）
 //
-// 当前子命令：
-//   export-md <session.jsonl | session-dir> [--out file]   DSH 会话日志 → Markdown
-//   doctor                                                 （轻量）本地 registry 体检
-//   help                                                   打印帮助
+// 子命令：
+//   export-md <session log | session-dir> [--out file]   DSH 会话日志 → Markdown
+//   doctor                                               离线体检：registry ↔ 磁盘会话目录对账
+//   help                                                 打印帮助
 //
-// 说明：import/apply 的完整独立 CLI 依赖 DSH 会话持久化布局，仍建议在 DSH 内用
-// import_* 工具；export-md/doctor 提供无需启动 DSH 的只读通道。
+// 导入 / 导出到其它工具依赖 DSH 的会话持久化与工作区服务，只在 DSH 内（import_chat 等工具、
+// /import 命令、面板）可用；这里只提供不需要启动 DSH 的只读通道。路径口径与插件一致：
+// registry 目录取 lib/imports.mjs 的 resolveRegistryDir（$DSH_HOME 缺省 ~/.dsh），会话日志
+// 读取认宿主的代次命名（session[.vN].jsonl[.zstd]）与多帧 zstd（lib/sources/dsh.mjs）。
 
 import { readFile, readdir, stat, mkdir, writeFile } from 'node:fs/promises'
-import { homedir } from 'node:os'
 import { join, dirname } from 'node:path'
 import { sessionJsonlToMarkdown } from '../lib/markdown.mjs'
+import { resolveRegistryDir } from '../lib/imports.mjs'
+import { runOfflineDoctor } from '../lib/doctor.mjs'
+import { decodeZstdText, dshSessionLogVersion } from '../lib/sources/dsh.mjs'
 
-const DSH_HOME = () => process.env.DSH_HOME || join(homedir(), '.dsh')
+// 会话目录里挑日志：代次最高者优先（宿主只往当前代次写），同代次明文优先（免解压）。
+async function sessionLogIn(dir) {
+  const logs = (await readdir(dir))
+    .map((name) => ({ name, version: dshSessionLogVersion(name) }))
+    .filter((e) => e.version !== undefined)
+    .sort((a, b) => (b.version - a.version) || (Number(/\.zstd$/i.test(a.name)) - Number(/\.zstd$/i.test(b.name))))
+  if (logs.length === 0) throw new Error('目录中没有找到会话日志（session[.vN].jsonl[.zstd]）：' + dir)
+  return join(dir, logs[0].name)
+}
 
 async function readSessionText(path) {
-  const st = await stat(path)
-  let target = path
-  if (st.isDirectory()) {
-    const candidates = ['session.jsonl', 'session.jsonl.zstd']
-    let found = null
-    for (const name of candidates) {
-      try {
-        const p = join(path, name)
-        await stat(p)
-        found = p
-        break
-      } catch {
-        // try next
-      }
-    }
-    if (!found) throw new Error('目录中没有找到 session.jsonl / session.jsonl.zstd')
-    target = found
-  }
-  if (target.endsWith('.zstd')) {
-    throw new Error('暂不支持直接读取 .zstd，请先解压：zstd -dc ' + target + ' > session.jsonl')
-  }
-  return readFile(target, 'utf8')
+  const file = (await stat(path)).isDirectory() ? await sessionLogIn(path) : path
+  if (/\.zstd$/i.test(file)) return decodeZstdText(await readFile(file))
+  return readFile(file, 'utf8')
 }
 
 async function cmdExportMd(args) {
-  if (args.length === 0) throw new Error('用法：dsh-chat-import export-md <session.jsonl | session-dir> [--out file]')
-  const positional = args.filter((a) => !a.startsWith('--'))
   const outIdx = args.indexOf('--out')
   const outPath = outIdx >= 0 && args[outIdx + 1] ? args[outIdx + 1] : null
-  const source = positional[0]
-  const text = await readSessionText(source)
-  const md = sessionJsonlToMarkdown(text)
+  const source = args.filter((a, i) => !a.startsWith('--') && (outIdx < 0 || i !== outIdx + 1))[0]
+  if (!source) throw new Error('用法：dsh-chat-import export-md <session log | session-dir> [--out file]')
+  const md = sessionJsonlToMarkdown(await readSessionText(source))
   if (outPath) {
     await mkdir(dirname(outPath), { recursive: true })
     await writeFile(outPath, md, 'utf8')
@@ -58,41 +49,17 @@ async function cmdExportMd(args) {
 }
 
 async function cmdDoctor() {
-  const registryPath = join(DSH_HOME(), 'dsh-chat-import', 'imports.json')
-  let records = 0
-  try {
-    const parsed = JSON.parse(await readFile(registryPath, 'utf8'))
-    records = Object.keys(parsed.imports || {}).length
-  } catch {
-    records = 0
-  }
-  let sessionDirs = 0
-  const sessionsRoot = join(DSH_HOME(), 'sessions')
-  try {
-    const workspaces = await readdir(sessionsRoot)
-    for (const ws of workspaces) {
-      try {
-        const wsDir = join(sessionsRoot, ws)
-        if ((await stat(wsDir)).isDirectory()) {
-          sessionDirs += (await readdir(wsDir)).length
-        }
-      } catch {
-        // 忽略单个 workspace 不可读
-      }
-    }
-  } catch {
-    // sessions 根不存在
-  }
-  const issues = []
-  if (records === 0) issues.push('imports registry 为空')
-  if (sessionDirs === 0) issues.push('DSH sessions 目录为空或不可读')
-  return `doctor: registry ${records} 条记录，sessions ${sessionDirs} 个会话${issues.length ? '\n' + issues.map((i) => '  - ' + i).join('\n') : ''}`
+  const out = await runOfflineDoctor(resolveRegistryDir())
+  return `doctor: registry ${out.records} 条记录（导入会话 ${out.importedIds.length} 个），`
+    + `sessions ${out.sessionDirs} 个会话（其中导入 ${out.importDirs.length} 个）`
+    + (out.issues.length ? '\n' + out.issues.map((i) => '  - ' + i).join('\n') : '')
 }
 
 const HELP = `dsh-chat-import — standalone CLI
 
 用法：
-  dsh-chat-import export-md <session.jsonl | session-dir> [--out file]
+  dsh-chat-import export-md <session log | session-dir> [--out file]
+      会话日志可以是 session[.vN].jsonl 或 .zstd 压缩件；给目录时取其中代次最高的日志
   dsh-chat-import doctor
   dsh-chat-import help
 `
