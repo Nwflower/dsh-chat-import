@@ -642,6 +642,22 @@ test('图片落地可关：storeImages=false 时不写附件，图片只留占�
   assert.ok(flat.includes('[image]'))
   assert.ok(!flat.includes('iVBORw0KGgo'), 'base64 永不进日志')
 })
+test('imagesDegraded：宿主层降级与转换层降级同口径相加（不覆盖、不重复计）', async () => {
+  const sid = 'sess-img-mixed'
+  const png = { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'iVBORw0KGgoAAAANSUhEUg==' } }
+  const recs = [
+    { sessionId: sid, type: 'user', message: { role: 'user', content: '看三张图' } },
+    { sessionId: sid, type: 'assistant', message: { id: 'msg_1', role: 'assistant', content: [{ type: 'tool_use', id: 'toolu_a', name: 'Shot', input: {} }] } },
+    // 两张有字节（storeImages=false → 宿主层降级 2）+ 一张远程 URL（转换层拿不到字节 → 降级 1）
+    { sessionId: sid, type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'toolu_a', content: [png, png, { type: 'image', source: { type: 'url', url: 'https://example.com/a.png' } }] }] } },
+  ].map((r) => JSON.stringify(r)).join('\n')
+  const target = 'D:\\demo\\proj\\' + sid + '.jsonl'
+  const { ctx } = makeCtx({ [target]: recs })
+  apply(ctx)
+  const value = await chatDef(ctx, 'claude').execute({ path: target, storeImages: false })
+  assert.equal(value.status, 'imported')
+  assert.equal(value.imagesDegraded, 3)
+})
 test('图片已是附件引用（DSH 源回灌）：原样保留，不重复存、不降级', async () => {
   const sid = 'sess-img-ref'
   const ref = { attachmentId: 'sha256:existing', mediaType: 'image/png', bytes: 68, width: 1, height: 1, name: 'a.png' }
