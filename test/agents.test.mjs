@@ -202,7 +202,7 @@ test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + proven
   const ctx = { fs: fsLike }
 
   // 1) dry-run：plan 返回但零写盘
-  const dry = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome })
+  const dry = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome })
   assert.equal(dry.total, 3)
   assert.equal(dry.planned, 3)
   assert.equal(dry.applied, 0)
@@ -212,7 +212,7 @@ test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + proven
   assert.ok(!existsSync(join(agentsHome, 'skills')))
 
   // 2) apply：落盘 + frontmatter provenance
-  const applied = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome, apply: true })
+  const applied = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome, apply: true })
   assert.equal(applied.applied, 3)
   const skillsRoot = join(agentsHome, 'skills')
   assert.ok(existsSync(join(skillsRoot, 'reviewer', 'SKILL.md')))
@@ -226,7 +226,7 @@ test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + proven
   assert.ok(reviewerSkill.includes('review body'))
 
   // 3) 幂等：内容未变 → 全部 skip
-  const again = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome, apply: true })
+  const again = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome, apply: true })
   assert.equal(again.planned, 3)
   assert.equal(again.applied, 0)
   assert.equal(again.skipped, 3)
@@ -243,12 +243,13 @@ test('REQ-59 runAgentsImport: kind:dsh 源过滤 + 缺目录静默空清单', as
 
   const ctx = { fs: realFs() }
   // 源带 kind:dsh → 0 候选；缺 opencode 目录 → 静默空
-  const r1 = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome })
+  //（claudeRoot 必须显式指向不存在的目录：缺省会读真实 ~/.claude，测试随机器环境漂移）
+  const r1 = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome })
   assert.equal(r1.total, 0)
   assert.equal(r1.planned, 0)
 
   // 全缺目录 → 空清单不报错
-  const r2 = await runAgentsImport(ctx, { piRoot: join(root, 'missing-pi'), opencodeRoot: join(root, 'missing-oc'), codexRoot: join(root, 'missing-codex'), agentsHome })
+  const r2 = await runAgentsImport(ctx, { piRoot: join(root, 'missing-pi'), opencodeRoot: join(root, 'missing-oc'), codexRoot: join(root, 'missing-codex'), claudeRoot: join(root, 'no-claude'), agentsHome })
   assert.equal(r2.total, 0)
   assert.equal(r2.planned, 0)
 })
@@ -264,7 +265,7 @@ test('REQ-59 runAgentsImport: 同名跨源冲突落盘为 -source 后缀', async
   writeFileSync(join(ocRoot, 'agents', 'shared.md'), '---\nname: shared\n---\noc body')
 
   const ctx = { fs: realFs() }
-  const r = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome, apply: true })
+  const r = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome, apply: true })
   assert.equal(r.applied, 2)
   const skillsRoot = join(agentsHome, 'skills')
   assert.ok(existsSync(join(skillsRoot, 'shared', 'SKILL.md')))
