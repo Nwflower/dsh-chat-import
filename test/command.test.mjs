@@ -11,6 +11,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerTools } from '../lib/tools.mjs'
 import { registerImportCommand } from '../lib/command.mjs'
+import { CHAT_FORMAT_NAMES } from '../lib/toolkit.mjs'
 
 // 最小 Claude transcript（user + assistant 两行；cwd 用不存在路径触发 REQ-39-lite
 // 回退归组到源目录——mkdtemp 目录真实存在，attach 不落「未分组」）。
@@ -189,6 +190,15 @@ test('REQ-42 /import：未知来源报错', async () => {
   const out = await cmd.handler({ rawInput: 'foobar C:\\x.jsonl' })
   assert.equal(out.kind, 'error')
   assert.ok(out.text.includes('未知来源'), out.text)
+})
+
+test('/import：import_chat 的每个 format 都是合法来源名（别名表由 CHAT_FORMAT_NAMES 派生）', async () => {
+  const { cmd } = setup()
+  for (const f of CHAT_FORMAT_NAMES) {
+    const out = await cmd.handler({ rawInput: f + ' ' + join(tmpdir(), 'dsh-missing-' + f) })
+    assert.ok(!String(out.text).includes('未知来源'), f + ' 被当成未知来源：' + out.text)
+  }
+  for (const f of ['kilocode', 'antigravity', 'dsh4']) assert.ok(cmd.description.includes(f), '用法里列出 ' + f)
 })
 
 test('REQ-42 /import：缺 path 报用法', async () => {
