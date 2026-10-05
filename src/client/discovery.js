@@ -120,9 +120,9 @@
       const narrow = panelWidth !== 0 && panelWidth < NARROW_MAX_WIDTH;
       const [source, setSource] = useState(SOURCES[0]);
       // 「导入到」：dsh3 / dsh4 = 建指定代次的 DSH 会话（默认按探测到的宿主版本）；
-      // claude / codex / kimi / opencode → 转投到目标工具格式
-        // "" = 未定：首个扫描响应带回 dshVersion 后按宿主版本定项（见扫描循环）
-    const [target, setTarget] = useState("");
+      // claude / codex / kimi / opencode → 转投到目标工具格式。
+      // "" = 未定：首个扫描响应带回 dshVersion 后按宿主版本定项（见扫描循环）
+      const [target, setTarget] = useState("");
       const [workspaceFilter, setWorkspaceFilter] = useState("");
       const [timeFilter, setTimeFilter] = useState(TIME_FILTERS[0]); // '' = 不筛选
       const [items, setItems] = useState([]); // 流式累计缓冲（scan 逐条按发现顺序插入）
@@ -135,8 +135,7 @@
       const [queryInput, setQueryInput] = useState(""); // 搜索框输入（未提交）
       const [query, setQuery] = useState(""); // 已提交的搜索词（请求用）
       const [page, setPage] = useState(0); // 当前页（0 基）
-      // 每页条数：默认 25（列表视口约 16 行 → 25 行≈1.6 屏、渲染约 3ms；50 行要滚 3 屏才够到分页条）
-      // 每页条数：默认 500（窗口化后档位大小不影响渲染开销，放大只是少翻几次页）
+      // 每页条数：默认 500（= PAGE_SIZES 最小档；窗口化后档位大小不影响渲染开销，放大只是少翻几次页）
       const [pageSize, setPageSize] = useState(500);
       const [collapsed, setCollapsed] = useState(new Set()); // 已折叠的工作区分组名
       // 工具栏动作按钮的降级判据：看「动作按钮组」实测到的可用宽度，而不是面板宽度——
@@ -182,7 +181,7 @@
               });
               data = await parsePanelResponse(resp);
             } catch (err) {
-              failed = "导入面板请求失败：" + String((err && err.message) || err);
+              failed = t("error.request", { msg: String((err && err.message) || err) });
               break;
             }
             if (cancelled) return;

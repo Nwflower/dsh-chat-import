@@ -138,9 +138,6 @@
         position: "absolute", left: 0, top: 0, width: "max-content",
         display: "flex", gap: "6px", visibility: "hidden", pointerEvents: "none", whiteSpace: "nowrap",
       },
-      // 工具栏末位的工作区筛选：与左侧动作按钮用 auto 外边距分开；限宽保护按钮，
-      // 且它不经 toolBtn（窄面板下也保持文字，不降级成图标）
-      toolbarFilter: { marginLeft: "auto", display: "flex", minWidth: 0, maxWidth: "52%" },
       // 窄宽降级的方形图标按钮（工具栏/分页/清除共用，26×26 居中图标）
       iconBtn: {
         background: "transparent", border: "1px solid " + C.border, color: C.text,
@@ -243,7 +240,8 @@
         color: C.text, fontSize: "12px", cursor: "pointer",
       },
       pageCellActive: { background: C.accent, color: C.accentForeground, fontWeight: 600 },
-      // 工具栏里的两个筛选控件：标签 + 芯片
+      // 工具栏末位的两个筛选控件（路径 / 时间）：与左侧动作按钮用 auto 外边距分开；限宽保护
+      // 按钮，且不经 toolBtn（窄面板下也保持文字，不降级成图标）
       toolbarFilter: { marginLeft: "auto", display: "flex", alignItems: "center", gap: "4px", minWidth: 0, maxWidth: "60%" },
       filterGroup: { display: "flex", alignItems: "center", gap: "4px", minWidth: 0, flex: "0 1 auto" },
       pageInfo: {

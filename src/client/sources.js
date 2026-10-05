@@ -5,10 +5,9 @@
       "", "dsh", "dsh4", "claude-code", "codex", "chatgpt", "cursor", "gemini", "antigravity", "reasonix",
       "opencode", "mimocode", "teleagent", "kilocode", "zcode", "grokbuild", "openclaw", "pi", "hermes", "kimi", "qoder", "workbuddy", "qwen", "trae", "vibe", "continue", "cline", "goose", "zed", "crush",
     ];
-    // 「导入到」下拉：'dsh' = 照常建可继续的 DSH 会话（默认）；其余 = 转投到该工具自己的
-    // 格式（服务端 lib/transfer.mjs，与 export_chat 的目标保持一致）。值顺序 = 展示顺序。
     // 「导入到」下拉：dsh3 / dsh4 = 建指定代次的 DSH 会话日志（宿主按 header.version 落盘），
-    // 默认项由探测到的宿主版本决定（面板在首个扫描响应里带回 dshVersion）。其余值 = 转投。
+    // 默认项由探测到的宿主版本决定（面板在首个扫描响应里带回 dshVersion）。其余值 = 转投到
+    // 该工具自己的格式（服务端 lib/transfer.mjs，与 export_chat 的目标保持一致）。值顺序 = 展示顺序。
     const IMPORT_TARGETS = ["dsh3", "dsh4", "claude", "codex", "kimi", "opencode"];
     // discovery format 短名 → 客户端来源 id（构建 /api-import/import 的 items）。
     const FORMAT_SOURCE = {
@@ -30,9 +29,9 @@
       // 这里是中性短名（会话行提示/aria 用）；下拉里的完整展示名（「DSH V3 会话格式」）走 i18n。
       dsh: "DSH V3", dsh4: "DSH V4",
     };
-    // 来源 id → 标键（SOURCE_LOGOS / SOURCE_BADGES 都按 discovery format 短名键控，
-    // claude-code 的键是 claude；其余同名。两个表都查不到时由 BrandMark 按首字母兜底）。
-    // 来源 id → 品牌标键：claude-code 的标键是 claude；dsh4（DSH V4）与 dsh 共用同一个 DSH 标
+    // 来源 id → 标键（SOURCE_LOGOS / SOURCE_BADGES 都按 discovery format 短名键控）：
+    // claude-code 的键是 claude；dsh4（DSH V4）与 dsh 共用同一个 DSH 标；其余同名。
+    // 两个表都查不到时由 BrandMark 按首字母兜底。
     const SOURCE_MARK_KEY = { "claude-code": "claude", dsh4: "dsh" };
     // 只有连项目仓库里都没有可用矢量标的来源才在这里手绘（有官方标的走 SOURCE_LOGOS，见
     // logos.js）：白色圆角卡 + 品牌标 / 品牌色缩写。目前只剩 WorkBuddy（原仓库已不可达）、

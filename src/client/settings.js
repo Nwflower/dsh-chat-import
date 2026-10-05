@@ -138,7 +138,7 @@
             if (data && data.ok === true) adopt(data);
             else setState((s) => ({ ...s, error: (data && data.error) || t("error.load") }));
           })
-          .catch((err) => setState((s) => ({ ...s, error: "导入偏好读取失败：" + String((err && err.message) || err) })));
+          .catch((err) => setState((s) => ({ ...s, error: t("error.prefs", { msg: String((err && err.message) || err) }) })));
       };
       useEffect(() => {
         load();

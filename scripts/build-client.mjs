@@ -31,7 +31,7 @@ const FRAGMENTS = [
   'i18n.js',      // 字典 DICT + fill + locale 服务句柄 + 工作区筛选助手
   'prefs.js',     // 侧栏按钮偏好存取 + useTranslate
   'sources.js',   // 来源枚举 / 标签 / 徽标 / 分页常量 / 排序
-  'logos.js',     // 来源品牌标与字标（lobehub 静态 SVG，生成物：dev/gen-lockups.mjs）
+  'logos.js',     // 来源品牌标与字标（lobehub 静态 SVG，生成物：scripts/gen-logos.mjs）
   'widgets.js',   // Icon / SourceBadge / useContainerWidth
   'styles.js',    // themeColors + makeStyles（DSW 设计令牌）
   'toast.js',     // ToastHost（官方 shell.overlay 落点提示；缺 primitives 时自绘横幅）
