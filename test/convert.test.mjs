@@ -3,7 +3,7 @@ import { test } from 'node:test'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
 import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, parseTimeMs, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents, isEnvInjectionEvent } from '../lib/convert/index.mjs'
@@ -441,6 +441,24 @@ test('parseTime: 解析 ISO 时间戳', () => {
   const before = Date.now()
   const fallback = parseTime(undefined)
   assert.ok(fallback >= before && fallback - before < 1000)
+})
+
+test('纯函数层（lib/convert、lib/export）只 import 本层模块与无 IO 的 node 内建', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'lib')
+  const allowed = (layer, spec) => /^\.\/[\w-]+\.mjs$/.test(spec)
+    || (layer === 'export' && /^\.\.\/convert\/[\w-]+\.mjs$/.test(spec))
+    || spec === 'node:path' || spec === 'node:crypto'
+  const offenders = []
+  for (const layer of ['convert', 'export']) {
+    for (const name of readdirSync(join(root, layer))) {
+      if (!name.endsWith('.mjs')) continue
+      const src = readFileSync(join(root, layer, name), 'utf8')
+      for (const m of src.matchAll(/^(?:import|export)\b[^'"]*?from\s*['"]([^'"]+)['"]/gm)) {
+        if (!allowed(layer, m[1])) offenders.push(layer + '/' + name + ' → ' + m[1])
+      }
+    }
+  }
+  assert.deepEqual(offenders, [])
 })
 
 test('contentText: 字符串原样、块数组按 type 取 text，各源差异走显式选项', () => {
