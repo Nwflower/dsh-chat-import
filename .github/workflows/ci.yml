@@ -33,7 +33,8 @@ jobs:
       # 结果不得与写死反斜杠字面量比较——防「本地绿、Linux CI 红」的回归（2026-08-14
       # 曾长期红：测试反斜杠合成路径 + posix join() 混合分隔符，mock 裸查找落空）
       - run: npm run check:linux
-      # 提交泄漏扫描（check-leaks）：凭据模式 + dev/ 误 stage；内部项目名黑名单为可选本地文件
+      # 提交泄漏扫描（check-leaks，按 git ls-files 扫受版本管理的文件）：凭据模式 + dev/ 误入库；
+      # 内部项目名黑名单为可选本地文件
       # 不存在时自动降级为
       # 通用规则——本地 pre-commit（dev/hooks/pre-commit）覆盖完整规则。
       - run: npm run check:leaks
