@@ -2,7 +2,8 @@
     // 由 ui-theme 挂在 body 上，随 data-ds-dark-theme 自动切换，插件不再自建明暗色板。
     // 文本用 label-primary/secondary/tertiary 语义色板；按钮/强调用 brand-primary 强调色
     //（即 DSH 主按钮 button-primary-fill 的预设），按钮文字用 label-primary-foreground 反色。
-    const themeColors = () => ({
+    // 明暗切换全由 CSS 变量完成，这里只是一组常量：模块级定义一次，各组件直接引用。
+    const COLORS = Object.freeze({
       bg: "var(--dsw-specific-menu)",
       // 宿主菜单面是**半透明**的（深色 #30313680 / 浅色 #f8f9fa94），它必须和宿主 Menu
       // 一样配一层背景模糊才是一块能读的卡片——少了 backdrop-filter，深色主题下弹层会
@@ -24,6 +25,7 @@
       error: "var(--dsw-alias-state-error-primary)",
     });
 
+    // 面板样式表：C 是配色（COLORS）。只在下面算一次得到 STYLES，各组件共用同一份引用。
     const makeStyles = (C) => ({
       row: { display: "flex", gap: "8px", alignItems: "center", padding: "10px 16px", borderBottom: "1px solid " + C.border },
       // 无分隔线的选择行：来源 / 导入到 / 工作区三行同属一组，行间不画横线
@@ -66,7 +68,7 @@
         position: "absolute", top: "calc(100% + 2px)", left: "12px", right: "12px", minWidth: "200px", zIndex: 30,
         display: "flex", flexDirection: "column", gap: "4px", boxSizing: "border-box",
         padding: "6px", background: C.bg, border: "1px solid " + C.border, borderRadius: "12px",
-        // 宿主 Menu 同款三件套：半透明面 + 背景模糊 + 官方投影（见 themeColors 的注释）
+        // 宿主 Menu 同款三件套：半透明面 + 背景模糊 + 官方投影（见 COLORS 的注释）
         backdropFilter: C.menuBlur, WebkitBackdropFilter: C.menuBlur, boxShadow: C.elevation,
       },
       selectSearchRow: { display: "flex", alignItems: "center", gap: "6px", padding: "2px 8px 4px" },
@@ -250,3 +252,4 @@
       },
       pageSizeLabel: { flex: "none", color: C.dimmer, fontSize: "12px", marginLeft: "4px" },
     });
+    const STYLES = makeStyles(COLORS);

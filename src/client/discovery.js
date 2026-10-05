@@ -111,10 +111,10 @@
     /** 发现 + 导入面板：来源过滤 + 按工作区文件夹分组 + 单选/多选导入 */
     function DiscoveryPanel() {
       const t = useTranslate();
-      // colors / style 引用必须稳定：它们是 memo 行的 props，每次新建会让 memo 失效
-      const colors = useMemo(() => themeColors(), []);
+      // colors / style 是模块级常量（styles.js），作为 memo 行的 props 引用天然稳定
+      const colors = COLORS;
+      const style = STYLES;
       const badgeOverlay = overlayColorForAccent(colors.accent);
-      const style = useMemo(() => makeStyles(colors), [colors]);
       // 容器宽度（侧边栏可拖宽）：低于阈值时按钮/分页降级为图标、页码压缩为 1/N。
       const [rootRef, panelWidth] = useContainerWidth();
       const narrow = panelWidth !== 0 && panelWidth < NARROW_MAX_WIDTH;
@@ -143,8 +143,7 @@
       // 中间那一段宽度里被压扁/折行。探针量出文字形态需要多宽，两者一比即可（字体大小
       // 随主题偏好变化，所以不写死阈值）。
       const [toolsRef, toolsWidth] = useContainerWidth();
-      const toolsProbeRef = useRef(null);
-      const [toolsNeed, setToolsNeed] = useState(0);
+      const [toolsProbeRef, toolsNeed] = useContainerWidth();
       const [hotKey, setHotKey] = useState(null); // 点亮中的会话行（悬停或行内按钮聚焦）
       const [hotKeyGroup, setHotKeyGroup] = useState(null); // 该行所属分组（组头随之变亮，O(1)）
       const [hotGroup, setHotGroup] = useState(null); // 悬停的工作区分组头
@@ -224,20 +223,6 @@
         })();
         return () => { cancelled = true; };
       }, [source, query, epoch]);
-
-      useEffect(() => {
-        const node = toolsProbeRef.current;
-        if (!node) return undefined;
-        const update = () => setToolsNeed(node.getBoundingClientRect().width);
-        update();
-        if (typeof ResizeObserver === "function") {
-          const ro = new ResizeObserver(update);
-          ro.observe(node);
-          return () => ro.disconnect();
-        }
-        window.addEventListener("resize", update);
-        return () => window.removeEventListener("resize", update);
-      }, []);
 
       // 来源/搜索词/工作区变化 → 清空跨页选择（换页/刷新保留选择，支持跨页多选）
       useEffect(() => { setSelected(new Map()); }, [source, query, workspaceFilter, timeFilter]);

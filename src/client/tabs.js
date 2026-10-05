@@ -2,7 +2,7 @@
     // 供原生右侧栏 tab 复用同一份内容（embedded 模式）。
     function ImportTabContent() {
       const t = useTranslate();
-      const colors = themeColors();
+      const colors = COLORS;
       const [tab, setTab] = useState("import");
       const tabBtn = (id, label) => h("button", {
         type: "button",
@@ -39,8 +39,8 @@
     /** 导入历史面板：读取 imports.json 展平列表，支持单条/全部删除 */
     function HistoryPanel() {
       const t = useTranslate();
-      const colors = themeColors();
-      const style = makeStyles(colors);
+      const colors = COLORS;
+      const style = STYLES;
       const [entries, setEntries] = useState([]);
       const [loading, setLoading] = useState(true);
       const [error, setError] = useState(null);
@@ -188,7 +188,7 @@
      *  名称 + 当前项末尾 ✓，顶部保留搜索框（自动聚焦）。替代原生 <select>：来源 / 目标 /
      *  工作区选项多时既好看也能检索。受控组件：value + onChange；点击外部 / Esc 关闭。 */
     function SearchableSelect({ value, options, onChange, disabled, title, colors, searchPlaceholder, noMatchLabel, searchable = true, triggerLabel }) {
-      const style = makeStyles(colors);
+      const style = STYLES;
       const [open, setOpen] = useState(false);
       const [filter, setFilter] = useState("");
       const [hover, setHover] = useState(null);

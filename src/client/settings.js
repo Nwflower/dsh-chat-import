@@ -112,7 +112,7 @@
     };
     function ImportSettingsSection() {
       const t = useTranslate();
-      const colors = themeColors();
+      const colors = COLORS;
       const [state, setState] = useState({ sidebarButton: cachedSidebarButton, importSystemPrompt: true, injectTools: "minimal", saving: false, error: null });
       const readPrefs = (data) => ({
         sidebarButton: data && data.value && typeof data.value.sidebarButton === "boolean" ? data.value.sidebarButton : true,

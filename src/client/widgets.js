@@ -1,33 +1,33 @@
     // 窄宽降级用内联 SVG 图标（stroke 风格，继承 currentColor 随按钮文字色走明暗主题）。
+    // 形状树是不可变的 React 元素：模块级建一次，每次渲染只换外层 svg 的尺寸属性。
+    const ICON_SHAPES = {
+      checkSquare: h(React.Fragment, null,
+        h("rect", { x: 3, y: 3, width: 18, height: 18, rx: 3 }),
+        h("path", { d: "m9 12 2 2 4-4" })),
+      x: h(React.Fragment, null,
+        h("path", { d: "M18 6 6 18M6 6l12 12" })),
+      refresh: h(React.Fragment, null,
+        h("path", { d: "M21 12a9 9 0 1 1-2.64-6.36" }),
+        h("path", { d: "M21 3v6h-6" })),
+      circle: h("circle", { cx: 12, cy: 12, r: 9 }),
+      checkCircle: h(React.Fragment, null,
+        h("circle", { cx: 12, cy: 12, r: 9 }),
+        h("path", { d: "m9 12 2 2 4-4" })),
+      chevronLeft: h("path", { d: "m15 18-6-6 6-6" }),
+      chevronRight: h("path", { d: "m9 18 6-6-6-6" }),
+      search: h(React.Fragment, null,
+        h("circle", { cx: 11, cy: 11, r: 7 }),
+        h("path", { d: "m21 21-4.3-4.3" })),
+      check: h("path", { d: "m4.5 12.5 5 5 10.5-11" }),
+      // 折叠箭头（分组头，悬停才出现；收起时整体 rotate(-90deg)）
+      chevronDown: h("path", { d: "m6 9 6 6 6-6" }),
+    };
     function Icon({ name, size = 14, strokeWidth = 2 }) {
-      const common = {
+      return h("svg", {
         width: size, height: size, viewBox: "0 0 24 24", fill: "none",
         stroke: "currentColor", strokeWidth, strokeLinecap: "round", strokeLinejoin: "round",
         xmlns: "http://www.w3.org/2000/svg", "aria-hidden": true, style: { flex: "none", display: "block" },
-      };
-      const shapes = {
-        checkSquare: h(React.Fragment, null,
-          h("rect", { x: 3, y: 3, width: 18, height: 18, rx: 3 }),
-          h("path", { d: "m9 12 2 2 4-4" })),
-        x: h(React.Fragment, null,
-          h("path", { d: "M18 6 6 18M6 6l12 12" })),
-        refresh: h(React.Fragment, null,
-          h("path", { d: "M21 12a9 9 0 1 1-2.64-6.36" }),
-          h("path", { d: "M21 3v6h-6" })),
-        circle: h("circle", { cx: 12, cy: 12, r: 9 }),
-        checkCircle: h(React.Fragment, null,
-          h("circle", { cx: 12, cy: 12, r: 9 }),
-          h("path", { d: "m9 12 2 2 4-4" })),
-        chevronLeft: h("path", { d: "m15 18-6-6 6-6" }),
-        chevronRight: h("path", { d: "m9 18 6-6-6-6" }),
-        search: h(React.Fragment, null,
-          h("circle", { cx: 11, cy: 11, r: 7 }),
-          h("path", { d: "m21 21-4.3-4.3" })),
-        check: h("path", { d: "m4.5 12.5 5 5 10.5-11" }),
-        // 折叠箭头（分组头，悬停才出现；收起时整体 rotate(-90deg)）
-        chevronDown: h("path", { d: "m6 9 6 6 6-6" }),
-      };
-      return h("svg", common, shapes[name]);
+      }, ICON_SHAPES[name]);
     }
 
     // 选中态遮罩：强调色亮（HSV V > 40）用固定黑遮罩，暗用固定白遮罩，保证勾选图标的
@@ -161,9 +161,10 @@
       }, logo, overlay, check);
     }
 
-    // 面板容器宽度跟踪：侧边栏可拖宽，面板随之变窄；ResizeObserver 不可用时回退
-    // window resize（宽窄降级仍可用，只是不跟踪拖拽的每一帧）。初始 0 = 未知 → 按
-    // 宽态渲染，测量后若低于阈值再降级（避免窄面板首帧先闪文字再跳图标）。
+    // 元素宽度跟踪（面板容器、工具栏动作组、文字形态探针共用）：侧边栏可拖宽，面板随之
+    // 变窄；ResizeObserver 不可用时回退 window resize（宽窄降级仍可用，只是不跟踪拖拽的每
+    // 一帧）。返回 [ref, width]，把 ref 挂到要量的元素上。初始 0 = 未知 → 按宽态渲染，
+    // 测量后若低于阈值再降级（避免窄面板首帧先闪文字再跳图标）。
     function useContainerWidth() {
       const ref = useRef(null);
       const [width, setWidth] = useState(0);

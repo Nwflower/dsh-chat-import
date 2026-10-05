@@ -11,7 +11,7 @@
     //                          offset 必须对齐（细节见 lib/upload.mjs 文件头）。
     //
     // 片段契约：本文件是 bundle 的一个片段，禁 import/export；前面片段声明的 useTranslate /
-    // themeColors / SearchableSelect / readJson / showAppToast / fmtImportResult 直接用。
+    // COLORS / postJson / showAppToast / fmtImportResult 直接用。
     // 子文件夹询问用的宿主 UI 预设组件（@deepseek-ai/dsh-client-ui-primitives 的 Modal /
     // Button）：与导入落点 Toast（src/client/toast.js）同一条 require 通道，旧宿主缺该包
     // 或换 API 时退回面板自绘弹层——一句询问不值得把面板拖垮（例外记在 architecture D17）。
@@ -53,8 +53,8 @@
     // 目录分隔符（\ 与 /）：写成一个字符，避免片段里出现反斜杠转义
     const FILE_PATH_SEP = String.fromCharCode(92);
 
-    /** 折叠区样式：与面板其余部分同一套设计令牌（themeColors；不新建设计变量）。 */
-    const fileImportStyles = (C) => ({
+    /** 折叠区样式：与面板其余部分同一套设计令牌（COLORS；不新建设计变量），模块级算一次。 */
+    const FILE_IMPORT_STYLES = ((C) => ({
       root: { flex: "none", display: "flex", flexDirection: "column", borderBottom: "1px solid " + C.border },
       head: {
         display: "flex", alignItems: "center", gap: "6px", width: "100%", padding: "8px 12px",
@@ -128,7 +128,7 @@
         padding: "6px 8px", fontSize: "12px", color: C.dim, background: C.field,
         borderRadius: "8px", wordBreak: "break-word", whiteSpace: "pre-wrap",
       },
-    });
+    }))(COLORS);
 
     const readFileAreaCollapsed = () => {
       try {
@@ -183,8 +183,8 @@
     /** 「从文件导入」折叠区：上传 / 路径浏览 / 预览 / 目录批处理。 */
     function FileImportPanel() {
       const t = useTranslate();
-      const colors = useMemo(() => themeColors(), []);
-      const style = useMemo(() => fileImportStyles(colors), [colors]);
+      const colors = COLORS;
+      const style = FILE_IMPORT_STYLES;
       const [collapsed, setCollapsed] = useState(readFileAreaCollapsed);
       const [pathInput, setPathInput] = useState("");
       const [busy, setBusy] = useState(false); // 上传 / 预览 / 导入进行中：交互控件一起禁用

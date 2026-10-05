@@ -61,7 +61,7 @@
     // 无 primitives 时的自绘横幅：顶部居中、holdMs 后自动消失（位置与官方 Toast 一致）；
     // 有动作时同样画出按钮，所以「跳过 → 用 force 重导」这条兜底不会因为缺包就没了
     function FallbackToast(props) {
-      const colors = themeColors();
+      const colors = COLORS;
       const [shown, setShown] = useState(true);
       const actions = props.actions || [];
       useEffect(() => {
