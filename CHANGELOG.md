@@ -2,11 +2,11 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
-## [Unreleased]
+## [0.25.0] - 2026-10-05
 
-[中文](#cn-unreleased) | [English](#en-unreleased)
+[中文](#cn-0.25.0) | [English](#en-0.25.0)
 
-<h3 id="cn-unreleased">体验优化</h3>
+<h3 id="cn-0.25.0">体验优化</h3>
 
 - **扫描失败不再静默**：某个来源 / 数据根扫描抛错时，`scan_discover` 结果新增 `warnings: [{ format, target, error }]`，面板在列表上方点名扫描失败的来源；失败结果不进 30 秒缓存，下次扫描会重试。此前任何异常（含程序错误）都被当成「没有会话」。
 - **发现层少做重复 IO**：单次扫描内目录列举与 stat 记忆化，不给格式的目录探测、dsh / dsh4 共用的会话目录不再被各扫描器重复遍历（测试宿主上 Claude 数据根的列举次数由 15 次降为 1 次）；Claude 转录的「只读尾部」改为按偏移只读末尾窗口（此前流过整份文件）；DSH 明文日志只读头尾两段，`.zstd` 经宿主有界读取。
@@ -19,8 +19,9 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - 独立 CLI 复用插件的 registry 路径与离线体检，`export-md` 接受 `.zstd` 与 `session.vN` 代次日志。
 - 英文界面下，面板请求失败与偏好读取失败的提示不再显示中文。
 
-<h3 id="cn-unreleased">问题修复</h3>
+<h3 id="cn-0.25.0">问题修复</h3>
 
+- **interchange 文档里的工具结果落点**：写在 step `content` 里的 `tool-result` 块现在按 `toolCallId` 派生进 `step.toolResults`（显式列表优先，与 `tool-call` 块的派生对称），正文不再残留宿主 V4 已退休的结果包装——按转换指南写出的这类文档此前被宿主 v4 codec 整份拒载（`... must not contain a released tool-result wrapper`），而预览与全部降级计数都读作 0、不给任何提示；写在 `promptBlocks` 或某个结果内层的结果块无处安放，整块丢弃并计 `skippedBlocks`。存量日志里的残留包装由 `verify_session` 的 `retired-tool-result-wrapper` 点名到事件 seq 与槽位，并给出 `force` 重导的修复提示。
 - **图片降级计数**：`imagesDegraded` 不再把转换层计数重复相加、同时丢掉宿主层（附件落地失败 / `storeImages:false`）的计数，两者现在同口径相加。
 - **opencode fork 目录导入**：mimocode / teleagent 按目录导入时不再退回 opencode 转换器与「OpenCode · …」标题；mimocode / kilocode / teleagent 的 registry 记录不再把来源格式记成 `opencode`。
 - **`/import` 来源名**：别名表由 `import_chat` 的格式表派生，`/import kilocode`、`antigravity`、`dsh4` 不再报「未知来源」。
@@ -41,7 +42,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - 迁移提示：短会话（如 headless 单轮）在发现跑完前结束时，不再打印「迁移提示注入失败：cannot get required service "systemPrompt" in inactive context」，也不记提示记忆（下一个会话照常提示）。
 - 重导 DSH 会话时，无标题事件的会话从首条用户消息派生的标题与其他来源同口径（超 80 字符截断并以「…」收尾，此前是 80 字符硬截）。
 
-<h3 id="cn-unreleased">其他变更</h3>
+<h3 id="cn-0.25.0">其他变更</h3>
 
 - 体量热点按 D6 拆完：`lib/discovery.mjs`（2629 行）拆为 `lib/discovery/` 按来源族的模块并由来源描述符表派生全部清单，`lib/tools.mjs`（1663 行）按工具分组拆为 `lib/tools/`，`lib/import-core.mjs` 的共享状态机拆出 `import-state` / `import-batch` / `host-session`；`lib/` 下最大的手维护文件回到 1000 行以内。
 - 测试假宿主的真实磁盘模式不再把测试未显式给定的来源根读成执行机器的真实目录（`import_agents` 用例显式传 `claudeRoot`）——此前装了 Claude Code 技能的机器上 `npm test` 会多出候选而失败。
@@ -49,7 +50,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - 发布面：`files` 补上 `lib/discovery`、`lib/tools`；`npm run build` 从发布入口沿模块图检查可达模块全部在发布集合内。
 - CI 只跑一遍测试（覆盖率步骤兼跑）并单独校验 client bundle 新鲜度；`check-leaks` 按 `git ls-files` 扫描受版本管理的文件；`check-linux-compat` 按查找点就近判定分隔符归一；eslint 按生成的跨片全局名单逐片段检查面板源码。
 
-<h3 id="en-unreleased">Improvements</h3>
+<h3 id="en-0.25.0">Improvements</h3>
 
 - **Scan failures are no longer silent**: when a source or data root throws during a scan, the `scan_discover` result carries `warnings: [{ format, target, error }]` and the panel names the failed sources above the list; failed results are not cached for the 30-second TTL, so the next scan retries. Previously any exception (programming errors included) read as "no sessions".
 - **Less repeated IO in discovery**: directory listings and stats are memoized within one scan, so format-less directory probes and the session directory shared by dsh / dsh4 are no longer walked once per scanner (on the test host the Claude data root is listed once instead of 15 times); the "tail only" read for Claude transcripts now reads just the trailing window at an offset (it used to stream the whole file); plain DSH logs read only head and tail, and `.zstd` logs go through bounded host reads.
@@ -62,8 +63,9 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - The standalone CLI reuses the plugin's registry path and offline doctor, and `export-md` accepts `.zstd` and `session.vN` logs.
 - In the English UI, the panel's request-failure and preferences-failure messages are no longer shown in Chinese.
 
-<h3 id="en-unreleased">Bug Fixes</h3>
+<h3 id="en-0.25.0">Bug Fixes</h3>
 
+- **Where tool results belong in interchange documents**: a `tool-result` block written inside a step's `content` is now derived into `step.toolResults` by `toolCallId` (the explicit list wins, symmetric to the `tool-call` derivation), so message content no longer keeps the result wrapper the host V4 codec retired — documents written from the conversion guide used to be rejected wholesale (`... must not contain a released tool-result wrapper`) while the preview and every degradation counter read zero. A `tool-result` block anywhere else (`promptBlocks`, or nested inside another result's `content`) has nowhere to go and is dropped, counted as `skippedBlocks`. Stored logs with a leftover wrapper are named by `verify_session`'s `retired-tool-result-wrapper` check with the event seq and slot, plus a `force` re-import repair hint.
 - **Image degradation count**: `imagesDegraded` no longer double-counts the converter's count while dropping the host-side count (attachment save failures / `storeImages:false`); both are now added together.
 - **opencode-fork directory imports**: importing a mimocode or teleagent directory no longer falls back to the opencode converter and "OpenCode · …" titles, and mimocode / kilocode / teleagent registry records no longer store `opencode` as the source format.
 - **`/import` source names**: the alias table is derived from the `import_chat` format table, so `/import kilocode`, `antigravity` and `dsh4` no longer report "unknown source".
@@ -84,13 +86,15 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - Migration hint: when a short session (e.g. a single headless turn) ends before discovery finishes, the plugin no longer logs "migration hint injection failed: cannot get required service "systemPrompt" in inactive context", and it does not record the hint as shown, so the next session still gets it.
 - Re-importing a DSH session derives the title from the first user message (when no title event exists) with the same policy as every other source (truncated past 80 characters with a trailing "…", previously a hard 80-character cut).
 
-<h3 id="en-unreleased">Chores</h3>
+<h3 id="en-0.25.0">Chores</h3>
 
 - The size hot spots are split per D6: `lib/discovery.mjs` (2629 lines) into `lib/discovery/` modules per source family with every list derived from one source-descriptor table, `lib/tools.mjs` (1663 lines) into `lib/tools/` per tool group, and the shared state machine of `lib/import-core.mjs` into `import-state` / `import-batch` / `host-session`; the largest hand-maintained file under `lib/` is back under 1000 lines.
 - The fake host's real-disk mode no longer lets a test read source roots it did not pass explicitly (the `import_agents` cases now pass `claudeRoot` explicitly) — on a machine with Claude Code skills installed, `npm test` used to find extra candidates and fail.
 - Same-semantics logic lives in one shared place (D21): titles / time / text extraction, call-and-result tidying, read-only SQLite access, the unchanged-source short path, batch counting, atomic writes and the test fake host each exist once; panel React calls go through `h()` and requests through `postJson`.
 - Publishing: `files` now includes `lib/discovery` and `lib/tools`; `npm run build` walks the module graph from the package entry points and fails if a reachable module would not be published.
 - CI runs the test suite once (the coverage step runs it) and checks client-bundle freshness as its own step; `check-leaks` scans tracked files via `git ls-files`; `check-linux-compat` checks separator normalization per lookup site; eslint checks panel fragments with a generated cross-fragment globals list.
+
+**Full Changelog**: [v0.24.1...v0.25.0](https://github.com/Nwflower/dsh-chat-import/compare/v0.24.1...v0.25.0)
 
 ## [0.24.1] - 2026-10-04
 
