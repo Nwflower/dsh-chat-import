@@ -27,6 +27,7 @@
     "lib/*.js",
     "lib/index.d.ts",
     "lib/convert",
+    "lib/discovery",
     "lib/export",
     "lib/sources",
     "lib/tools",
