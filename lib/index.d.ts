@@ -180,8 +180,11 @@ export interface CwdRemapReport {
   reason?: string
 }
 
-/** 单文件结果与批量条目共用的导入报告字段（>0 / 非空才占键）。 */
-export interface ImportReport {
+/**
+ * 导入状态机的决策层报告字段（>0 / 非空才占键）：「源未变」短路径、逐条决策与落盘的产物。
+ * import_chat 与 restore_bundle 共用（运行时 schema 见 lib/tools/schema.mjs 的 DECISION_REPORT_PROPS）。
+ */
+export interface DecisionReport {
   /** Reasonix V2 WAL 合并报告。 */
   walMerged?: boolean
   walRecords?: number
@@ -204,31 +207,10 @@ export interface ImportReport {
   /** 旧版本导入的会话：补登 registry 记录（不重写会话）。 */
   backfilled?: boolean
   droppedBoundaryResults?: number
-  /** 工具结果归位丢弃计数（孤儿 / 重复）。 */
-  orphanToolResults?: number
-  duplicateToolResults?: number
-  /** isMeta 记录数（Claude：宿主写进转录的非提问内容，不开轮、不参与标题）。 */
-  metaMessages?: number
   /** 落成宿主附件的图片数（经 ctx.attachments 存成不可变对象，日志里只有引用）。 */
   images?: number
   /** 未能落地、以 [image] 文本占位导入的图片数（服务缺席 / 类型不收 / 超限 / 源无字节）。 */
   imagesDegraded?: number
-  /** Claude 富结果 sidecar 合并数（includeToolUseResult: true 时 > 0）。 */
-  toolUseResultsMerged?: number
-  /** 只计数不映射的后端工具调用数（Grok Build 的 backend_tool_call）。 */
-  backendToolCalls?: number
-  /** 无法映射成内容块的工具结果块数（未知块类型，已计数上报）。 */
-  droppedToolResultBlocks?: number
-  /** 工具输出块数组里的未知块类型数（Codex）。 */
-  droppedMalformedOutputs?: number
-  /** 未能转成标准 JSON、原样保留的工具参数条数（Codex custom_tool_call）。 */
-  droppedMalformedArgs?: number
-  /**
-   * Codex Desktop「导入外部 agent 会话」展平信封的还原计数（任一 > 0 才占键）：
-   * calls = 还原的 tool-call 数、results = 配上调用的结果数、
-   * orphanResults = 找不到调用而保留为正文的结果数、malformed = 未闭合信封 / 认不出的载荷数。
-   */
-  externalAgent?: { calls: number; results: number; orphanResults: number; malformed: number }
   /** 本次导入会话挂接到的 DSH 工作区路径（归组成功时才有；见 docs/architecture.md D16）。 */
   workspace?: string
   /** 归组方式：已有工作区沿用 workspace / 就地建项目工作区 project / 专用导入工作区 dedicated。 */
@@ -247,6 +229,31 @@ export interface ImportReport {
   /** registry 记录指向的会话已不在宿主里（日志被删 / DSH_HOME 迁移）→ 按无记录重建。 */
   staleRegistry?: { previous: string; reason: string }
   validation?: ValidationReport
+}
+
+/** 单文件结果与批量条目共用的导入报告字段：决策层报告 + 转换层明细（>0 / 非空才占键）。 */
+export interface ImportReport extends DecisionReport {
+  /** 工具结果归位丢弃计数（孤儿 / 重复）。 */
+  orphanToolResults?: number
+  duplicateToolResults?: number
+  /** isMeta 记录数（Claude：宿主写进转录的非提问内容，不开轮、不参与标题）。 */
+  metaMessages?: number
+  /** Claude 富结果 sidecar 合并数（includeToolUseResult: true 时 > 0）。 */
+  toolUseResultsMerged?: number
+  /** 只计数不映射的后端工具调用数（Grok Build 的 backend_tool_call）。 */
+  backendToolCalls?: number
+  /** 无法映射成内容块的工具结果块数（未知块类型，已计数上报）。 */
+  droppedToolResultBlocks?: number
+  /** 工具输出块数组里的未知块类型数（Codex）。 */
+  droppedMalformedOutputs?: number
+  /** 未能转成标准 JSON、原样保留的工具参数条数（Codex custom_tool_call）。 */
+  droppedMalformedArgs?: number
+  /**
+   * Codex Desktop「导入外部 agent 会话」展平信封的还原计数（任一 > 0 才占键）：
+   * calls = 还原的 tool-call 数、results = 配上调用的结果数、
+   * orphanResults = 找不到调用而保留为正文的结果数、malformed = 未闭合信封 / 认不出的载荷数。
+   */
+  externalAgent?: { calls: number; results: number; orphanResults: number; malformed: number }
 }
 
 export interface SingleImportResult extends ImportReport {
@@ -522,7 +529,8 @@ export interface RestoreBundleParams {
   recursive?: boolean
 }
 
-export interface RestoreBundleResult {
+/** 还原结果：还原专有字段 + 与 import_chat 共用的决策层报告（续写 / 跳过原因、图片、归组……）。 */
+export interface RestoreBundleResult extends DecisionReport {
   mode: 'single' | 'batch'
   preview?: boolean
   sessionId?: string
@@ -533,22 +541,18 @@ export interface RestoreBundleResult {
   toolCalls?: number
   skipped?: number
   skipReason?: string
-  /** 原 cwd（机器相关，跨机器还原时 B 机通常不可达）。 */
+  /** 预览：会话 header 的 cwd。 */
+  cwd?: string
+  /** 原 cwd（机器相关，跨机器还原时 B 机通常不可达；导出时会话没有 cwd 则不占键）。 */
   originalCwd?: string
   /** 原 cwd 在本机是否可达（目录存在）。 */
   cwdAvailable?: boolean
   /** 建议落点（originalCwd basename）。 */
   landingHint?: string
-  /** 实际归组目录（cwd 不可达时 = bundle 文件目录）。 */
+  /** 实际落点工作区（同 workspace；原 cwd 不可达时通常是专用导入工作区，见 docs/architecture.md D16）。 */
   groupedTo?: string
   /** 跨机器还原报告（cwd 不可达时出现，不静默）。 */
   restoreNote?: string
-  /** 归组结果：含义同 import_chat 的单文件结果。 */
-  workspace?: string
-  workspaceMode?: string
-  workspaceCreated?: boolean
-  ungrouped?: number
-  ungroupedReason?: string
   title?: string
   createdAt?: number
   alreadyImported?: boolean | number
@@ -556,9 +560,6 @@ export interface RestoreBundleResult {
   imported?: number
   appended?: number
   failed?: number
-  /** 还原走同一套重导语义（docs/architecture.md D13）。 */
-  storedShrunk?: boolean
-  reimported?: { previous: string; current: string; reason: ReimportReason }
   results?: Array<{
     path: string
     status: string
