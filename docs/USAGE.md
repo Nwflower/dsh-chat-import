@@ -84,7 +84,7 @@ Scope note: `import_agents` is a lightweight asset mover only - it does not cove
 
 ### scan_discover — read-only session discovery
 
-`scan_discover` scans the known data roots of every supported format (including Cline's modern sessions and legacy VS Code globalStorage tasks, the Reasonix desktop app and Claude-3p roots on Windows) and returns a structured session index (title, project, cwd, path, import status, and git branch/dirty when the source directory is a git repo) so you can preview before a batch import. Set `CLINE_LEGACY_GLOBAL_STORAGE_DIR` when VS Code uses a non-standard globalStorage location, and `GROK_HOME` to override Grok Build's default `~/.grok` root. Zero side effects:
+`scan_discover` scans the known data roots of every supported format (including Cline's modern sessions and legacy VS Code globalStorage tasks, the Reasonix desktop app and Claude-3p roots on Windows) and returns a structured session index (title, project, cwd, path, import status, and git branch/dirty when the source directory is a git repo) so you can preview before a batch import. Targets that fail to scan (permission denied, corrupt database, reader error) never take the list down: the result carries `warnings: [{ format, target, error }]` naming each failed target (empty array = everything scanned), and the panel surfaces the same names above the session list. Set `CLINE_LEGACY_GLOBAL_STORAGE_DIR` when VS Code uses a non-standard globalStorage location, and `GROK_HOME` to override Grok Build's default `~/.grok` root. Zero side effects:
 
 ```
 scan_discover()
