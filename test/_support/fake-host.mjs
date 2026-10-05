@@ -4,14 +4,12 @@
 //
 //   makePersistence(opts)       sessionPersistence 直写形态：list / create / append / inspect /
 //                               readFrom / remove（+ 可选 locate）。sessions: Map<id, { meta, events }>
-//                               可直接 seed；calls 记录每次调用的方法名。
-//     strictSeq = true          append 校验 seq 从已存条数起连续（引擎契约）；false = 不校验、
-//                               未知 id 静默忽略（只关心「写了什么」的用例）
+//                               可直接 seed；calls 记录每次调用的方法名。append 恒校验 seq 从已存
+//                               条数起连续（引擎契约），create 对已存在 id 抛错。
 //     omit = []                 去掉某些面，模拟缺该能力的宿主（如 ['remove'] / ['inspect']）
 //     unreadable = false        有读面但读不出事件（inspect / readFrom 回 undefined）：插件拿不到
 //                               DSH 侧日志长度，走「读不到日志」分支
 //     locate(meta)              提供 locate 面（同步，返回 { kind, path }）
-//     onCreate(meta)            create 成功后的钩子（如在磁盘上落会话工件）
 //     另有 ghost(id)（list 仍可见、inspect/readFrom 抛错——工件已删）与 hostReject(id)（list
 //     不再暴露、create 仍报 already exists）两种幽灵会话注入。
 //   makeHandlePersistence(store) 新宿主（dsh >= 0.1.5）句柄面：list → { header, … }，读走
@@ -29,7 +27,7 @@
 //     readOnly = false          writeText 一律抛错
 //     writeThrough = false      writeText 真落盘（自动建父目录），用例直接到磁盘上验收产物
 //     返回的 fs 另带观测面：writes（writeText 记录 { path, content, options }）、reads.count
-//     （readText 次数）、lookup(path)（树查找）。writeText 缺省写回 tree（内存覆盖层，不落盘）；
+//     （readText 次数）。writeText 缺省写回 tree（内存覆盖层，不落盘）；
 //     createIfAbsent 对已存在路径抛 EEXIST。
 //   forbiddenFs()               任何方法被取用即记录并在调用时抛错的 fs（断言「全程不碰 fs」）。
 //   makeWorkspaceRegistry(opts) resolveByPath / create / archivedSessionIds / archiveSession；
@@ -59,7 +57,7 @@ import { dirname, join } from 'node:path'
 
 // ── sessionPersistence ──────────────────────────────────────────────
 
-export function makePersistence({ strictSeq = true, omit = [], unreadable = false, locate, onCreate } = {}) {
+export function makePersistence({ omit = [], unreadable = false, locate } = {}) {
   const sessions = new Map() // id -> { meta, events: [], ghosted?, readFromThrows? }
   const calls = []
   const rejectIds = new Set() // create 拒绝的幽灵 id（list 不暴露）
@@ -88,15 +86,9 @@ export function makePersistence({ strictSeq = true, omit = [], unreadable = fals
       if (rejectIds.has(meta.id)) throw new Error('session "' + meta.id + '" already exists in this backend')
       if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
       sessions.set(meta.id, { meta, events: [] })
-      if (onCreate) onCreate(meta)
     },
     async append(id, events) {
       calls.push('append')
-      if (!strictSeq) {
-        const s = sessions.get(id)
-        if (s) s.events.push(...events)
-        return
-      }
       const s = known(id)
       for (let i = 0; i < events.length; i++) {
         const ev = events[i]
@@ -173,7 +165,7 @@ export function makeHandlePersistence(store) {
 // ── fs ──────────────────────────────────────────────────────────────
 
 /** 内容派生的 fs 版本指纹：内容变则 version 变。 */
-export function contentVersion(text) {
+function contentVersion(text) {
   let h = 0
   for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0
   return 'v' + h
@@ -205,7 +197,6 @@ export function makeFs(tree = {}, { real = 'stat', versions = {}, caseInsensitiv
   return {
     writes,
     reads,
-    lookup,
     async resolve(path) { return targetOf(path) },
     processPath(target) { return target.targetKey },
     async stat(target) {
