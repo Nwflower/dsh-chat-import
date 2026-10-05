@@ -51,86 +51,53 @@
       const load = () => {
         setLoading(true);
         setError(null);
-        fetch("/api-import/history", { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" })
-          .then((r) => readJson(r))
-          .then((data) => {
-            if (data && data.ok === true) {
-              setEntries(Array.isArray(data.entries) ? data.entries : []);
+        postJson("/api-import/history", {})
+          .then((r) => {
+            if (r.ok) {
+              setEntries(Array.isArray(r.data.entries) ? r.data.entries : []);
               setError(null);
             } else {
-              setError((data && data.error) || t("error.load"));
+              setError(r.error || t("error.load"));
             }
           })
-          .catch((err) => setError(String((err && err.message) || err)))
+          .catch((err) => setError(errorText(err)))
           .finally(() => setLoading(false));
       };
       useEffect(() => { load(); }, []);
 
-      const runPurge = async (body) => {
+      // 三个动作（删除导入 / 清理空工作区 / 清理上传暂存）同一套收尾：置忙、清掉上一次的
+      // 提示与错误 → 请求 → 成功由 onDone 给一行提示 / 失败亮错误 → 解除忙碌并关掉确认框
+      //（确认框只由 purge 与 staging 打开；cleanup 不经确认，关一个本就没开的框是空操作）。
+      const runAction = async (path, body, onDone) => {
         setBusy(true);
         setNote(null);
         setError(null);
         try {
-          const resp = await fetch("/api-import/purge", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ confirm: true, ...body }),
-          });
-          const data = await readJson(resp);
-          if (data && data.ok === true) {
-            const r = data.result || {};
-            setNote(t("history.purge.done", { deleted: r.deleted || 0, failed: r.failed || 0 }));
-            load();
-          } else {
-            setError((data && data.error) || t("error.route"));
-          }
+          const r = await postJson(path, body);
+          if (r.ok) onDone(r.data);
+          else setError(r.error || t("error.route"));
         } catch (err) {
-          setError(String((err && err.message) || err));
+          setError(errorText(err));
         } finally {
           setBusy(false);
           setConfirm(null);
         }
       };
-
+      const runPurge = (body) => runAction("/api-import/purge", { confirm: true, ...body }, (data) => {
+        const r = data.result || {};
+        setNote(t("history.purge.done", { deleted: r.deleted || 0, failed: r.failed || 0 }));
+        load();
+      });
       // 清理空工作区：只删本插件建过且已无成员的工作区登记（专用导入工作区 + 旧实现为
       // 源目录误建的空工作区），目录与会话日志保留。删的是侧栏里点不动的空分组。
-      const runCleanup = async () => {
-        setBusy(true);
-        setNote(null);
-        setError(null);
-        try {
-          const resp = await fetch("/api-import/workspaces/cleanup", {
-            method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-          });
-          const data = await readJson(resp);
-          if (data && data.ok === true) setNote(t("history.cleanup.done", { n: data.count || 0 }));
-          else setError((data && data.error) || t("error.route"));
-        } catch (err) {
-          setError(String((err && err.message) || err));
-        } finally {
-          setBusy(false);
-        }
-      };
-
+      const runCleanup = () => runAction("/api-import/workspaces/cleanup", {}, (data) => {
+        setNote(t("history.cleanup.done", { n: data.count || 0 }));
+      });
       // 清理上传暂存：删掉**未被 imports registry 引用**的上传件（含全部未完成上传）。
       // 被引用的暂存件是重导语义的源键（源增长 → 增量续写依赖文件仍在），一律保留。
-      const runStagingCleanup = async () => {
-        setBusy(true);
-        setNote(null);
-        setError(null);
-        try {
-          const resp = await fetch("/api-import/uploads", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ mode: "cleanup", confirm: true }),
-          });
-          const data = await readJson(resp);
-          if (data && data.ok === true) setNote(t("history.staging.done", { removed: data.removed || 0, kept: data.kept || 0 }));
-          else setError((data && data.error) || t("error.route"));
-        } catch (err) {
-          setError(String((err && err.message) || err));
-        } finally {
-          setBusy(false);
-        }
-      };
+      const runStagingCleanup = () => runAction("/api-import/uploads", { mode: "cleanup", confirm: true }, (data) => {
+        setNote(t("history.staging.done", { removed: data.removed || 0, kept: data.kept || 0 }));
+      });
 
       const confirmDialog = confirm && h("div", {
         style: {

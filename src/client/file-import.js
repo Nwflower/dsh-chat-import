@@ -212,12 +212,9 @@
         setShowFailures(false);
         let data = null;
         try {
-          const resp = await fetch("/api-import/file", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...source, preview: true }),
-          });
-          data = await readJson(resp);
-          if (data && data.ok === true) {
+          const r = await postJson("/api-import/file", { ...source, preview: true });
+          data = r.data;
+          if (r.ok) {
             setPreview({ source, kind: data.kind, data, sourceKind: source.uploadId ? "upload" : "path" });
             if (data.kind === "batch") {
               const entries = Array.isArray(data.results) ? data.results : [];
@@ -229,10 +226,10 @@
             // 识别失败时清单**默认收起**：卡片上先给一句结论（哪些解析器都失败了）与
             // 出路，需要逐条看原因时再展开——11 条「格式：原因」铺满卡片反而淹没重点。
           } else {
-            setError((data && data.error) || t("fileImport.error.route"));
+            setError(r.error || t("fileImport.error.route"));
           }
         } catch (err) {
-          setError(t("fileImport.error", { msg: String((err && err.message) || err) }));
+          setError(t("fileImport.error", { msg: errorText(err) }));
         } finally {
           setPreviewing(false);
           setBusy(false);
@@ -270,19 +267,15 @@
         setError(null);
         setResult(null);
         try {
-          const resp = await fetch("/api-import/file", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ ...preview.source, preview: false }),
-          });
-          const data = await readJson(resp);
-          if (data && data.ok === true) {
-            setResult(fmtImportResult([data], t));
-            showAppToast(landingToast([data], t));
+          const r = await postJson("/api-import/file", { ...preview.source, preview: false });
+          if (r.ok) {
+            setResult(fmtImportResult([r.data], t));
+            showAppToast(landingToast([r.data], t));
           } else {
-            setError((data && data.error) || t("fileImport.error.route"));
+            setError(r.error || t("fileImport.error.route"));
           }
         } catch (err) {
-          setError(t("fileImport.error", { msg: String((err && err.message) || err) }));
+          setError(t("fileImport.error", { msg: errorText(err) }));
         } finally {
           setBusy(false);
         }
@@ -301,15 +294,11 @@
           for (let i = 0; i < entries.length; i++) {
             setProgress({ i: i + 1, n: entries.length });
             try {
-              const resp = await fetch("/api-import/file", {
-                method: "POST", headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ path: entries[i].path, preview: false }),
-              });
-              const data = await readJson(resp);
-              results.push(data && data.ok === true ? data : { status: "failed", error: (data && data.error) || t("fileImport.error.route") });
+              const r = await postJson("/api-import/file", { path: entries[i].path, preview: false });
+              results.push(r.ok ? r.data : { status: "failed", error: r.error || t("fileImport.error.route") });
             } catch (err) {
               // 单条失败不中断整批：记进 results，汇总时按「失败 N」如实报出
-              results.push({ status: "failed", error: String((err && err.message) || err) });
+              results.push({ status: "failed", error: errorText(err) });
             }
           }
           const summary = fmtImportResult(results, t);
@@ -326,12 +315,9 @@
       const uploadOne = async (file, i, n) => {
         setUpload({ name: file.name, i, n, pct: 0 });
         const sha256 = await sha256Hex(file);
-        const initResp = await fetch("/api-import/upload/init", {
-          method: "POST", headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: file.name, size: file.size, sha256 }),
-        });
-        const init = await readJson(initResp);
-        if (!init || init.ok !== true) throw new Error((init && init.error) || t("fileImport.error.route"));
+        const initRes = await postJson("/api-import/upload/init", { name: file.name, size: file.size, sha256 });
+        if (!initRes.ok) throw new Error(initRes.error || t("fileImport.error.route"));
+        const init = initRes.data;
         // 同指纹已在暂存：零重传，直接进预览
         if (init.completed === true) return { uploadId: init.uploadId, path: init.path };
         const uploadId = init.uploadId;
@@ -341,18 +327,15 @@
         let stuck = 0;
         while (offset < file.size) {
           const b64 = await blobToBase64(file.slice(offset, Math.min(file.size, offset + chunkSize)));
-          const resp = await fetch("/api-import/upload/chunk", {
-            method: "POST", headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ uploadId, offset, data: b64 }),
-          });
+          const chunk = await postJson("/api-import/upload/chunk", { uploadId, offset, data: b64 });
           // 413：网关 body 上限 → 分片减半重试当前片（下限 64KB，再拒就大声报错）
-          if (resp.status === 413) {
+          if (chunk.status === 413) {
             if (chunkSize <= UPLOAD_MIN_CHUNK) throw new Error(t("fileImport.upload.tooLarge"));
             chunkSize = Math.max(UPLOAD_MIN_CHUNK, Math.floor(chunkSize / 2));
             continue;
           }
-          const data = await readJson(resp);
-          if (data && data.ok === true && typeof data.receivedOffset === "number") {
+          const data = chunk.data;
+          if (chunk.ok && typeof data.receivedOffset === "number") {
             offset = data.receivedOffset;
             fedBack = -1;
             stuck = 0;
@@ -367,21 +350,18 @@
           if (data && data.code === "offset-mismatch" && typeof data.receivedOffset === "number") {
             if (data.receivedOffset === fedBack) {
               stuck += 1;
-              if (stuck > 3) throw new Error((data && data.error) || t("fileImport.error.route"));
+              if (stuck > 3) throw new Error(chunk.error || t("fileImport.error.route"));
             }
             fedBack = data.receivedOffset;
             offset = data.receivedOffset;
             continue;
           }
-          throw new Error((data && data.error) || t("fileImport.error.route"));
+          throw new Error(chunk.error || t("fileImport.error.route"));
         }
-        const doneResp = await fetch("/api-import/upload/complete", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ uploadId }),
-        });
-        const done = await readJson(doneResp);
-        if (!done || done.ok !== true) throw new Error((done && done.error) || t("fileImport.error.route"));
+        const done = await postJson("/api-import/upload/complete", { uploadId });
+        if (!done.ok) throw new Error(done.error || t("fileImport.error.route"));
         setUpload({ name: file.name, i, n, pct: 100 });
-        return { uploadId, path: done.path };
+        return { uploadId, path: done.data.path };
       };
 
       const uploadFiles = async (fileList) => {
@@ -399,7 +379,7 @@
             last = await uploadOne(files[i], i + 1, files.length);
           } catch (err) {
             // 单个文件失败不吞：收集起来一起亮（其余文件继续传），全部失败也照样报出
-            const raw = String((err && err.message) || err);
+            const raw = errorText(err);
             const msg = raw === "nosubtle" ? t("fileImport.upload.nosubtle")
               : raw === "read" ? t("fileImport.upload.readFailed") : raw;
             failures.push(files[i].name + "：" + msg);

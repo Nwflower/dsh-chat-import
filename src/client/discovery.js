@@ -172,23 +172,19 @@
           let failed = null;
           let seen = { done: false, total: 0, started: false }; // 已渲染的流状态（防空轮询重渲染）
           while (!cancelled && !done && !failed) {
-            let data = null;
+            let r;
             try {
-              const resp = await fetch("/api-import/sessions", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ source, query, epoch, after }),
-              });
-              data = await parsePanelResponse(resp);
+              r = await postJson("/api-import/sessions", { source, query, epoch, after }, parsePanelResponse);
             } catch (err) {
-              failed = t("error.request", { msg: String((err && err.message) || err) });
+              failed = t("error.request", { msg: errorText(err) });
               break;
             }
             if (cancelled) return;
-            if (!data || data.ok !== true) {
-              failed = (data && data.error) || t("error.load");
+            if (!r.ok) {
+              failed = r.error || t("error.load");
               break;
             }
+            const data = r.data;
             after = typeof data.cursor === "number" ? data.cursor : after;
             done = data.done === true;
             // 「导入到」的默认目标跟随探测到的宿主会话格式版本：用户没选过（state 为空）时
@@ -258,13 +254,11 @@
         setImporting(true);
         setResult(null);
         try {
-          const resp = await fetch("/api-import/import", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ items, replace: replace === true, force: force === true, archiveSources: archiveSources === true, target }),
+          const r = await postJson("/api-import/import", {
+            items, replace: replace === true, force: force === true, archiveSources: archiveSources === true, target,
           });
-          const data = await readJson(resp);
-          if (data && data.ok === true) {
+          const data = r.data;
+          if (r.ok) {
             const summary = data.target && !String(data.target).startsWith("dsh")
               ? fmtTransferResult(data.results, data.target, t)
               : fmtImportResult(data.results, t);
@@ -309,13 +303,11 @@
             } else {
               setEpoch((n) => n + 1);
             }
-          } else if (data && data.error) {
-            setResult(data.error);
           } else {
-            setResult(t("error.route"));
+            setResult(r.error || t("error.route"));
           }
         } catch (err) {
-          setResult(t("error.import", { msg: String((err && err.message) || err) }));
+          setResult(t("error.import", { msg: errorText(err) }));
         } finally {
           setImporting(false);
         }

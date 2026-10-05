@@ -67,16 +67,9 @@
       const snap = form.getSnapshot();
       return snap && snap.status === "ready" && snap.value && typeof snap.value === "object" ? snap : null;
     }
-    function loadPrefsViaRoute() {
-      return fetch("/api-import/prefs", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: "{}",
-      }).then((resp) => readJson(resp));
-    }
-    function savePrefsViaRoute(patch) {
-      return fetch("/api-import/prefs", {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(patch),
-      }).then((resp) => readJson(resp));
-    }
+    // fenced 路由的原始响应体（{ ok, value, revision, error? } 或 null）：调用方自己判 ok
+    const loadPrefsViaRoute = () => postJson("/api-import/prefs", {}).then((r) => r.data);
+    const savePrefsViaRoute = (patch) => postJson("/api-import/prefs", patch).then((r) => r.data);
     // 读当前偏好：官方表单 ready 时直接给值，否则走 fenced 路由（表单还没 ready 时不能
     // 停在默认值——那正是「选项显示但存不进去」的来源）。返回 { ok, value, revision, available }。
     function loadPrefsView() {
@@ -138,7 +131,7 @@
             if (data && data.ok === true) adopt(data);
             else setState((s) => ({ ...s, error: (data && data.error) || t("error.load") }));
           })
-          .catch((err) => setState((s) => ({ ...s, error: t("error.prefs", { msg: String((err && err.message) || err) }) })));
+          .catch((err) => setState((s) => ({ ...s, error: t("error.prefs", { msg: errorText(err) }) })));
       };
       useEffect(() => {
         load();

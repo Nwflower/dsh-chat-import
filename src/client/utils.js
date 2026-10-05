@@ -211,6 +211,28 @@
       }
     };
 
+    // 面板 → 宿主 /api-import/* 路由的统一 POST：JSON 请求体 + 健壮解析（默认 readJson；
+    // 扫描传 parsePanelResponse 走 Worker）。返回 { ok, data, error, status }：ok = 响应体
+    // ok === true；error = 服务端给的 error 文本（没有为 null，调用方各自套兜底文案）；status =
+    // HTTP 状态码。请求本身失败（网络中断 / 连接被拒 / 读响应体中断）照常 reject，由调用方
+    // 按各自口径报错（errorText 取可读消息）。
+    async function postJson(path, body, parse = readJson) {
+      const resp = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body === undefined ? {} : body),
+      });
+      const data = await parse(resp);
+      return {
+        ok: !!data && data.ok === true,
+        data,
+        error: data && typeof data.error === "string" && data.error ? data.error : null,
+        status: resp.status,
+      };
+    }
+    // 异常 → 可读文本（Error 取 message，其余原样转字符串）
+    const errorText = (err) => String((err && err.message) || err);
+
     function Toggle({ on, onChange, colors }) {
       return h("button", {
         type: "button",
