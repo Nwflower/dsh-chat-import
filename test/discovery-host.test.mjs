@@ -1,17 +1,18 @@
-// test/discovery-host.test.mjs — 发现层 host 适配的有界读取（readHead / readTail）
+// test/discovery-host.test.mjs — 发现层 host 适配的有界读取（readHead / readTail / readBytes）
 //
-// readTail 是「大 transcript 只取尾部元数据」的路径（claude/kimi 的 contextTokens）：
-// DSH fs 没有 seek API，只能流式读到底、在内存里滚动保留末尾 maxBytes。实现从
-//「每块 (tail+chunk).slice(-n) 全量复制」改成「chunks 数组 + 头部淘汰 + 最后一次
-// join/slice」，这里锁住行为：结果恒为末尾 maxBytes、跨块与单块超大两种形态都对，
-// 且无 streamText 时回退 readText 的行为不变。
+// readTail 是「大 transcript 只取尾部元数据」的路径（claude/kimi 的 contextTokens、dsh 的尾部标题）：
+// 宿主 fs 有 readByteRange 时按偏移只读末尾窗口（窗口起点落在多字节字符中间要跳过续字节）；
+// 没有时流式读到底、在内存里滚动保留末尾 maxBytes；再没有 streamText 时回退 readText 截尾。
+// readBytes 有界读原始字节（.zstd 日志），超限 / 缺失返回 null。
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { Buffer } from 'node:buffer'
 import { makeDiscoveryHost } from '../lib/discovery-host.mjs'
 
-// 伪 fs：files 是 path → 文本；streamText 按 chunkSize 分块 yield（模拟宿主流式读）。
-function fakeCtx(files, { chunkSize = 64, withStream = true } = {}) {
+// 伪 fs：files 是 path → 文本；streamText 按 chunkSize 分块 yield（模拟宿主流式读）；
+// withRange 时提供 readByteRange（按 UTF-8 字节偏移取窗口），calls 记录各能力的调用次数。
+function fakeCtx(files, { chunkSize = 64, withStream = true, withRange = false, withBytes = false } = {}) {
+  const calls = { stream: 0, range: 0, bytes: 0 }
   const fs = {
     async resolve(p) { return p },
     async stat(p) {
@@ -23,12 +24,28 @@ function fakeCtx(files, { chunkSize = 64, withStream = true } = {}) {
   }
   if (withStream) {
     fs.streamText = async function* streamText(p) {
+      calls.stream++
       const text = files.get(p)
       if (text === undefined) throw new Error('ENOENT')
       for (let i = 0; i < text.length; i += chunkSize) yield text.slice(i, i + chunkSize)
     }
   }
-  return { fs }
+  if (withRange) {
+    fs.readByteRange = async (p, { offset, length }) => {
+      calls.range++
+      const buf = Buffer.from(files.get(p), 'utf8')
+      return new Uint8Array(buf.subarray(offset, offset + length))
+    }
+  }
+  if (withBytes) {
+    fs.readBytes = async (p, _signal, maxBytes) => {
+      calls.bytes++
+      const buf = Buffer.from(files.get(p), 'utf8')
+      if (buf.length > maxBytes) throw Object.assign(new Error('too large'), { code: 'FS_TOO_LARGE' })
+      return new Uint8Array(buf)
+    }
+  }
+  return { fs, calls }
 }
 
 test('readTail：跨多块流式读取时返回末尾 maxBytes（滚动窗口不累积未淘汰块）', async () => {
@@ -67,4 +84,32 @@ test('readHead：有界读头（取到 maxBytes 即停），无 streamText 时�
   assert.equal(await streamed.readHead('/f.jsonl', 5000), text)
   const fallback = makeDiscoveryHost(fakeCtx(new Map([['/f.jsonl', text]]), { withStream: false }))
   assert.equal((await fallback.readHead('/f.jsonl', 100)).length, 100)
+})
+
+test('readTail：宿主有 readByteRange 时按偏移只读末尾窗口，不流式读整份文件', async () => {
+  const text = 'x'.repeat(100000) + 'TAIL-END'
+  const ctx = fakeCtx(new Map([['/big.jsonl', text]]), { withRange: true })
+  const host = makeDiscoveryHost(ctx)
+  assert.equal(await host.readTail('/big.jsonl', 64), text.slice(-64))
+  assert.equal(ctx.calls.range, 1)
+  assert.equal(ctx.calls.stream, 0, '不再流过整份文件')
+  assert.equal(await host.readTail('/missing.jsonl', 64), null)
+})
+
+test('readTail：字节窗口起点落在多字节字符中间时跳过残缺字节，不产生替换字符', async () => {
+  const text = '{"a":1}\n' + '中'.repeat(50) + '\n{"b":"尾"}'
+  const host = makeDiscoveryHost(fakeCtx(new Map([['/u.jsonl', text]]), { withRange: true }))
+  const tail = await host.readTail('/u.jsonl', 31) // 31 不是 3 的倍数：窗口起点切在「中」的中间
+  assert.ok(!tail.includes('\uFFFD'), JSON.stringify(tail))
+  assert.ok(tail.endsWith('{"b":"尾"}'))
+  assert.ok(text.endsWith(tail))
+})
+
+test('readBytes：经宿主 readBytes 有界读原始字节；超限 / 缺失返回 null', async () => {
+  const ctx = fakeCtx(new Map([['/s.zstd', 'raw-bytes']]), { withBytes: true })
+  const host = makeDiscoveryHost(ctx)
+  assert.equal(Buffer.from(await host.readBytes('/s.zstd', 1024)).toString('utf8'), 'raw-bytes')
+  assert.equal(await host.readBytes('/s.zstd', 4), null)
+  assert.equal(await host.readBytes('/missing.zstd', 1024), null)
+  assert.equal(ctx.calls.bytes, 3)
 })
