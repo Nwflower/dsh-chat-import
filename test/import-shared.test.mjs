@@ -6,6 +6,7 @@ import assert from 'node:assert/strict'
 import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, readdirSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { DatabaseSync } from 'node:sqlite'
 import { apply } from '../lib/index.mjs'
 import { resolveRegistryDir } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
@@ -229,4 +230,109 @@ test('bundle 还原同样比对预算：bundle 未变但预算变 → 跳过并�
   const third = await restoreBundle(ctx, { path }, { registryDir })
   assert.equal(third.status, 'already-imported')
   assert.equal(third.budgetChanged, undefined)
+})
+
+// ── 多会话源（一库多会话）：「源未变」短路径与落盘选项同口径 ──────────────────
+
+const CRUSH_SCHEMA = `
+CREATE TABLE sessions (
+  id TEXT PRIMARY KEY, parent_session_id TEXT, title TEXT NOT NULL,
+  message_count INTEGER NOT NULL DEFAULT 0, prompt_tokens INTEGER, completion_tokens INTEGER,
+  cost REAL, updated_at INTEGER NOT NULL, created_at INTEGER NOT NULL, summary_message_id TEXT);
+CREATE TABLE messages (
+  id TEXT PRIMARY KEY, session_id TEXT NOT NULL, role TEXT NOT NULL, parts TEXT NOT NULL DEFAULT '[]',
+  model TEXT, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL, finished_at INTEGER,
+  provider TEXT, is_summary_message INTEGER NOT NULL DEFAULT 0);
+CREATE TABLE read_files (session_id TEXT, path TEXT, read_at INTEGER NOT NULL, PRIMARY KEY(path, session_id));`
+
+function addCrushSession(db, id, t) {
+  db.prepare('INSERT INTO sessions (id, parent_session_id, title, updated_at, created_at) VALUES (?, NULL, ?, ?, ?)').run(id, 'Crush ' + id, t, t)
+  const parts = (text) => JSON.stringify([{ type: 'text', data: { text } }, { type: 'finish', data: { reason: 'stop' } }])
+  db.prepare('INSERT INTO messages (id, session_id, role, parts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id + '-u', id, 'user', parts('问 ' + id), t + 1, t + 1)
+  db.prepare('INSERT INTO messages (id, session_id, role, parts, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run(id + '-a', id, 'assistant', parts('答 ' + id), t + 2, t + 2)
+}
+
+test('WAL 盲区（非 opencode 的 SQLite 源）：crush.db 主文件未变、-wal 增长 → 新会话仍被增量导入', async () => {
+  const dir = join(mkdtempSync(join(tmpdir(), 'crush-wal-')), 'proj', '.crush')
+  mkdirSync(dir, { recursive: true })
+  const dbPath = join(dir, 'crush.db')
+  const conn = new DatabaseSync(dbPath)
+  try {
+    conn.exec(CRUSH_SCHEMA)
+    addCrushSession(conn, 'c-1', 1768000000)
+    conn.exec('PRAGMA journal_mode=WAL')
+    conn.exec('PRAGMA wal_autocheckpoint=0') // 阻止自动 checkpoint 合并回主文件
+    conn.exec('PRAGMA wal_checkpoint(TRUNCATE)')
+    const { ctx, persistence, chat } = makeCtx()
+    apply(ctx)
+    const def = chat('crush')
+    const first = await def.execute({ path: dbPath })
+    assert.equal(first.imported, 1)
+    const mainBefore = statSync(dbPath)
+
+    addCrushSession(conn, 'c-2', 1768000100) // 只落 -wal
+    const mainAfter = statSync(dbPath)
+    assert.equal(mainAfter.size, mainBefore.size) // 前提：主文件确实没变（WAL 语义成立）
+    assert.equal(mainAfter.mtimeMs, mainBefore.mtimeMs)
+
+    const second = await def.execute({ path: dbPath })
+    assert.equal(second.imported, 1, '新会话只在 -wal 里也要被导入')
+    assert.equal(second.alreadyImported, 1)
+    assert.ok(persistence.sessions.get('import-c-2'))
+  } finally {
+    conn.close()
+  }
+})
+
+test('选择性补导（goose）：库未变时再选未导过的会话仍真正落盘', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'goose-sel-')), 'sessions.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE sessions (id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+    session_type TEXT NOT NULL DEFAULT 'user', working_dir TEXT NOT NULL, created_at TEXT, updated_at TEXT, parent_session_id TEXT);
+    CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL,
+    content_json TEXT NOT NULL, created_timestamp INTEGER NOT NULL, metadata_json TEXT)`)
+  for (const id of ['g-a', 'g-b']) {
+    db.prepare('INSERT INTO sessions (id, name, working_dir, created_at, updated_at) VALUES (?, ?, ?, ?, ?)')
+      .run(id, 'Goose ' + id, hostAbs('D:/demo/goose'), '2026-04-22 17:40:00', '2026-04-22 17:42:10')
+    db.prepare('INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)').run(id, 'user', JSON.stringify([{ type: 'text', text: '问 ' + id }]), 1776000000)
+    db.prepare('INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)').run(id, 'assistant', JSON.stringify([{ type: 'text', text: '答 ' + id }]), 1776000001)
+  }
+  db.close()
+  const { ctx, persistence, chat } = makeCtx()
+  apply(ctx)
+  const def = chat('goose')
+  const first = await def.execute({ path: dbPath, sessionIds: ['g-a'] })
+  assert.equal(first.imported, 1)
+  const second = await def.execute({ path: dbPath, sessionIds: ['g-b'] })
+  assert.equal(second.imported, 1, '库指纹短路径不得吞掉新选中的会话')
+  assert.ok(persistence.sessions.get('import-g-b'))
+  // 再选已导过的会话：仍是幂等 already-imported
+  const third = await def.execute({ path: dbPath, sessionIds: ['g-a'] })
+  assert.equal(third.imported, 0)
+  assert.equal(persistence.sessions.size, 2)
+})
+
+test('storeImages:false 对多会话源同样生效（opencode 库：图片文件部分只留占位并计数）', async () => {
+  const dbPath = join(mkdtempSync(join(tmpdir(), 'opencode-img-')), 'opencode.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER, model TEXT)')
+  db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
+  db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')
+  db.prepare('INSERT INTO session VALUES (?, ?, ?, ?, ?)').run('ses-img', '看图', hostAbs('D:/demo/opencode'), 1786000000000, null)
+  db.prepare('INSERT INTO message VALUES (?, ?, ?, ?)').run('m-u', 'ses-img', 1786000000001, JSON.stringify({ role: 'user' }))
+  db.prepare('INSERT INTO message VALUES (?, ?, ?, ?)').run('m-a', 'ses-img', 1786000000002, JSON.stringify({ role: 'assistant' }))
+  db.prepare('INSERT INTO part VALUES (?, ?, ?, ?, ?)').run('p-u', 'm-u', 'ses-img', 1786000000001, JSON.stringify({ type: 'text', text: '看这张图' }))
+  db.prepare('INSERT INTO part VALUES (?, ?, ?, ?, ?)').run('p-f', 'm-a', 'ses-img', 1786000000002, JSON.stringify({ type: 'file', mime: 'image/png', filename: 'a.png', data: PNG_B64 }))
+  db.prepare('INSERT INTO part VALUES (?, ?, ?, ?, ?)').run('p-a', 'm-a', 'ses-img', 1786000000003, JSON.stringify({ type: 'text', text: '看到了' }))
+  db.close()
+  let saves = 0
+  const attachments = { async saveImage() { saves++; return { attachmentId: 'sha256:o', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } } }
+  const { ctx, persistence, chat } = makeCtx({ services: { attachments } })
+  apply(ctx)
+  const value = await chat('opencode').execute({ path: dbPath, storeImages: false })
+  assert.equal(value.imported, 1)
+  assert.equal(saves, 0, '未调用附件服务')
+  assert.equal(value.images, undefined)
+  assert.equal(value.imagesDegraded, 1)
+  assert.ok(!JSON.stringify(persistence.sessions.get('import-ses-img').events).includes(PNG_B64), 'base64 永不进日志')
 })
