@@ -6,6 +6,7 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
+import { spawnSync } from 'node:child_process'
 import { discoverSessions, clearScanCache, clearInflightScans, FORMATS, defaultRoots, layoutProject } from '../lib/discovery.mjs'
 import { SOURCES } from '../lib/discovery/registry.mjs'
 import { DB_SUMMARY_FORMATS } from '../lib/discovery-host.mjs'
@@ -79,4 +80,16 @@ test('layoutProject / 扫描：dsh4 与 dsh 同用 workspace 键解码出项目�
   const { sessions } = await discoverSessions({ path: root, format: 'dsh4', host, imports: {}, cache: new Map() })
   assert.equal(sessions.length, 1)
   assert.equal(sessions[0].project, '--proj x--')
+})
+
+// 发现层不直接打开 SQLite（摘要经 host.readSessions，读取器在 lib/discovery-host.mjs）：import
+// lib/discovery.mjs 不应把 node:sqlite 带进进程（否则每个只用发现层的入口都会打印 SQLite 的
+// ExperimentalWarning）。在干净子进程里验证模块加载清单。
+test('import lib/discovery.mjs 不加载 node:sqlite', () => {
+  const url = new URL('../lib/discovery.mjs', import.meta.url).href
+  const code = `await import(${JSON.stringify(url)}); process.stdout.write(JSON.stringify(process.moduleLoadList.filter((m) => /sqlite/i.test(m))))`
+  const res = spawnSync(process.execPath, ['--input-type=module', '-e', code], { encoding: 'utf8' })
+  assert.equal(res.status, 0, res.stderr)
+  assert.deepEqual(JSON.parse(res.stdout), [])
+  assert.ok(!/SQLite is an experimental feature/.test(res.stderr), res.stderr)
 })
