@@ -127,6 +127,8 @@ test('generic：toolCalls 缺列表时从 content 的 tool-call 块派生；压�
     ],
   })))
   assert.equal(out.compactions, 1)
+  // 与其它来源同口径：实际发射了原生检查点就报 compacted（导入结果据此透出）
+  assert.equal(out.compacted, true)
   assert.equal(out.toolCalls, 1)
   const summary = out.events.find((e) => e.type === 'compaction/summary')
   assert.equal(summary.data.summary[0].text, '摘要正文')
