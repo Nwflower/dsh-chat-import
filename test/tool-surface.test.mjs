@@ -11,13 +11,14 @@ import { registerTools } from '../lib/tools.mjs'
 import { CHAT_FORMAT_NAMES } from '../lib/toolkit.mjs'
 import { FORMATS } from '../lib/discovery.mjs'
 import { REIMPORT_REASONS } from '../lib/tools/schema.mjs'
+import { makeCtx } from './_support/fake-host.mjs'
 
 const DTS = readFileSync(join(dirname(fileURLToPath(import.meta.url)), '..', 'lib', 'index.d.ts'), 'utf8')
 
 function registeredTools() {
-  const defs = []
-  registerTools({ tools: { register(def) { defs.push(def); return () => {} } }, get() { return undefined } }, '.tool-surface-test')
-  return new Map(defs.map((d) => [d.name, d]))
+  const { ctx, registered } = makeCtx()
+  registerTools(ctx, '.tool-surface-test')
+  return new Map(registered.map((d) => [d.name, d]))
 }
 
 // `export type X = | 'a' | 'b' …` 的字符串字面量成员（跳过成员间的文档注释）

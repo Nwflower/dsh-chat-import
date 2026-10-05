@@ -7,25 +7,10 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { registerTools } from '../lib/tools.mjs'
 import { IMPORT_SPECS } from '../lib/toolkit.mjs'
-
-function makeToolCtx() {
-  const registered = []
-  let active = 0
-  const ctx = {
-    tools: {
-      register(def) {
-        registered.push(def)
-        active++
-        return () => { active-- }
-      },
-    },
-    get() { return undefined },
-  }
-  return { ctx, registered, active: () => active }
-}
+import { makeCtx } from './_support/fake-host.mjs'
 
 test('registerTools：默认注入 12 个工具，IMPORT_SPECS 恒填充', () => {
-  const { ctx, registered, active } = makeToolCtx()
+  const { ctx, registered, active } = makeCtx()
   const reconcile = registerTools(ctx, '.tools-injection-test')
   assert.equal(typeof reconcile, 'function')
   assert.equal(registered.length, 12)
@@ -36,7 +21,7 @@ test('registerTools：默认注入 12 个工具，IMPORT_SPECS 恒填充', () =>
 })
 
 test("reconcile('off')：注销全部工具，IMPORT_SPECS 原样保留；幂等", () => {
-  const toolCtx = makeToolCtx()
+  const toolCtx = makeCtx()
   const reconcile = registerTools(toolCtx.ctx, '.tools-injection-test')
   reconcile('off')
   assert.equal(toolCtx.active(), 0)
@@ -47,7 +32,7 @@ test("reconcile('off')：注销全部工具，IMPORT_SPECS 原样保留；幂等
 })
 
 test("reconcile('minimal')：仅注入 import_chat 入口，其余 11 个不占常驻上下文", () => {
-  const toolCtx = makeToolCtx()
+  const toolCtx = makeCtx()
   const reconcile = registerTools(toolCtx.ctx, '.tools-injection-test')
   reconcile('minimal')
   assert.equal(toolCtx.active(), 1)
@@ -63,7 +48,7 @@ test("reconcile('minimal')：仅注入 import_chat 入口，其余 11 个不占�
 })
 
 test("reconcile('full')：重注册全部 12 个；三档往返与历史 boolean 兼容", () => {
-  const toolCtx = makeToolCtx()
+  const toolCtx = makeCtx()
   const reconcile = registerTools(toolCtx.ctx, '.tools-injection-test')
   // minimal → full：注册集合从 1 回到 12
   reconcile('minimal')
