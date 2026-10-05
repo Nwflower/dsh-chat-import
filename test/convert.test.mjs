@@ -6,7 +6,7 @@ import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents, isEnvInjectionEvent } from '../lib/convert/index.mjs'
+import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, parseTimeMs, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents, isEnvInjectionEvent } from '../lib/convert/index.mjs'
 import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 import { synthesizeSession } from '../lib/convert/core.mjs'
 
@@ -440,6 +440,17 @@ test('parseTime: 解析 ISO 时间戳', () => {
   const before = Date.now()
   const fallback = parseTime(undefined)
   assert.ok(fallback >= before && fallback - before < 1000)
+})
+
+test('parseTimeMs: 秒/毫秒自适应取整，truncSeconds 截到整秒，拿不到为 null', () => {
+  assert.equal(parseTimeMs(1767583930.285031), 1767583930285)
+  assert.equal(parseTimeMs(1767583930.285031, { truncSeconds: true }), 1767583930000)
+  assert.equal(parseTimeMs(1767583930285), 1767583930285)
+  assert.equal(parseTimeMs(1767583930285, { truncSeconds: true }), 1767583930285)
+  assert.equal(parseTimeMs('2026-08-01T10:00:00.000Z'), Date.parse('2026-08-01T10:00:00.000Z'))
+  for (const bad of [undefined, null, '', 'not a date', Number.NaN, Infinity, 1e300, {}]) {
+    assert.equal(parseTimeMs(bad), null, String(bad))
+  }
 })
 
 // ---- Codex / ChatGPT CLI rollout ----
