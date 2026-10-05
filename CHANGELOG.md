@@ -2,6 +2,88 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">体验优化</h3>
+
+- **扫描失败不再静默**：某个来源 / 数据根扫描抛错时，`scan_discover` 结果新增 `warnings: [{ format, target, error }]`，面板在列表上方点名扫描失败的来源；失败结果不进 30 秒缓存，下次扫描会重试。此前任何异常（含程序错误）都被当成「没有会话」。
+- **发现层少做重复 IO**：单次扫描内目录列举与 stat 记忆化，不给格式的目录探测、dsh / dsh4 共用的会话目录不再被各扫描器重复遍历（测试宿主上 Claude 数据根的列举次数由 15 次降为 1 次）；Claude 转录的「只读尾部」改为按偏移只读末尾窗口（此前流过整份文件）；DSH 明文日志只读头尾两段，`.zstd` 经宿主有界读取。
+- **书签真正生效**：pi、Cline 旧版任务与 Codex 分页链的扫描书签生效，未变文件不再每次整读（Codex 分页的页级与链级书签此前同键互相覆盖、永不命中）。书签版本升至 4，升级后首次扫描整体重建。
+- 加载发现层不再引入 `node:sqlite`，宿主日志不再出现 SQLite ExperimentalWarning。
+- `restore_bundle`：未变的备份包先走 registry 短路径，不再整读、解析并校验指纹。
+- 启动时 `ignores.json` 只在内容变化时写盘，不再按每个已归档会话重写并 fsync 一次。
+- 面板多选导入时，kilocode / goose / zed / crush / trae 只导所选会话（此前整库导入）；`import_chat` 的 `sessionIds` 说明与 `index.d.ts` 同步列出这些格式。
+- `/import` 的结果文案与 `import_chat` 工具同源，补回「仅追加了跳过的行」「回填」两类跳过原因，批量计数带单位（「N 个会话」）。
+- 独立 CLI 复用插件的 registry 路径与离线体检，`export-md` 接受 `.zstd` 与 `session.vN` 代次日志。
+- 英文界面下，面板请求失败与偏好读取失败的提示不再显示中文。
+
+<h3 id="cn-unreleased">问题修复</h3>
+
+- **图片降级计数**：`imagesDegraded` 不再把转换层计数重复相加、同时丢掉宿主层（附件落地失败 / `storeImages:false`）的计数，两者现在同口径相加。
+- **opencode fork 目录导入**：mimocode / teleagent 按目录导入时不再退回 opencode 转换器与「OpenCode · …」标题；mimocode / kilocode / teleagent 的 registry 记录不再把来源格式记成 `opencode`。
+- **`/import` 来源名**：别名表由 `import_chat` 的格式表派生，`/import kilocode`、`antigravity`、`dsh4` 不再报「未知来源」。
+- **DSH V4 会话**：默认扫描（不给路径）不再漏掉 V4 会话日志；dsh4 条目与 dsh 一样按工作区键回退项目名（此前恒为空）。
+- **`storeImages:false` / `DSH_IMPORT_STORE_IMAGES=0` 对所有来源生效**：此前 chatgpt、grokbuild、hermes、kimi、备份包、Codex 分页链、vibe 与全部 SQLite 来源都忽略它；这些来源的 restamp、cwd 补全与预算比对也与标准来源同口径。
+- **SQLite 来源重导**：crush / goose / zed / hermes 只有 WAL 边车变化时也能识别为「源已变」；对未变的库传 `replace: true` 会真正覆盖（此前被短路径跳过）。
+- **批量计数**：`replace` 覆盖重导计入 imported（grokbuild 与 `restore_bundle` 批量此前记为 skipped）；vibe 批量条目带 `path`。
+- **输出 schema**：`import_chat` 声明 `replaced` 状态、落盘结果的 `cwdRemap` 与多会话条目的 `staleRegistry`；`restore_bundle` 补齐它实际会返回的字段（`argsChanged` / `budgetChanged` / `images` / 续写与压缩计数等）。宿主按 schema 校验返回值，此前这些情形会让整次调用被判失败。
+- **并发与落盘**：purge 修剪 registry 改走串行读-改-写，不再与并发导入互相覆盖；vibe 批量导入等待 registry 提交完成，写盘失败不再成为未处理的 rejection；Codex 分页导入在读页之前先比对文件状态。
+- **POSIX 路径**：Claude 的 `~/.claude.json` cwd 映射与 Reasonix 桌面版 `.titles.json` 不再在 Linux / macOS 上拼出反斜杠路径而静默失效。
+- **解析错误不再回显内容**：畸形行明细与 generic / 探测层 / 导出校验的报错不再带出行内容（含行中段出错的形态）。pi 与 DSH 来源改走共享逐行解析器，畸形行明细与疑似 secret 位置照常上报。
+- **图片识别**：OpenAI / Kimi 的 `image_url: { url }` 对象形态被识别（data URL 图片不再降级为占位）；Kimi 旧格式 wire 中拿不到字节的图片计入 `imagesDegraded`。
+- generic 文档发射原生压缩检查点时报告 `compacted`；单文件 `db.sqlite` 能识别为 zcode；WorkBuddy 不带 `<user_query>` 的提问去标签后不再把相邻词粘连；Cline / Crush / Goose 带小数毫秒的时间戳取整。
+- `export_chat` 的说明不再宣称 claude 导出会写 imports registry；`lib/index.d.ts` 与运行时对齐（格式枚举、导入参数与报告字段、状态值、同步读库函数），并有一致性测试防止再漂移。
+- kilocode 的来源标签为「Kilo Code」（导入标题不再以短名打头）。
+- 面板：清除导入会话前先清空旧错误提示；「清理上传暂存」确认框执行后关闭；鼠标离开会话行后分组头高亮复位。
+
+<h3 id="cn-unreleased">其他变更</h3>
+
+- 体量热点按 D6 拆完：`lib/discovery.mjs`（2629 行）拆为 `lib/discovery/` 按来源族的模块并由来源描述符表派生全部清单，`lib/tools.mjs`（1663 行）按工具分组拆为 `lib/tools/`，`lib/import-core.mjs` 的共享状态机拆出 `import-state` / `import-batch` / `host-session`；`lib/` 下最大的手维护文件回到 1000 行以内。
+- 同口径逻辑收口为共享件（D21）：标题 / 时间 / 正文抽取、调用与结果整理、SQLite 只读打开、源未变短路径、批量计数、原子写、测试假宿主各只留一份；面板 React 调用统一为 `h()`，请求统一经 `postJson`。
+- 发布面：`files` 补上 `lib/discovery`、`lib/tools`；`npm run build` 从发布入口沿模块图检查可达模块全部在发布集合内。
+- CI 只跑一遍测试（覆盖率步骤兼跑）并单独校验 client bundle 新鲜度；`check-leaks` 按 `git ls-files` 扫描受版本管理的文件；`check-linux-compat` 按查找点就近判定分隔符归一；eslint 按生成的跨片全局名单逐片段检查面板源码。
+
+<h3 id="en-unreleased">Improvements</h3>
+
+- **Scan failures are no longer silent**: when a source or data root throws during a scan, the `scan_discover` result carries `warnings: [{ format, target, error }]` and the panel names the failed sources above the list; failed results are not cached for the 30-second TTL, so the next scan retries. Previously any exception (programming errors included) read as "no sessions".
+- **Less repeated IO in discovery**: directory listings and stats are memoized within one scan, so format-less directory probes and the session directory shared by dsh / dsh4 are no longer walked once per scanner (on the test host the Claude data root is listed once instead of 15 times); the "tail only" read for Claude transcripts now reads just the trailing window at an offset (it used to stream the whole file); plain DSH logs read only head and tail, and `.zstd` logs go through bounded host reads.
+- **Bookmarks actually hit**: scan bookmarks now apply to pi, legacy Cline tasks and Codex paged chains, so unchanged files are no longer re-read on every scan (Codex page and chain bookmarks used to share a key, overwrite each other and never hit). The bookmark version is bumped to 4; the first scan after upgrading rebuilds them.
+- Loading the discovery layer no longer pulls in `node:sqlite`, so the host log no longer shows the SQLite ExperimentalWarning.
+- `restore_bundle`: an unchanged bundle takes the registry short path first instead of reading, parsing and fingerprint-checking the whole file.
+- At startup `ignores.json` is written only when its content changes, instead of being rewritten and fsynced once per archived session.
+- Multi-select imports in the panel now import only the selected sessions for kilocode / goose / zed / crush / trae (they used to import the whole database); the `import_chat` `sessionIds` description and `index.d.ts` list these formats.
+- `/import` uses the same result wording as the `import_chat` tool, restoring the "only skipped lines appended" and "backfilled" skip reasons, and batch counts name their unit ("N sessions").
+- The standalone CLI reuses the plugin's registry path and offline doctor, and `export-md` accepts `.zstd` and `session.vN` logs.
+- In the English UI, the panel's request-failure and preferences-failure messages are no longer shown in Chinese.
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+- **Image degradation count**: `imagesDegraded` no longer double-counts the converter's count while dropping the host-side count (attachment save failures / `storeImages:false`); both are now added together.
+- **opencode-fork directory imports**: importing a mimocode or teleagent directory no longer falls back to the opencode converter and "OpenCode · …" titles, and mimocode / kilocode / teleagent registry records no longer store `opencode` as the source format.
+- **`/import` source names**: the alias table is derived from the `import_chat` format table, so `/import kilocode`, `antigravity` and `dsh4` no longer report "unknown source".
+- **DSH V4 sessions**: a default scan (no path) no longer misses V4 session logs, and dsh4 entries fall back to the workspace key for the project name like dsh entries (it was always empty).
+- **`storeImages:false` / `DSH_IMPORT_STORE_IMAGES=0` now applies to every source**: chatgpt, grokbuild, hermes, kimi, bundles, Codex paged chains, vibe and all SQLite sources used to ignore it; these sources now also restamp, fill in cwd and compare budgets the same way as the standard sources.
+- **SQLite re-imports**: crush / goose / zed / hermes detect a WAL-only change as "source changed", and `replace: true` on an unchanged database really replaces (it used to be skipped by the short path).
+- **Batch counts**: a `replace` re-import counts as imported (grokbuild and `restore_bundle` batches used to report it as skipped); vibe batch entries carry `path`.
+- **Output schemas**: `import_chat` declares the `replaced` status, `cwdRemap` on saved results and `staleRegistry` on multi-session entries; `restore_bundle` declares the fields it actually returns (`argsChanged` / `budgetChanged` / `images` / append and compaction counts, …). The host validates results against the schema, so these cases used to fail the whole call.
+- **Concurrency and persistence**: purge prunes the registry through the serialized read-modify-write chain instead of racing concurrent imports; vibe batch imports wait for the registry commit, so a failed write is no longer an unhandled rejection; Codex paged imports compare file stats before reading pages.
+- **POSIX paths**: Claude's `~/.claude.json` cwd mapping and Reasonix desktop `.titles.json` no longer build backslash paths on Linux / macOS and silently fail.
+- **Parse errors no longer echo content**: malformed-line details and generic / detection / export-verification errors no longer carry line content (including mid-line error forms). pi and DSH sources go through the shared line parser, so malformed lines and suspected-secret locations are reported.
+- **Image recognition**: OpenAI / Kimi `image_url: { url }` object forms are recognised (data-URL images are no longer degraded to placeholders); images without bytes in legacy Kimi wire tool results count toward `imagesDegraded`.
+- generic documents report `compacted` when they emit native compaction checkpoints; a single `db.sqlite` file is recognised as zcode; WorkBuddy prompts without `<user_query>` no longer glue adjacent words when tags are stripped; Cline / Crush / Goose timestamps with fractional milliseconds are rounded.
+- The `export_chat` description no longer claims claude exports write the imports registry; `lib/index.d.ts` matches the runtime (format unions, import parameters and report fields, status values, synchronous database readers), with a consistency test against drift.
+- kilocode's source label is "Kilo Code" (imported titles no longer start with the short name).
+- Panel: purging imported sessions clears the previous error first; the "clean upload staging" confirmation closes after it runs; the group header highlight resets when the pointer leaves a session row.
+
+<h3 id="en-unreleased">Chores</h3>
+
+- The size hot spots are split per D6: `lib/discovery.mjs` (2629 lines) into `lib/discovery/` modules per source family with every list derived from one source-descriptor table, `lib/tools.mjs` (1663 lines) into `lib/tools/` per tool group, and the shared state machine of `lib/import-core.mjs` into `import-state` / `import-batch` / `host-session`; the largest hand-maintained file under `lib/` is back under 1000 lines.
+- Same-semantics logic lives in one shared place (D21): titles / time / text extraction, call-and-result tidying, read-only SQLite access, the unchanged-source short path, batch counting, atomic writes and the test fake host each exist once; panel React calls go through `h()` and requests through `postJson`.
+- Publishing: `files` now includes `lib/discovery` and `lib/tools`; `npm run build` walks the module graph from the package entry points and fails if a reachable module would not be published.
+- CI runs the test suite once (the coverage step runs it) and checks client-bundle freshness as its own step; `check-leaks` scans tracked files via `git ls-files`; `check-linux-compat` checks separator normalization per lookup site; eslint checks panel fragments with a generated cross-fragment globals list.
+
 ## [0.24.1] - 2026-10-04
 
 [中文](#cn-0.24.1) | [English](#en-0.24.1)
