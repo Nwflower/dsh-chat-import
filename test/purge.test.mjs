@@ -320,3 +320,24 @@ test('删除主记录：把最新副本提升为主记录，其余副本保留�
   assert.equal(rec.turns, 3)
   assert.deepEqual(rec.copies.map((c) => c.dshId), ['copy-old'])
 })
+
+test('删除会话修剪 registry 走串行读-改-写：与之并发的其它导入记录不被整表覆盖吞掉', async () => {
+  const registryDir = resolveRegistryDir()
+  await rememberImport(registryDir, 'D:/src/multi.db', {
+    kind: 'multi',
+    sessions: { a: { dshId: 'import-a', turns: 1, events: 2 }, b: { dshId: 'import-b', turns: 1, events: 2 } },
+    importedAt: T0,
+  })
+  const ctx = { get: (name) => (name === 'sessionPersistence' ? {} : undefined) }
+  const deletion = deleteImportedSession(ctx, registryDir, 'import-a')
+  // 删除进行中，另一个入口逐条写入各自的记录（与修剪交错在同一条写链上）
+  for (let i = 0; i < 30; i++) {
+    await rememberImport(registryDir, 'D:/src/other-' + i + '.jsonl', { kind: 'single', dshId: 'import-o' + i, turns: 1, events: 2, importedAt: T0 })
+  }
+  await deletion
+  const { imports } = await loadImports(registryDir)
+  const lost = []
+  for (let i = 0; i < 30; i++) if (!imports['D:/src/other-' + i + '.jsonl']) lost.push(i)
+  assert.deepEqual(lost, [], '并发写入的记录全部保留')
+  assert.deepEqual(Object.keys(imports['D:/src/multi.db'].sessions), ['b'])
+})
