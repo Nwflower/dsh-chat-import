@@ -75,6 +75,15 @@ test('parseJsonlLines: 畸形行精确行号 + 错误消息净化（不含行内
   assert.deepEqual(secrets, [{ line: 2, kind: 'api-key' }])
 })
 
+test('parseJsonlLines: 行中段出错（V8 的 ..."片段"... 上下文形态）同样不携带行内容', () => {
+  const line = '[1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, password=hunter2hunter2, 99]'
+  const { skippedLines } = parseJsonlLines(line)
+  assert.equal(skippedLines.length, 1)
+  assert.match(skippedLines[0].error, /is not valid JSON/)
+  assert.ok(!skippedLines[0].error.includes('password'), skippedLines[0].error)
+  assert.ok(!skippedLines[0].error.includes('14,'), skippedLines[0].error)
+})
+
 test('parseJsonlLines: 超 200 条时 skipped 计数完整、skippedLines 封顶 200', () => {
   const many = Array.from({ length: SKIPPED_LINES_CAP + 50 }, (_, i) => 'malformed ' + i).join('\n')
   const { recs, skipped, skippedLines } = parseJsonlLines(many)
