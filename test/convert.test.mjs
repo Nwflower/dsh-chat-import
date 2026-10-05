@@ -3,12 +3,13 @@ import { test } from 'node:test'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
+import { readFileSync, readdirSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
 import { dirname, join } from 'node:path'
-import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents, isEnvInjectionEvent } from '../lib/convert/index.mjs'
+import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCursorJsonl, convertGeminiJson, convertReasonixJsonl, convertPiJsonl, convertOpencodeJson, convertQoderJsonl, reasonixStemTime, mintSessionId, parseTime, parseTimeMs, SESSION_FORMAT_VERSION, tailSessionEvents, codexCustomToolArguments, jsObjectLiteralToJson, estimateTokens, cropContentBlocks, trimTurns, applyBudgetTrim, TEXT_BLOCK_CHAR_LIMIT, TOOL_RESULT_CHAR_LIMIT, validateSessionEvents, isEnvInjectionEvent } from '../lib/convert/index.mjs'
 import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 import { synthesizeSession } from '../lib/convert/core.mjs'
+import { contentText } from '../lib/convert/util.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const load = (name) => readFileSync(join(fixtures, name), 'utf8')
@@ -440,6 +441,47 @@ test('parseTime: 解析 ISO 时间戳', () => {
   const before = Date.now()
   const fallback = parseTime(undefined)
   assert.ok(fallback >= before && fallback - before < 1000)
+})
+
+test('纯函数层（lib/convert、lib/export）只 import 本层模块与无 IO 的 node 内建', () => {
+  const root = join(dirname(fileURLToPath(import.meta.url)), '..', 'lib')
+  const allowed = (layer, spec) => /^\.\/[\w-]+\.mjs$/.test(spec)
+    || (layer === 'export' && /^\.\.\/convert\/[\w-]+\.mjs$/.test(spec))
+    || spec === 'node:path' || spec === 'node:crypto'
+  const offenders = []
+  for (const layer of ['convert', 'export']) {
+    for (const name of readdirSync(join(root, layer))) {
+      if (!name.endsWith('.mjs')) continue
+      const src = readFileSync(join(root, layer, name), 'utf8')
+      for (const m of src.matchAll(/^(?:import|export)\b[^'"]*?from\s*['"]([^'"]+)['"]/gm)) {
+        if (!allowed(layer, m[1])) offenders.push(layer + '/' + name + ' → ' + m[1])
+      }
+    }
+  }
+  assert.deepEqual(offenders, [])
+})
+
+test('contentText: 字符串原样、块数组按 type 取 text，各源差异走显式选项', () => {
+  const blocks = [{ type: 'text', text: ' a ' }, { type: 'image' }, { type: 'output_text', text: 'b' }, { type: 'text', text: '' }, 'x', null]
+  assert.equal(contentText(' raw '), ' raw ')
+  assert.equal(contentText(' raw ', { trim: true }), 'raw')
+  assert.equal(contentText(blocks), ' a \n')
+  assert.equal(contentText(blocks, { skipEmpty: true }), ' a ')
+  assert.equal(contentText(blocks, { types: null, sep: '' }), ' a b')
+  assert.equal(contentText(blocks, { types: ['output_text'], trim: true }), 'b')
+  assert.equal(contentText(undefined), '')
+  assert.equal(contentText({ text: 'not an array' }), '')
+})
+
+test('parseTimeMs: 秒/毫秒自适应取整，truncSeconds 截到整秒，拿不到为 null', () => {
+  assert.equal(parseTimeMs(1767583930.285031), 1767583930285)
+  assert.equal(parseTimeMs(1767583930.285031, { truncSeconds: true }), 1767583930000)
+  assert.equal(parseTimeMs(1767583930285), 1767583930285)
+  assert.equal(parseTimeMs(1767583930285, { truncSeconds: true }), 1767583930285)
+  assert.equal(parseTimeMs('2026-08-01T10:00:00.000Z'), Date.parse('2026-08-01T10:00:00.000Z'))
+  for (const bad of [undefined, null, '', 'not a date', Number.NaN, Infinity, 1e300, {}]) {
+    assert.equal(parseTimeMs(bad), null, String(bad))
+  }
 })
 
 // ---- Codex / ChatGPT CLI rollout ----
@@ -1516,6 +1558,16 @@ test('convertPiJsonl: 简单问答、头行元数据、平衡回合', () => {
   // assistant source.model 来自消息级 model
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
   assert.deepEqual(asst.source, { kind: 'model', provider: 'pi-coding-agent', model: 'claude-sonnet-4-5' })
+})
+
+test('convertPiJsonl: 畸形行与疑似 secret 走共享逐行解析器上报（行号明细 + secrets 位置，失败要大声）', () => {
+  const lines = load('pi-simple.jsonl').trimEnd().split('\n')
+  lines.splice(2, 0, '{"type":"message", not json')
+  lines.push(JSON.stringify({ type: 'label', id: 'z1', parentId: null, label: 'token=abcdefgh12345678' }))
+  const out = convertPiJsonl(lines.join('\n'), {})
+  assert.equal(out.skipped, 1)
+  assert.deepEqual(out.skippedLines.map((s) => s.line), [3])
+  assert.deepEqual(out.secrets, [{ line: lines.length, kind: 'token' }])
 })
 
 test('convertPiJsonl: 工具历史（arguments 对象序列化、thinking→reasoning、配对、孤儿丢弃、bash 注入文本）', () => {

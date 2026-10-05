@@ -130,6 +130,19 @@ test('convertKimiWire: custom_title（state.json）钉 session/title 事件且�
   assertEnvelopeHygiene(out.events)
 })
 
+test('convertKimiWire: 旧格式 ToolResult 里拿不到字节的图片也计入 imagesDegraded（不静默降级）', () => {
+  const out = convertKimiWire(wire([
+    ev('TurnBegin', { user_input: '截个图' }),
+    ev('StepBegin', { n: 1 }),
+    ev('ToolCall', { type: 'function', id: 'call_img', function: { name: 'Screenshot', arguments: '{}' } }),
+    ev('ToolResult', { tool_call_id: 'call_img', return_value: { is_error: false, output: [{ type: 'image_url', image_url: { url: 'blobref:image/png;deadbeef' } }] } }),
+    ev('TurnEnd'),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  const result = out.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.data.message.content[0].content, [{ type: 'text', text: '[image]' }])
+  assert.equal(out.imagesDegraded, 1)
+})
+
 test('convertKimiWire: ToolCall → tool/call + ToolResult → tool/result（sourceEventSeqs 关联）', () => {
   const out = convertKimiWire(wire([
     ev('TurnBegin', { user_input: '跑一下测试' }),

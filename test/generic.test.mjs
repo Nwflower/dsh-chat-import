@@ -78,6 +78,12 @@ test('generic：版本不符 / 便携包 / 非 JSON / 0 轮 一律大声拒绝�
   assert.match(empty.skipReason, /没有可导入的轮次/)
 })
 
+test('generic：非 JSON 的拒绝原因不携带文档内容（解析错误经净化）', () => {
+  const out = convertGenericJson('{"turns": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "x": password=hunter2hunter2}')
+  assert.match(out.skipReason, /不是合法 JSON/)
+  assert.ok(!out.skipReason.includes('password'), out.skipReason)
+})
+
 test('generic：畸形条目全部计数（未知块 / 图片降级 / 孤儿结果 / 畸形轮步 / 非法 usage）', () => {
   const out = convertGenericJson(JSON.stringify(doc({
     turns: [
@@ -121,6 +127,8 @@ test('generic：toolCalls 缺列表时从 content 的 tool-call 块派生；压�
     ],
   })))
   assert.equal(out.compactions, 1)
+  // 与其它来源同口径：实际发射了原生检查点就报 compacted（导入结果据此透出）
+  assert.equal(out.compacted, true)
   assert.equal(out.toolCalls, 1)
   const summary = out.events.find((e) => e.type === 'compaction/summary')
   assert.equal(summary.data.summary[0].text, '摘要正文')

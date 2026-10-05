@@ -3,6 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
+import { join } from 'node:path'
 import { slugifyClaudeCwd, decodeClaudeSlug, isHomePath, resolveClaudeCwd, greedyDecodeSlugPath, encodeCursorSlug, resolveCursorSlugPath, greedyDecodeCursorSlugPath, parseCursorEmbeddedTimestamp, stripCursorTitleDecorations, isCursorNonRepoSlug, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 
 test('slugifyClaudeCwd / decodeClaudeSlug: 编码往返 + 中文路径 + 盘符边界', () => {
@@ -52,7 +53,8 @@ test('resolveClaudeCwd: ~/.claude.json projects 权威映射（精确 / basename
       'E:\\deep\\nested\\target': { folderName: 'target' },
     },
   })
-  const ctx = makeFsTree({ [home + '\\.claude.json']: claudeJson })
+  // 夹具键按本平台分隔符拼（与实现同口径）：POSIX 上 home + '\\.claude.json' 根本不是那个文件
+  const ctx = makeFsTree({ [join(home, '.claude.json')]: claudeJson })
   // 精确：slugify('D:\work\my-proj') = 'D--work-my-proj'
   assert.equal(await resolveClaudeCwd(ctx, 'D--work-my-proj'), 'D:\\work\\my-proj')
   // basename 变体：slug 只含 basename
@@ -63,11 +65,23 @@ test('resolveClaudeCwd: ~/.claude.json projects 权威映射（精确 / basename
   assert.equal(await resolveClaudeCwd(ctx, 'no-such-project'), null)
 })
 
+test('resolveClaudeCwd: 按本平台路径口径定位 ~/.claude.json（POSIX 上不得拼出反斜杠）', async () => {
+  const asked = []
+  const ctx = {
+    fs: {
+      async resolve(path) { asked.push(path); return { targetKey: path, displayPath: path } },
+      async readText() { return JSON.stringify({ projects: { '/work/demo': {} } }) },
+    },
+  }
+  await resolveClaudeCwd(ctx, '-work-demo')
+  assert.deepEqual(asked, [join(homedir(), '.claude.json')])
+})
+
 test('resolveClaudeCwd: ~/.claude.json 缺失/损坏 → null（回退解码不崩）', async () => {
   const home = homedir().replace(/[\\/]+$/, '')
   const ctx = makeFsTree({})
   assert.equal(await resolveClaudeCwd(ctx, 'C--Users-name'), null)
-  const bad = makeFsTree({ [home + '\\.claude.json']: 'not json' })
+  const bad = makeFsTree({ [join(home, '.claude.json')]: 'not json' })
   assert.equal(await resolveClaudeCwd(bad, 'C--Users-name'), null)
 })
 

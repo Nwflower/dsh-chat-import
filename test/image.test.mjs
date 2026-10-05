@@ -90,6 +90,9 @@ test('imageBlockFromSource: 认各源形态（claude/codex/grokbuild/pi/opencode
   // pi
   assert.deepEqual(imageBlockFromSource({ type: 'image', mimeType: 'image/webp', data: 'CCCC' }),
     { type: 'image', data: 'CCCC', mediaType: 'image/webp' })
+  // OpenAI / Kimi ContentPart（image_url 是 { url } 对象，不是字符串）
+  assert.deepEqual(imageBlockFromSource({ type: 'image_url', image_url: { url: 'data:image/png;base64,EEEE' } }),
+    { type: 'image', data: 'EEEE', mediaType: 'image/png' })
   // opencode file part（mime + data URL）
   assert.deepEqual(imageBlockFromSource({ type: 'file', mime: 'image/gif', filename: 'x.gif', url: 'data:image/gif;base64,DDDD' }),
     { type: 'image', data: 'DDDD', mediaType: 'image/gif' })
