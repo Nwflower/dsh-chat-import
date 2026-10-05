@@ -4,10 +4,10 @@
 // 条目、不读源内容。这里锁住此前绕开书签、每次都整读文件头的扫描器（pi、Cline 旧版任务）。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
-import { discoverSessions, createScanCache, clearScanCache, clearInflightScans } from '../lib/discovery.mjs'
+import { discoverSessions, createScanCache, clearScanCache, clearInflightScans, SCAN_CACHE_FILE } from '../lib/discovery.mjs'
 import { memoryHost, withDirs } from './_support/discovery-host.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 
@@ -23,7 +23,7 @@ const j = (o) => JSON.stringify(o)
 async function withCacheDir(fn) {
   const cacheDir = mkdtempSync(join(tmpdir(), 'dsh-discovery-scan-'))
   try {
-    return await fn((opts) => discoverSessions({ cache: createScanCache(), cacheDir, imports: {}, ...opts }))
+    return await fn((opts) => discoverSessions({ cache: createScanCache(), cacheDir, imports: {}, ...opts }), cacheDir)
   } finally {
     rmSync(cacheDir, { recursive: true, force: true })
   }
@@ -80,5 +80,39 @@ test('cline 旧版任务：书签命中时不重读 api / ui 历史；taskHistor
     files.set(history, { type: 'file', mtimeMs: 1786000030000, text: j([{ id: taskId, ts: 1786000000000, task: '索引里的标题', cwdOnTaskInitialization: hostAbs('D:/repo') }]) })
     const fourth = await scan({ path: root, format: 'cline', host })
     assert.equal(fourth.sessions[0].title, '索引里的标题')
+  })
+})
+
+// Codex 分页链：书签按页存「链拼装所需的摘要」，链条目由页摘要在内存里拼出。此前页级与
+// 链级两种探测共用 codex 表、同一个首页路径做键，互相覆盖 → 书签永不命中（每次重读全部
+// rollout 头），且页级书签把整段原始记录写进了 scan-cache.json。
+test('codex：分页链书签命中时不重读 rollout；书签只存页摘要不存原始记录', async () => {
+  const thread = '019e3b3f-636d-7cb3-aaab-0255eb45ad4f'
+  const root = join(HOME, '.codex', 'sessions')
+  const pageA = join(root, '2026', '09', '14', `rollout-2026-09-14T10-54-33-${thread}.jsonl`)
+  const pageB = join(root, '2026', '09', '15', `rollout-2026-09-15T19-55-00-${thread}_9a8b7c6d.jsonl`)
+  const solo = join(root, '2026', '09', '15', 'rollout-2026-09-15T20-00-00-11111111-2222-3333-4444-555555555555.jsonl')
+  const meta = (id, ts) => j({ timestamp: ts, type: 'session_meta', payload: { id, cwd: hostAbs('D:/demo/codex'), timestamp: ts } })
+  const user = (text) => j({ type: 'response_item', payload: { type: 'message', role: 'user', content: [{ type: 'input_text', text }] } })
+  const files = withDirs(root, new Map([
+    [pageA, { type: 'file', mtimeMs: 1786000001000, text: [meta(thread, '2026-09-14T10:54:33.000Z'), user('首页的提问')].join('\n') }],
+    [pageB, { type: 'file', mtimeMs: 1786000005000, text: [meta(thread, '2026-09-15T19:55:00.000Z'), user('次页的提问')].join('\n') }],
+    [solo, { type: 'file', mtimeMs: 1786000003000, text: [meta('11111111-2222-3333-4444-555555555555', '2026-09-15T20:00:00.000Z'), user('单页会话')].join('\n') }],
+  ]))
+  const host = memoryHost(files)
+  await withCacheDir(async (scan, cacheDir) => {
+    const first = await scan({ path: root, format: 'codex', host })
+    const byId = Object.fromEntries(first.sessions.map((e) => [e.sessionId, e]))
+    assert.equal(first.total, 2)
+    assert.equal(byId[thread].sourcePath, pageA, '链的 sourcePath = 首页')
+    assert.equal(byId[thread].title, '首页的提问')
+    assert.equal(byId[thread].lastActiveAt, 1786000005000, 'lastActiveAt = 最新页 mtime')
+    assert.equal(byId[thread].createdAt, Date.parse('2026-09-14T10:54:33.000Z'))
+    const reads = host.counters.reads
+    const second = await scan({ path: root, format: 'codex', host })
+    assert.deepEqual(second.sessions.map((e) => [e.sessionId, e.title, e.sourcePath]), first.sessions.map((e) => [e.sessionId, e.title, e.sourcePath]))
+    assert.equal(host.counters.reads, reads, '未变的 rollout 命中书签，不重读文件头')
+    const disk = readFileSync(join(cacheDir, SCAN_CACHE_FILE), 'utf8')
+    assert.ok(!disk.includes('response_item'), '书签不含原始转录记录')
   })
 })
