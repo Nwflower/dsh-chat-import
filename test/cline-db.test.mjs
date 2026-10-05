@@ -7,6 +7,7 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { readClineDb, clineMessagesPath, clineDeriveArgs, collectClineFiles } from '../lib/sources/cline.mjs'
+import { makeFs } from './_support/fake-host.mjs'
 
 // 上游 sqlite-db.ts 的建表 SQL（main @ 6e8bea1）；老库靠 ALTER TABLE 逐列补齐，
 // 故测试另造一个「缺列」的库验证自适应读取。
@@ -143,16 +144,8 @@ test('readClineDb：缺失文件 / 非 Cline 库 → null（发现层据此回�
   })
 })
 
-// clineDeriveArgs 用的最小 ctx：resolve/readText 走内存表（与真实 fs 契约同形）。
-function fakeCtx(files) {
-  return {
-    fs: {
-      processPath: (t) => t,
-      resolve: async (p) => p,
-      readText: async (p) => (p in files ? files[p] : null),
-    },
-  }
-}
+// clineDeriveArgs 用的最小 ctx：只有内存树 fs（与真实 fs 契约同形，不回退磁盘）。
+const fakeCtx = (files) => ({ fs: makeFs(files, { real: false }) })
 
 test('clineDeriveArgs：DB 优先给 cwd/创建时间/标题', async () => {
   await withTmpAsync(async (root) => {
