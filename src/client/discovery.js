@@ -134,6 +134,23 @@
       return only && only.status === "imported" && only.mode === "single" && !force && !archiveSources ? donePath : "";
     }
 
+    /** 扫描失败被跳过的目标（服务端 warnings：[{ format, target, error }]）→ 列表上方一行不打断
+     *  操作的提示：正文按来源去重点名（最多三个），title 悬浮看逐条明细。没有失败返回 null。
+     *  labelOf：format 短名 → 来源展示名。 */
+    function scanWarningNotice(warnings, t, labelOf) {
+      if (!Array.isArray(warnings) || warnings.length === 0) return null;
+      const names = [];
+      for (const w of warnings) {
+        const name = labelOf(w && w.format);
+        if (names.indexOf(name) === -1) names.push(name);
+      }
+      const sources = names.slice(0, 3).join(t("result.separator")) + (names.length > 3 ? " …" : "");
+      return {
+        text: t("scan.warnings", { n: warnings.length, sources }),
+        title: warnings.map((w) => w.format + " @ " + w.target + ": " + w.error).join("\n"),
+      };
+    }
+
     // ── hooks ───────────────────────────────────────────────────────────────
 
     /** 流式加载：后台扫描 + after 游标轮询——会话按发现顺序逐条 append 到缓冲，首屏不被全量
@@ -141,11 +158,13 @@
      *  扫描（导入后 epoch 自增触发的刷新）不清空旧列表：旧数据留在屏幕上，新扫描的首批到达时
      *  整批替换——避免「清空 → 重填」那一下闪烁。换来源 / 换搜索词才是真的换了数据集，照旧清空。
      *  onStart：每轮扫描开始时调用；onDshVersion(v)：响应带回宿主会话格式版本时调用。
-     *  返回 { items, setItems, stream, error }。 */
+     *  warnings：本轮扫描失败被跳过的目标（扫描完成的那次响应带回；新一轮开始时清空）。
+     *  返回 { items, setItems, stream, error, warnings }。 */
     function useSessionScan({ source, query, epoch, t, onStart, onDshVersion }) {
       const [items, setItems] = useState([]); // 流式累计缓冲（scan 逐条按发现顺序插入）
       const [stream, setStream] = useState({ done: false, cursor: 0, total: 0, started: false });
       const [error, setError] = useState(null);
+      const [warnings, setWarnings] = useState([]);
       const scanKeyRef = useRef(null);
       useEffect(() => {
         let cancelled = false;
@@ -157,6 +176,7 @@
           let firstBatch = isRefresh;
           setStream({ done: false, cursor: 0, total: 0, started: false });
           setError(null);
+          setWarnings([]);
           onStart();
           let after = 0;
           let done = false;
@@ -194,6 +214,7 @@
               seen = nextStream;
               setStream(nextStream);
             }
+            if (done && Array.isArray(data.warnings) && data.warnings.length > 0) setWarnings(data.warnings);
             if (done && typeof data.error === "string" && data.error) {
               failed = data.error;
               break;
@@ -211,7 +232,7 @@
         })();
         return () => { cancelled = true; };
       }, [source, query, epoch]);
-      return { items, setItems, stream, error };
+      return { items, setItems, stream, error, warnings };
     }
 
     /** 列表窗口：跟踪滚动容器的 scrollTop / clientHeight（rAF 合并滚动事件，ResizeObserver
@@ -541,7 +562,7 @@
       const [collapsed, setCollapsed] = useState(new Set()); // 已折叠的工作区分组名
       const [hot, setHot] = useState(NO_HOT); // 点亮中的会话行与其所在分组（见 nextHot）
 
-      const { items, setItems, stream, error } = useSessionScan({
+      const { items, setItems, stream, error, warnings } = useSessionScan({
         source, query, epoch, t,
         // 每轮扫描开始：清掉上一轮的导入结果、回到第一页
         onStart: () => { setResult(null); setPage(0); },
@@ -663,6 +684,9 @@
         ? t("scan.status.progress", { n: items.length })
         : t("count.total", { n: displayTotal });
       const groups = useMemo(() => groupSessions(sessions), [sessions]);
+      // 有来源扫描失败（库被锁 / 无权限 / 读取器异常）：其余来源照常列出，只在列表上方点名，
+      // 免得「没扫到」看起来像「没有会话」
+      const scanNotice = useMemo(() => scanWarningNotice(warnings, t, sourceLabel), [warnings, t]);
       // allSelected 是 O(页大小)：无分页时每次渲染都要扫一遍 10 万行 → memo 到 selected/sessions
       const allSelected = useMemo(
         () => sessions && sessions.length > 0 && sessions.every((s) => selected.has(itemKey(s))),
@@ -746,6 +770,7 @@
           // 还没拿到第一批数据：居中显示连接提示（拿到数据后状态就交给底部那条）
           !stream.started && !error && h("div", { style: style.status }, t("scan.hint.start")),
           error && h("div", { style: style.error }, error),
+          !error && scanNotice && h("div", { style: style.scanNotice, title: scanNotice.title, role: "status" }, scanNotice.text),
           stream.done && !error && filteredItems.length === 0 && h("div", { style: style.status }, query || workspaceFilter ? t("noMatch") : t("noSessions")),
           // 列表容器**恒渲染**（flex:1 撑满剩余高度）：此前 items 为空时整个容器不存在，
           // 底部操作区（结果摘要 + 导入按钮）就会被内容顶到上面去；空列表时它只是没有行。

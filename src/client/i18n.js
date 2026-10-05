@@ -83,6 +83,8 @@
         "scan.hint.start": "正在连接扫描…缓存命中通常几秒，首次全量可能十几秒到一分钟",
         // 底栏那一条的状态文案：扫描中报进度，完成后报页码与总数（两者合并显示）
         "scan.status.progress": "扫描中 · 已发现 {n} 个",
+        // 部分扫描目标失败（已跳过，其余照常列出）；{sources} 为去重后的来源名，悬浮看明细
+        "scan.warnings": "{n} 个扫描目标失败，已跳过：{sources}（悬停查看原因）",
         // 底栏：页控件（点开是页码网格）+ 状态文案（扫描进度 / 总数）
         "page.jump": "第 {page} / {pages} 页",
         "page.jump.title": "点击选择页码",
@@ -302,6 +304,7 @@
         "noSessions": "No sessions found",
         "scan.hint.start": "Connecting… cache hits usually take seconds; first full scan may take 15s–1min",
         "scan.status.progress": "Scanning · {n} found",
+        "scan.warnings": "{n} scan target(s) failed and were skipped: {sources} (hover for details)",
         "page.jump": "Page {page} / {pages}",
         "page.jump.title": "Pick a page",
         "count.total": "{n} total",
