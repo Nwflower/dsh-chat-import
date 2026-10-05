@@ -6,6 +6,7 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { discoverSessions, createScanCache, clearScanCache, clearInflightScans, SCAN_CACHE_FILE } from '../lib/discovery.mjs'
 import { memoryHost, withDirs } from './_support/discovery-host.mjs'
@@ -174,4 +175,45 @@ test('cursor：同一 slug 的多条会话在一次发现内只解码一次 slug
     assert.deepEqual(second.sessions.map((e) => e.project), ['demo', 'demo'])
     assert.deepEqual(calls, [slug], '书签命中补丁：同 slug 只解码一次')
   })
+})
+
+// DSH 会话日志经注入 host 读取：明文日志只读头 + 尾两段（不整读几十 MB 的日志），.zstd 经
+// host.readBytes 有界读原始字节再解压（此前直接 node:fs 读盘，绕过了 host）。
+test('dsh：大明文日志只读头尾两段——会话头取自头部、最新 session/title 取自尾部', async () => {
+  const root = join(HOME, 'dsh-home-io', 'sessions')
+  const file = join(root, '--w--', 's-big', 'session.v3.jsonl')
+  const text = [
+    j({ type: 'session', id: 's-big', cwd: '/demo/proj', createdAt: 1700000000000 }),
+    j({ type: 'user/message', data: { content: [{ type: 'text', text: '首问' }] } }),
+    j({ type: 'session/title', data: { title: '早期标题' } }),
+    j({ type: 'assistant/message', data: { content: [{ type: 'text', text: 'x'.repeat(300 * 1024) }] } }),
+    j({ type: 'session/title', data: { title: '尾部改名' } }),
+  ].join('\n')
+  const host = memoryHost(withDirs(root, new Map([[file, { type: 'file', mtimeMs: 1786000002000, text }]])))
+  const wholeReads = []
+  const readText = host.readText
+  host.readText = async (p) => { wholeReads.push(p); return readText(p) }
+  const { sessions } = await discoverSessions({ path: root, format: 'dsh', host, imports: {}, cache: new Map() })
+  assert.deepEqual(sessions.map((e) => [e.sessionId, e.title]), [['s-big', '尾部改名']])
+  assert.deepEqual(wholeReads, [], '不整读会话日志')
+  assert.equal(host.counters.tails, 1)
+})
+
+test('dsh：小 .zstd 经 host.readBytes 读字节解压取元数据；host 读不到字节时按目录名兜底列出', async () => {
+  const fixture = readFileSync(fileURLToPath(new URL('./fixtures/session.jsonl.zstd', import.meta.url)))
+  const root = join(HOME, 'dsh-home-zstd', 'sessions')
+  const file = join(root, '--w--', 'session-zstd-dir', 'session.jsonl.zstd')
+  const files = withDirs(root, new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: 'z'.repeat(fixture.length) }]]))
+  const host = memoryHost(files)
+  const asked = []
+  host.readBytes = async (p, max) => { asked.push([p, max]); return p === file ? new Uint8Array(fixture) : null }
+  const ok = await discoverSessions({ path: root, format: 'dsh', host, imports: {}, cache: new Map() })
+  assert.deepEqual(ok.sessions.map((e) => [e.sessionId, e.title, e.cwd]), [['session-zstd-test', 'Zstd 导入测试', '/tmp/proj']])
+  assert.equal(asked.length, 1)
+  assert.equal(asked[0][0], file)
+  assert.ok(asked[0][1] >= fixture.length)
+
+  const bare = memoryHost(files) // 无 readBytes 能力的 host
+  const fallback = await discoverSessions({ path: root, format: 'dsh', host: bare, imports: {}, cache: new Map() })
+  assert.deepEqual(fallback.sessions.map((e) => [e.sessionId, e.title, e.project]), [['session-zstd-dir', null, '--w--']])
 })
