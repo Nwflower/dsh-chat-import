@@ -11,7 +11,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - **扫描失败不再静默**：某个来源 / 数据根扫描抛错时，`scan_discover` 结果新增 `warnings: [{ format, target, error }]`，面板在列表上方点名扫描失败的来源；失败结果不进 30 秒缓存，下次扫描会重试。此前任何异常（含程序错误）都被当成「没有会话」。
 - **发现层少做重复 IO**：单次扫描内目录列举与 stat 记忆化，不给格式的目录探测、dsh / dsh4 共用的会话目录不再被各扫描器重复遍历（测试宿主上 Claude 数据根的列举次数由 15 次降为 1 次）；Claude 转录的「只读尾部」改为按偏移只读末尾窗口（此前流过整份文件）；DSH 明文日志只读头尾两段，`.zstd` 经宿主有界读取。
 - **书签真正生效**：pi、Cline 旧版任务与 Codex 分页链的扫描书签生效，未变文件不再每次整读（Codex 分页的页级与链级书签此前同键互相覆盖、永不命中）。书签版本升至 4，升级后首次扫描整体重建。
-- 加载发现层不再引入 `node:sqlite`，宿主日志不再出现 SQLite ExperimentalWarning。
+- `node:sqlite` 改为首次真正打开数据库时才加载：插件激活与只用 JSONL 来源的会话不再在宿主日志里打印 SQLite ExperimentalWarning。
 - `restore_bundle`：未变的备份包先走 registry 短路径，不再整读、解析并校验指纹。
 - 启动时 `ignores.json` 只在内容变化时写盘，不再按每个已归档会话重写并 fsync 一次。
 - 面板多选导入时，kilocode / goose / zed / crush / trae 只导所选会话（此前整库导入）；`import_chat` 的 `sessionIds` 说明与 `index.d.ts` 同步列出这些格式。
@@ -37,6 +37,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - `export_chat` 的说明不再宣称 claude 导出会写 imports registry；`lib/index.d.ts` 与运行时对齐（格式枚举、导入参数与报告字段、状态值、同步读库函数），并有一致性测试防止再漂移。
 - kilocode 的来源标签为「Kilo Code」（导入标题不再以短名打头）。
 - 面板：清除导入会话前先清空旧错误提示；「清理上传暂存」确认框执行后关闭；鼠标离开会话行后分组头高亮复位。
+- 迁移提示：短会话（如 headless 单轮）在发现跑完前结束时，不再打印「迁移提示注入失败：cannot get required service "systemPrompt" in inactive context」，也不记提示记忆（下一个会话照常提示）。
 
 <h3 id="cn-unreleased">其他变更</h3>
 
@@ -50,7 +51,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - **Scan failures are no longer silent**: when a source or data root throws during a scan, the `scan_discover` result carries `warnings: [{ format, target, error }]` and the panel names the failed sources above the list; failed results are not cached for the 30-second TTL, so the next scan retries. Previously any exception (programming errors included) read as "no sessions".
 - **Less repeated IO in discovery**: directory listings and stats are memoized within one scan, so format-less directory probes and the session directory shared by dsh / dsh4 are no longer walked once per scanner (on the test host the Claude data root is listed once instead of 15 times); the "tail only" read for Claude transcripts now reads just the trailing window at an offset (it used to stream the whole file); plain DSH logs read only head and tail, and `.zstd` logs go through bounded host reads.
 - **Bookmarks actually hit**: scan bookmarks now apply to pi, legacy Cline tasks and Codex paged chains, so unchanged files are no longer re-read on every scan (Codex page and chain bookmarks used to share a key, overwrite each other and never hit). The bookmark version is bumped to 4; the first scan after upgrading rebuilds them.
-- Loading the discovery layer no longer pulls in `node:sqlite`, so the host log no longer shows the SQLite ExperimentalWarning.
+- `node:sqlite` is loaded only when a database is actually opened, so plugin activation and sessions that only use JSONL sources no longer print the SQLite ExperimentalWarning in the host log.
 - `restore_bundle`: an unchanged bundle takes the registry short path first instead of reading, parsing and fingerprint-checking the whole file.
 - At startup `ignores.json` is written only when its content changes, instead of being rewritten and fsynced once per archived session.
 - Multi-select imports in the panel now import only the selected sessions for kilocode / goose / zed / crush / trae (they used to import the whole database); the `import_chat` `sessionIds` description and `index.d.ts` list these formats.
@@ -76,6 +77,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - The `export_chat` description no longer claims claude exports write the imports registry; `lib/index.d.ts` matches the runtime (format unions, import parameters and report fields, status values, synchronous database readers), with a consistency test against drift.
 - kilocode's source label is "Kilo Code" (imported titles no longer start with the short name).
 - Panel: purging imported sessions clears the previous error first; the "clean upload staging" confirmation closes after it runs; the group header highlight resets when the pointer leaves a session row.
+- Migration hint: when a short session (e.g. a single headless turn) ends before discovery finishes, the plugin no longer logs "migration hint injection failed: cannot get required service "systemPrompt" in inactive context", and it does not record the hint as shown, so the next session still gets it.
 
 <h3 id="en-unreleased">Chores</h3>
 
