@@ -17,127 +17,12 @@ import { readZcodeDb, readZcodeTranscript } from '../lib/sources/zcode.mjs'
 import { resolveRegistryDir, loadImports } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
 })
-
-// fs 版本指纹：内容派生，内容变则 version 变（mock stat 的 version 字段）。
-function contentVersion(text) {
-  let h = 0
-  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0
-  return 'v' + h
-}
-
-// 内存态会话库：create/append/list/inspect（append 强制 seq 连续，引擎契约）。
-function makePersistence() {
-  const sessions = new Map() // id -> { meta, events: [] }
-  return {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      for (let i = 0; i < events.length; i++) {
-        const ev = events[i]
-        if (typeof ev.seq !== 'number' || ev.seq !== s.events.length + i) {
-          throw new Error('append seq 不连续: 期望 ' + (s.events.length + i) + ' 实际 ' + String(ev && ev.seq))
-        }
-      }
-      s.events.push(...events)
-    },
-    async inspect(id) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events }
-    },
-    async readFrom(id, fromSeq = 0) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
-  }
-}
-
-// 最小化 mock ctx：fs（resolve/stat/readText/processPath）+ sessionPersistence +
-// workspaceRegistry + tools。tree 外的真实文件（temp SQLite / transcript）走 node:fs stat。
-function makeCtx(tree = {}) {
-  const persistence = makePersistence()
-  const attached = []
-  const workspaces = new Map()
-  const registered = []
-  // 跨平台分隔符归一（与 index.test.mjs makeCtx 同款）：树查找三态命中，防 CI（Linux）红
-  const norm = (p) => String(p).replace(/\\/g, '/')
-  const lookup = (p) => {
-    const f = norm(p)
-    return tree[p] ?? tree[f] ?? tree[f.replace(/\//g, '\\')]
-  }
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      const path = target.targetKey
-      const v = lookup(path)
-      if (v !== undefined) {
-        return v === 'dir' ? { type: 'directory' } : { type: 'file', size: v.length, version: contentVersion(v) }
-      }
-      try {
-        const s = statSync(path)
-        if (s.isDirectory()) return { type: 'directory' }
-        return { type: 'file', size: s.size, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
-      } catch {
-        return undefined
-      }
-    },
-    async readText(target) {
-      const v = lookup(target.targetKey)
-      if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND ' + target.targetKey)
-      return v
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }; workspaces.set(p, ws); return ws },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} }, // REQ-41：apply 注册 /api-import/sessions 路由（zcode 测试不关心）
-    // 模拟 Cordis ctx.inject：依赖服务在 ctx 上存在才执行回调（webServer 在场 →
-    // 路由注册执行；commands 缺席 → /import 命令不注册，插件照常激活）。
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-      return undefined
-    },
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
-      return undefined
-    },
-    tools: {
-      register(def) { registered.push(def); return () => {} },
-    },
-    on() { return () => {} }, // REQ-53：apply 监听 agent/session-start（本测试不模拟事件）
-  }
-  ctx.tools.registered = (toolName) => registered.find((d) => d.name === toolName)
-  return { ctx, persistence, attached, registered }
-}
-
-function registeredDef(ctx, toolName) {
-  return ctx.tools.registered(toolName)
-}
-
-// 辅助：import_chat 分发器定义——execute 时注入 format（等价旧 import_zcode）
-function chatDef(ctx, format = 'zcode') {
-  const tool = registeredDef(ctx, 'import_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
 
 // 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
 // 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。

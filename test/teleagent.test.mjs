@@ -20,91 +20,12 @@ import { readTeleagentDb, teleagentDataDir, teleagentUsersDir, teleagentDbPath, 
 import { discoverSessions } from '../lib/discovery.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
 
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
   delete process.env.TELEAGENT_HOME
 })
-
-// 内存态会话库（与 mimocode.test.mjs 同款 mock）
-function makePersistence() {
-  const sessions = new Map()
-  return {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      for (let i = 0; i < events.length; i++) {
-        const ev = events[i]
-        if (typeof ev.seq !== 'number' || ev.seq !== s.events.length + i) {
-          throw new Error('append seq 不连续: 期望 ' + (s.events.length + i) + ' 实际 ' + String(ev && ev.seq))
-        }
-      }
-      s.events.push(...events)
-    },
-    async inspect(id) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events }
-    },
-    async readFrom(id, fromSeq = 0) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
-  }
-}
-
-function makeCtx() {
-  const persistence = makePersistence()
-  const attached = []
-  const workspaces = new Map()
-  const registered = []
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      const path = target.targetKey
-      let s
-      try { s = statSync(path) } catch { return undefined }
-      if (s.isDirectory()) return { type: 'directory' }
-      return { type: 'file', size: s.size, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }; workspaces.set(p, ws); return ws },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} },
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-      return undefined
-    },
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
-      return undefined
-    },
-    tools: { register(def) { registered.push(def); return () => {} } },
-    on() { return () => {} },
-  }
-  ctx.tools.registered = (toolName) => registered.find((d) => d.name === toolName)
-  return { ctx, persistence, attached, registered }
-}
-
-function chatDef(ctx, format = 'teleagent') {
-  const tool = ctx.tools.registered('import_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
 
 function assertEnvelopeHygiene(events) {
   assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
@@ -343,7 +264,7 @@ test('import_teleagent 单库：恒批量、落盘、归组、schema 校验', as
   const dbPath = makeTeleagentDb(dir, teleagentTestSessions())
   const { ctx, persistence, attached, registered } = makeCtx()
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'teleagent')
   const value = await def.execute({ path: dbPath })
 
   assert.equal(value.mode, 'batch')
@@ -371,7 +292,7 @@ test('import_teleagent 幂等：重导跳过；sessionIds 过滤只导所选；�
   const dbPath = makeTeleagentDb(dir, teleagentTestSessions())
   const { ctx, persistence } = makeCtx()
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'teleagent')
 
   const first = await def.execute({ path: dbPath })
   assert.equal(first.imported, 2)
@@ -390,7 +311,7 @@ test('import_teleagent sessionIds 过滤：全新环境只导指定源会话（�
   const dbPath = makeTeleagentDb(dir, teleagentTestSessions())
   const { ctx, persistence } = makeCtx()
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'teleagent')
   const filtered = await def.execute({ path: dbPath, sessionIds: ['ses_0f1e2d3c4b5a697889012abcdef01234'] })
   assert.equal(filtered.total, 2, '库里有两条')
   assert.equal(filtered.imported, 1, '只导所选一条')
@@ -400,7 +321,7 @@ test('import_teleagent sessionIds 过滤：全新环境只导指定源会话（�
 test('import_teleagent：非 SQLite 库 / 缺 DB 目录 → 大声失败', async () => {
   const { ctx } = makeCtx()
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'teleagent')
   const bogus = mkdtempSync(join(tmpdir(), 'dsh-teleagent-'))
   const notDb = join(bogus, 'teleagent.db')
   writeFileSync(notDb, 'definitely not a sqlite database')

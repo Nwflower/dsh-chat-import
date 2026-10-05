@@ -13,6 +13,7 @@ import { join } from 'node:path'
 import { apply } from '../lib/index.mjs'
 import { convertChatgptJson } from '../lib/convert/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { makeCtx } from './_support/fake-host.mjs'
 
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
@@ -119,70 +120,10 @@ test('Bug 3：毫秒形态的浮点时间戳同样取整（不因 >= 1e11 分支
 
 // ── Bug 4：dry-run 预览必须合法（报告者看到的是 oneOf matched 0）───────────
 
-// 最小 mock ctx（与 mimocode.test.mjs 同款）
-function makeCtx(tree) {
-  const sessions = new Map()
-  const persistence = {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown ' + id)
-      for (let i = 0; i < events.length; i++) {
-        if (events[i].seq !== s.events.length + i) throw new Error('seq 不连续')
-      }
-      s.events.push(...events)
-    },
-    async readFrom(id, fromSeq = 0) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown ' + id)
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
-  }
-  const registered = []
-  // 分隔符归一（跨平台）：代码里的 join() 在 Linux（posix）对反斜杠路径会产出混合分隔符，
-  // 而本文件的树键是反斜杠——按原键 + 正斜杠归一 + 反斜杠归一三种形式都试。
-  const norm = (p) => String(p).replace(/\\/g, '/')
-  const lookup = (p) => tree[p] ?? tree[norm(p)] ?? tree[norm(p).replace(/\//g, '\\')]
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    processPath(t) { return t.targetKey },
-    async stat(t) {
-      const v = lookup(t.targetKey)
-      if (v === undefined) return undefined
-      return v === 'dir' ? { type: 'directory' } : { type: 'file', size: v.length, version: 'v-' + v.length }
-    },
-    async readText(t) {
-      const v = lookup(t.targetKey)
-      if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND ' + t.targetKey)
-      return v
-    },
-    async listDir() { return [] },
-    async writeText() { throw new Error('read-only') },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} },
-    inject(list, cb) {
-      const names = Array.isArray(list) ? list : Object.keys(list || {})
-      return names.every((s) => ctx[s] !== undefined) ? cb(ctx) : undefined
-    },
-    get(s) { return s === 'sessionPersistence' ? persistence : undefined },
-    tools: { register(d) { registered.push(d); return () => {} } },
-    on() { return () => {} },
-  }
-  return { ctx, persistence, registered }
-}
-
 test('Bug 4：conversations.json 的 dry-run 预览输出符合声明的 output schema（且真导入成功）', async () => {
   const file = 'D:\\demo\\chatgpt\\conversations.json'
   const tree = { [file]: exportOf([conversation({ withChildren: false }), conversation({ id: 'conv-2', withChildren: true })]) }
-  const { ctx, persistence, registered } = makeCtx(tree)
+  const { ctx, persistence, registered } = makeCtx(tree, { real: false, fsOptions: { readOnly: true } }) // 纯内存树、只读：预览与导入都不写 fs
   apply(ctx)
   const tool = registered.find((d) => d.name === 'import_chat')
   assert.ok(tool, 'import_chat 已注册')
