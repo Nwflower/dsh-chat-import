@@ -21,6 +21,7 @@ import { SESSION_FORMAT_VERSION } from '../lib/convert/index.mjs'
 import { verifyOpencodeImportJson } from '../lib/export/index.mjs'
 import { hostAbs, hostAbsText } from './_support/host-path.mjs'
 import { makeCtx, makeHandlePersistence, toolDef, chatDef, exportDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 // 夹具文本里的盘符路径按宿主平台改写：这些转录/元数据夹具带的是 Windows cwd，而宿主落盘
@@ -69,21 +70,6 @@ function chatgptConversation(id, title, turns) {
     }
   }
   return { id, title, create_time: 1710000000, mapping }
-}
-
-// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
-// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
-function assertEnvelopeHygiene(events) {
-  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
-  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  for (const e of events) {
-    for (const key of Object.keys(e)) {
-      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
-    }
-    assert.equal(typeof e.seq, 'number')
-    assert.equal(typeof e.time, 'number')
-    assert.notEqual(e.data, undefined)
-  }
 }
 
 test('apply 注册十二个工具（import_chat 分发器 + import_agents + doctor + import_mcp + import_settings + scan_discover + export_chat 三合一 + REQ-33 识别/撤回 + REQ-56 bundle 导出/还原 + verify_session）', () => {

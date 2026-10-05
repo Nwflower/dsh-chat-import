@@ -3,6 +3,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { convertOpenclawJson, openclawDisplayNames } from '../lib/convert/openclaw.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证）。
@@ -37,21 +38,6 @@ function assertMessageOrderLegal(events) {
     }
   }
   assert.equal(open.length, 0, '末尾残留未配对的 tool_calls')
-}
-
-// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
-// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
-function assertEnvelopeHygiene(events) {
-  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
-  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  for (const e of events) {
-    for (const key of Object.keys(e)) {
-      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
-    }
-    assert.equal(typeof e.seq, 'number')
-    assert.equal(typeof e.time, 'number')
-    assert.notEqual(e.data, undefined)
-  }
 }
 
 test('convertOpenclawJson: session 事件 + 简单问答合成平衡回合（标题取首条 user 文本）', () => {

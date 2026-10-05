@@ -22,22 +22,12 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { diskHost } from './_support/discovery-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
   delete process.env.TELEAGENT_HOME
 })
-
-function assertEnvelopeHygiene(events) {
-  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
-  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  for (const e of events) {
-    for (const key of Object.keys(e)) assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
-    assert.equal(typeof e.seq, 'number')
-    assert.equal(typeof e.time, 'number')
-    assert.notEqual(e.data, undefined)
-  }
-}
 
 // ── 合成 teleagent.db：按 issue #60 报告者的 .schema 建表 ──
 // session 无 model 列；message/part 带 time_updated；另有 project/todo 表。

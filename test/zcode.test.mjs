@@ -18,26 +18,12 @@ import { resolveRegistryDir, loadImports } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
 })
-
-// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
-// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
-function assertEnvelopeHygiene(events) {
-  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
-  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  for (const e of events) {
-    for (const key of Object.keys(e)) {
-      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
-    }
-    assert.equal(typeof e.seq, 'number')
-    assert.equal(typeof e.time, 'number')
-    assert.notEqual(e.data, undefined)
-  }
-}
 
 // ── 合成 zcode db fixture（真实 schema：session 主会话 parent_id IS NULL；
 //    message/part 无 sequence 列，按 time_created, id 升序） ──────────────
