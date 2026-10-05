@@ -114,7 +114,7 @@ export interface ImportChatOptions extends ImportOptions {
   compacted?: boolean
   /** 仅 chatgpt：'main'（默认）只重建主线程；'all' 枚举全部分支会话。 */
   branch?: 'main' | 'all'
-  /** 仅一库多会话来源（opencode / mimocode / kilocode / teleagent / zcode / goose / zed / crush）：只导入指定源会话 id（缺省导入全部）。 */
+  /** 仅一库多会话来源（opencode / mimocode / kilocode / teleagent / trae / zcode / goose / zed / crush）：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
   /** 仅压缩感知来源（claude / codex / pi / kimi / zed / crush / continue / zcode / cline / opencode 及其 fork）：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。该开关进参数指纹，换值须重导。 */
   fullHistory?: boolean
