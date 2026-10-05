@@ -1,4 +1,4 @@
-# CI：push/PR 时跑 npm test。
+# CI：push/PR 时跑全套测试（经覆盖率护栏一次跑完）与各项静态护栏。
 # 插件零运行时依赖；@deepseek-ai/dsh-tools 是 peerDependencies（npm 7+ 自动安装），
 # 已在 npm registry 公开（0.1.0-rc.6 可用），因此全新 checkout 可直接安装并测试。
 name: ci
@@ -19,12 +19,16 @@ jobs:
           cache: npm
       # 严格按 package-lock.json 复现依赖树（与 npm install 不同，lockfile 与 package.json 不一致时直接失败）
       - run: npm ci --no-audit --no-fund
-      - run: npm test
-      # 覆盖率护栏——line ≥ 75%（基线 81.48%，宽松下限防显著回归）。
+      # 全套测试 + 覆盖率护栏一步完成：npm run coverage 跑的就是 npm test 的同一批文件
+      #（node --test --experimental-test-coverage），任何用例失败照常红；另加 line ≥ 75%
+      # 下限（基线 81.48%，宽松下限防显著回归）。不再先 npm test 再整套重跑一遍。
       # --test-coverage-lines 阈值 flag 需 node >= 22.7（CI 用 latest 22.x）。
       - run: npm run coverage
       # eslint flat config（无插件），与 test 同机跑，违规即红
       - run: npm run lint
+      # 浏览器 bundle 新鲜度：lib/client.js 必须与 src/client/ 片段（及内联的 lib 纯模块）
+      # 逐字节一致——显式一步，不靠末尾 npm pack --dry-run 的 prepack 顺带触发
+      - run: node scripts/build-client.mjs --check
       # 跨平台路径纪律护栏（check-linux-compat）：mock 树查找必须分隔符归一、node:path
       # 结果不得与写死反斜杠字面量比较——防「本地绿、Linux CI 红」的回归（2026-08-14
       # 曾长期红：测试反斜杠合成路径 + posix join() 混合分隔符，mock 裸查找落空）
