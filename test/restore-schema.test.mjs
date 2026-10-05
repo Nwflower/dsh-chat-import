@@ -148,3 +148,15 @@ test('带原生压缩检查点的会话：compacted / compactions 在 schema 内
   assert.equal(value.compactions, 1)
   assertValid(restore, value)
 })
+
+test('畸形 bundle 的解析错误不外泄文档片段（V8 报错内嵌原文，统一走 sanitizeParseError）', async () => {
+  const { restore } = makeHost()
+  const path = bundlePath()
+  // secret 放在文档开头：未净化的 V8 报错（Unexpected token 'a', "api_key=sk"…）会把片段带进错误消息
+  writeFileSync(path, 'api_key=sk-secret-1234567890abcdef 不是合法 JSON')
+  await assert.rejects(restore.execute({ path }), (err) => {
+    assert.match(String(err.message), /bundle 解析失败/)
+    assert.ok(!String(err.message).includes('api_key'), '错误消息不得回显 bundle 内容片段: ' + err.message)
+    return true
+  })
+})
