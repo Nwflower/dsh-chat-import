@@ -6,10 +6,11 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync, readdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerSessionHint } from '../lib/prompt-hint.mjs'
+import { makeCtx as makeHostCtx } from './_support/fake-host.mjs'
 
 // 最小 codex rollout（首记录 session_meta 带 payload 为格式签名；discovery 识别 + 找到即算可导入）
 function codexRollout() {
@@ -19,54 +20,12 @@ function codexRollout() {
   ].join('\n') + '\n'
 }
 
+// 真实 node:fs 包装的 ctx（discovery host 读真实临时目录）；listeners 收集 ctx.on 注册的处理器。
 function makeCtx() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-hint-'))
   const registryDir = join(home, 'dsh-chat-import')
-  const listeners = new Map() // event → [handlers]
-  const sessions = new Map()
-
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      try {
-        const st = statSync(target.targetKey)
-        return { type: st.isDirectory() ? 'directory' : 'file', size: st.size, mtimeMs: st.mtimeMs }
-      } catch { return undefined }
-    },
-    async readText(target) { return readFileSync(target.targetKey, 'utf8') },
-    async listDir(target) {
-      const names = readdirSync(target.targetKey, { withFileTypes: true })
-      return names.map((d) => ({
-        name: d.name,
-        type: d.isDirectory() ? 'directory' : 'file',
-        target: { targetKey: join(target.targetKey, d.name), displayPath: join(target.targetKey, d.name) },
-      }))
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const persistence = {
-    async create(meta) { sessions.set(meta.id, { header: meta, events: [] }) },
-    async append(id, events) { const s = sessions.get(id); if (s) s.events.push(...events) },
-    async list() { return [...sessions.values()].map((s) => s.header) },
-    async locate() { return undefined },
-    async readFrom() { return undefined },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    tools: { register() { return () => {} } },
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      return undefined
-    },
-    on(event, handler) {
-      const list = listeners.get(event) || []
-      list.push(handler)
-      listeners.set(event, list)
-      return () => {}
-    },
-  }
-  return { ctx, registryDir, sessions, listeners }
+  const host = makeHostCtx(null, { real: true })
+  return { ctx: host.ctx, registryDir, sessions: host.persistence.sessions, listeners: host.listeners }
 }
 
 // 触发一次 agent/session-start（模拟 Scoped<Agent> payload）；handler 是 async（内部

@@ -14,6 +14,7 @@ import {
   listImportHistory, deleteImportedSession, purgeAllImports, collectRegistryTargets,
 } from '../lib/purge.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx as makeHostCtx, makePersistence as makeHostPersistence } from './_support/fake-host.mjs'
 
 const T0 = 1710000000000
 
@@ -25,52 +26,18 @@ function markerEvent(sourcePath) {
   return { type: 'session/imported', seq: 0, ignorable: true, data: { tool: 'import_chat', sourceId: 'x', sourcePath, importedAt: T0 } }
 }
 
+// 会话库：读面 + locate（会话工件目录 $DSH_HOME/sessions/_proj/<id>）。刻意没有 remove /
+// inspect 面：撤回只能真去删工件目录，不能靠宿主内存索引兜底。
 function makePersistence() {
-  const sessions = new Map()
-  const artifactDirs = new Map()
-  const api = {
-    sessions,
-    artifactDirs,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate')
-      sessions.set(meta.id, { meta, events: [] })
-      const dir = join(process.env.DSH_HOME, 'sessions', '_proj', meta.id)
-      artifactDirs.set(meta.id, dir)
-      mkdtempSync(join(tmpdir(), 'art-')) // placeholder; real path tracked in artifactDirs
-      writeFileSync(join(process.env.DSH_HOME, 'sessions', '_proj', meta.id + '.marker'), '1')
-      mkdtempSync(join(process.env.DSH_HOME, 'sessions', '_proj', meta.id))
-    },
-    async append(id, events) { sessions.get(id).events.push(...events) },
-    async readFrom(id) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('missing')
-      return { meta: s.meta, events: s.events }
-    },
-    locate(meta) {
-      const dir = join(process.env.DSH_HOME, 'sessions', '_proj', meta.id)
-      return { kind: 'jsonl', path: dir }
-    },
-  }
-  return api
+  return makeHostPersistence({
+    omit: ['remove', 'inspect'],
+    locate: (meta) => ({ kind: 'jsonl', path: join(process.env.DSH_HOME, 'sessions', '_proj', meta.id) }),
+  })
 }
 
+// 宿主服务按需注入：sessions / agents 服务、workspaceRegistry（缺省即宿主不提供该服务）。
 function makeCtx(persistence, { sessions, agents, workspaceRegistry } = {}) {
-  const registered = []
-  return {
-    sessionPersistence: persistence,
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'sessions') return sessions
-      if (service === 'agents') return agents
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      return undefined
-    },
-    tools: { register(def) { registered.push(def) } },
-    inject() {},
-    effect() {},
-    _registered: registered,
-  }
+  return makeHostCtx({}, { persistence, workspaceRegistry, services: { sessions, agents } }).ctx
 }
 
 test('listImportHistory：展平 single/multi registry 条目', async () => {
@@ -208,17 +175,8 @@ test('purgeAllImports：需 confirm；批量删除 registry 全部会话', async
 })
 
 test('面板路由：/api-import/history + /api-import/purge 注册并可调用', async () => {
-  const webRoutes = []
-  const ws = { register(r) { webRoutes.push(r) } }
-  const persistence = makePersistence()
-  const ctx = {
-    sessionPersistence: persistence,
-    get(s) {
-      if (s === 'sessionPersistence') return persistence
-      return undefined
-    },
-  }
-  registerPanelRoutes(ctx, ws, resolveRegistryDir())
+  const { ctx, webRoutes } = makeHostCtx({}, { persistence: makePersistence() })
+  registerPanelRoutes(ctx, ctx.webServer, resolveRegistryDir())
   const history = webRoutes.find((r) => r.path === '/api-import/history')
   const purge = webRoutes.find((r) => r.path === '/api-import/purge')
   assert.ok(history)

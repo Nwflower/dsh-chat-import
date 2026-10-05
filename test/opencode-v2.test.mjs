@@ -8,7 +8,7 @@
 // 正文不丢），以及缺表时大声报错。夹具全部合成。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, statSync } from 'node:fs'
+import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -22,6 +22,7 @@ import {
 } from '../lib/sources/opencode.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
@@ -217,90 +218,11 @@ test('readOpencodeDbSummaries：V2 走 session_v2 + 最近转录时间，V1 诱�
 
 // ── 导入集成 ─────────────────────────────────────────────────────────────
 
-function makePersistence() {
-  const sessions = new Map()
-  return {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      for (let i = 0; i < events.length; i++) {
-        const ev = events[i]
-        if (typeof ev.seq !== 'number' || ev.seq !== s.events.length + i) {
-          throw new Error('append seq 不连续: 期望 ' + (s.events.length + i) + ' 实际 ' + String(ev && ev.seq))
-        }
-      }
-      s.events.push(...events)
-    },
-    async inspect(id) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events }
-    },
-    async readFrom(id, fromSeq = 0) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
-  }
-}
-
-function makeCtx() {
-  const persistence = makePersistence()
-  const attached = []
-  const workspaces = new Map()
-  const registered = []
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      const path = target.targetKey
-      let s
-      try { s = statSync(path) } catch { /* 路径不存在或不可访问 → 视为未找到 */ return undefined }
-      if (s.isDirectory()) return { type: 'directory' }
-      return { type: 'file', size: s.size, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }; workspaces.set(p, ws); return ws },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} },
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-      return undefined
-    },
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
-      return undefined
-    },
-    tools: { register(def) { registered.push(def); return () => {} } },
-    on() { return () => {} },
-  }
-  ctx.tools.registered = (toolName) => registered.find((d) => d.name === toolName)
-  return { ctx, persistence, attached, registered }
-}
-
-function chatDef(ctx, format = 'opencode') {
-  const tool = ctx.tools.registered('import_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
-
 test('import_chat(format: opencode)：V2 库按会话批量导入，V1 诱饵会话不进结果', async () => {
   const dbPath = makeMixedDb()
   const { ctx, persistence, attached } = makeCtx()
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'opencode')
   const value = await def.execute({ path: dbPath })
 
   assert.equal(value.mode, 'batch')
@@ -326,7 +248,7 @@ test('import_chat(format: opencode)：V2 库重复导入幂等', async () => {
   const dbPath = makeMixedDb()
   const { ctx, persistence } = makeCtx()
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'opencode')
   const first = await def.execute({ path: dbPath })
   const second = await def.execute({ path: dbPath })
   assert.equal(first.imported, 3)

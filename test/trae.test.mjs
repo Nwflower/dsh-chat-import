@@ -3,7 +3,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, mkdirSync, readdirSync, rmSync, statSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { convertTraeJson } from '../lib/convert/trae.mjs'
@@ -11,6 +11,7 @@ import { listTraeDatabases, readTraeDb, readTraeDbSummaries } from '../lib/sourc
 import { discoverSessions } from '../lib/discovery.mjs'
 import { apply } from '../lib/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx as makeHostCtx, chatDef } from './_support/fake-host.mjs'
 
 function fixtureSessions() {
   return {
@@ -139,61 +140,11 @@ test('Trae database path helper accepts a direct state.vscdb file', async () => 
 // Trae 的 User 根下每个打开过的工作区都有一个 state.vscdb，绝大多数从没开过
 // Trae 对话：目录模式必须静默跳过这些库，只对「有条目却认不出」的库大声失败。
 
+// 真实临时库上的 ctx（fs 全部回退 node:fs）；apply 后取绑定 format: 'trae' 的 import_chat。
 function makeCtx() {
-  const sessions = new Map()
-  const persistence = {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) { sessions.get(id).events.push(...events) },
-    async inspect(id) { return sessions.get(id) },
-    async readFrom(id, fromSeq = 0) { const s = sessions.get(id); return { meta: s.meta, events: s.events.slice(fromSeq) } },
-  }
-  const registered = []
-  const workspaces = new Map()
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      let s
-      try { s = statSync(target.targetKey) } catch { return undefined }
-      if (s.isDirectory()) return { type: 'directory' }
-      return { type: 'file', size: s.size, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
-    },
-    async listDir(target) {
-      return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => {
-        const path = join(target.targetKey, e.name)
-        return { name: e.name, type: e.isDirectory() ? 'directory' : 'file', target: { targetKey: path, displayPath: path } }
-      })
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async () => {} }; workspaces.set(p, ws); return ws },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} },
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-      return undefined
-    },
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
-      return undefined
-    },
-    tools: { register(def) { registered.push(def); return () => {} } },
-    on() { return () => {} },
-  }
+  const { ctx, persistence } = makeHostCtx(null, { real: true })
   apply(ctx)
-  const tool = registered.find((d) => d.name === 'import_chat')
-  return { persistence, execute: (args) => tool.execute({ format: 'trae', ...args }) }
+  return { persistence, execute: chatDef(ctx, 'trae').execute }
 }
 
 function makeStateDb(dir, rows) {

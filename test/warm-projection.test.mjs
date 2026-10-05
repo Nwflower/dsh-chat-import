@@ -7,20 +7,16 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { warmProjection } from '../lib/import-core.mjs'
+import { makeCtx as makeHostCtx } from './_support/fake-host.mjs'
 
 const meta = { id: 'import-ses-a', cwd: '/tmp/demo' }
 const events = [{ seq: 0, type: 'user/message' }]
 
+// 宿主给出 sessionProjectionCache（coldSnapshot 由用例注入）与一份已落盘的会话。
 function makeCtx(coldSnapshot) {
-  return {
-    get(service) {
-      if (service === 'sessionProjectionCache') return { coldSnapshot }
-      if (service === 'sessionPersistence') {
-        return { async inspect(_id) { return { meta, events } } }
-      }
-      return undefined
-    },
-  }
+  const { ctx, persistence } = makeHostCtx({}, { services: { sessionProjectionCache: { coldSnapshot } } })
+  persistence.sessions.set(meta.id, { meta, events })
+  return ctx
 }
 
 test('warmProjection：按宿主契约传 (meta, 0, events)，成功返回实测事件数', async () => {

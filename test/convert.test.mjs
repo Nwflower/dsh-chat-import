@@ -10,6 +10,7 @@ import { convertClaudeJsonl, convertCodexJsonl, convertChatgptJson, convertCurso
 import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 import { synthesizeSession } from '../lib/convert/core.mjs'
 import { contentText } from '../lib/convert/util.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const load = (name) => readFileSync(join(fixtures, name), 'utf8')
@@ -68,21 +69,6 @@ function assertMessageOrderLegal(events) {
   }
   assert.equal(open.length, 0, `末尾残留未配对的 tool_calls（${open.join(',')}）`)
   return msgs
-}
-
-// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
-// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
-function assertEnvelopeHygiene(events) {
-  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
-  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  for (const e of events) {
-    for (const key of Object.keys(e)) {
-      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
-    }
-    assert.equal(typeof e.seq, 'number')
-    assert.equal(typeof e.time, 'number')
-    assert.notEqual(e.data, undefined)
-  }
 }
 
 test('convertClaudeJsonl: 简单问答合成平衡回合', () => {

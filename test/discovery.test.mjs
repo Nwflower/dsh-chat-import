@@ -17,6 +17,7 @@ import { resolveCursorSlugPath, clearWorkspacePathCache } from '../lib/cwd-map.m
 import { gooseSessionsDir } from '../lib/convert/goose.mjs'
 import { zedThreadsDir } from '../lib/convert/zed.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { memoryHost } from './_support/discovery-host.mjs'
 
 beforeEach(() => {
   clearScanCache()
@@ -26,56 +27,6 @@ beforeEach(() => {
 // 合成 home（不存在，默认根扫描确定性为空）
 const HOME = join('C:', 'Users', 'tester')
 const j = (o) => JSON.stringify(o)
-
-// mock host：path → { type:'file', text, mtimeMs? } | { type:'dir' }；可观测读写计数。
-// readSessions 默认 null（DB 格式测试注入 mock 会话摘要，验证「复用读取器」契约）。
-function mockHost(files) {
-  const counters = { reads: 0, stats: 0, dirs: 0, db: 0 }
-  const sep = (p) => (String(p).includes('\\') ? '\\' : '/')
-  const host = {
-    counters,
-    dbSessions: null,
-    async stat(path) {
-      counters.stats++
-      const v = files.get(path)
-      if (!v) return null
-      return v.type === 'dir' ? { type: 'directory' } : { type: 'file', size: v.text.length, mtimeMs: v.mtimeMs }
-    },
-    async readText(path) {
-      counters.reads++
-      const v = files.get(path)
-      return v && v.type === 'file' ? v.text : null
-    },
-    async readHead(path, maxBytes) {
-      counters.reads++
-      const v = files.get(path)
-      return v && v.type === 'file' ? v.text.slice(0, maxBytes) : null
-    },
-    async readTail(path, maxBytes) {
-      counters.reads++
-      const v = files.get(path)
-      return v && v.type === 'file' ? v.text.slice(-maxBytes) : null
-    },
-    async readDir(path) {
-      counters.dirs++
-      const s = sep(path)
-      const prefix = String(path).endsWith(s) ? String(path) : String(path) + s
-      const out = []
-      for (const [p, v] of files) {
-        if (!p.startsWith(prefix) || p === prefix) continue
-        const rest = p.slice(prefix.length)
-        if (rest.includes('\\') || rest.includes('/')) continue
-        out.push({ name: rest, type: v.type === 'dir' ? 'directory' : 'file', path: p })
-      }
-      return out.sort((a, b) => a.name.localeCompare(b.name))
-    },
-    async readSessions(kind, dbPath) {
-      counters.db++
-      return typeof host.dbSessions === 'function' ? host.dbSessions(kind, dbPath) : null
-    },
-  }
-  return host
-}
 
 // ── 六种格式发现（DoD 核心）─────────────────────────────────────────────
 
@@ -97,7 +48,7 @@ test('claude：注入过滤标题、记录 cwd 项目名、主 transcript 判定
     // 辅助 transcript：fileStem（agent-*）≠ sessionId → 不发现
     [join(slug, 'agent-xyz.jsonl'), { type: 'file', text: j({ sessionId: 'sess-001', type: 'user', message: { role: 'user', content: '辅助' } }) }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const imports = { [s1]: { kind: 'single', dshId: 'import-sess-001', turns: 1, events: 3 } }
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'claude', host, imports })
@@ -133,7 +84,7 @@ test('claude：上下文 token 数取最后一条 assistant 的 usage.input_toke
       j({ sessionId: 'sess-big', type: 'assistant', message: { role: 'assistant', content: '尾', usage: { input_tokens: 888888, output_tokens: 30 } } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const { sessions } = await discoverSessions({ path: root, format: 'claude', host, imports: {} })
   assert.equal(sessions.find((s) => s.sessionId === 'sess-small').contextTokens, 2345)
   assert.equal(sessions.find((s) => s.sessionId === 'sess-big').contextTokens, 888888) // >256KB 头不含尾部 assistant
@@ -168,7 +119,7 @@ test('claude：标题载体 custom-title > ai-title > 首问（尾部记录靠 r
       j({ sessionId: 'sess-pasted', type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '好' }] } }),
     ].join('\n') }],
   ])
-  const { sessions } = await discoverSessions({ path: root, format: 'claude', host: mockHost(files), imports: {} })
+  const { sessions } = await discoverSessions({ path: root, format: 'claude', host: memoryHost(files), imports: {} })
   assert.equal(sessions.find((s) => s.sessionId === 'sess-custom').title, '用户重命名')
   assert.equal(sessions.find((s) => s.sessionId === 'sess-ai').title, '尾部 AI 标题')
   assert.equal(sessions.find((s) => s.sessionId === 'sess-pasted').title, '首页改造需求')
@@ -190,7 +141,7 @@ test('onEntry：逐条产出顺序与返回一致、状态标注与 query 过滤
       j({ sessionId: 'sess-002', type: 'user', message: { role: 'user', content: '真实提问' } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const imports = { [s1]: { kind: 'single', dshId: 'import-sess-001', turns: 1, events: 3 } }
 
   const emitted = []
@@ -245,7 +196,7 @@ test('codex：session_meta 签名、注入过滤标题、项目名（cwd basenam
       j({ type: 'response_item', payload: { type: 'message', role: 'user', content: '重构模块' } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'codex', host, imports: {} })
   assert.equal(total, 2)
@@ -280,7 +231,7 @@ test('codex：子代理 rollout（thread_source=subagent / source.subagent）默
       j({ type: 'response_item', payload: { type: 'message', role: 'user', content: '子代理工作2' } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'codex', host, imports: {} })
   assert.equal(total, 1)
@@ -304,7 +255,7 @@ test('reasonix：desktop-* 发现、projects/<slug> 项目名、伴生排除、s
     [join(root, 'desktop-202603101200-1.guardian.jsonl'), { type: 'file', text: '{}' }],
     [join(root, 'not-desktop.jsonl'), { type: 'file', text: j({ role: 'user', content: '不是 reasonix 命名' }) }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'reasonix', host, imports: {} })
   assert.equal(total, 1)
@@ -345,7 +296,7 @@ test('grokbuild：summary.json 标题/时间、百分号编码目录名解码为
       j({ type: 'assistant', content: '好的' }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host, imports: {} })
   assert.equal(total, 2)
@@ -381,7 +332,7 @@ test('grokbuild：标题兜底跳过 synthetic_reason / 注入行，剥 <user_qu
       j({ type: 'assistant', content: '好' }),
     ].join('\n') }],
   ])
-  const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host: mockHost(files), imports: {} })
+  const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host: memoryHost(files), imports: {} })
   assert.equal(total, 1)
   assert.equal(sessions[0].title, '真实提问')
 })
@@ -398,7 +349,7 @@ test('grokbuild：v0 行（role 无 type）标题兜底 + 剥 <user_query> 信�
       j({ role: 'assistant', content: 'v0 回答' }),
     ].join('\n') }],
   ])
-  const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host: mockHost(files), imports: {} })
+  const { sessions, total } = await discoverSessions({ path: root, format: 'grokbuild', host: memoryHost(files), imports: {} })
   assert.equal(total, 1)
   assert.equal(sessions[0].title, 'v0 提问')
 })
@@ -439,7 +390,7 @@ test('openclaw：sessions.json displayName 标题、项目名（记录 cwd > age
       j({ type: 'message', message: { role: 'user', content: '另一个问题' }, timestamp: '2026-03-06T11:01:00Z' }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'openclaw', host, imports: {} })
   assert.equal(total, 2)
@@ -468,7 +419,7 @@ test('pi：会话头签名（version 字段）、session_info 名称标题、cwd
       j({ type: 'message', message: { role: 'user', content: '不是 Pi' }, timestamp: '2026-06-01T10:01:00.000Z' }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'pi', host, imports: {} })
   assert.equal(total, 1)
@@ -485,7 +436,7 @@ test('hermes：state.db 恒批量（复用读取器）+ db 不可用回退 JSONL
   const root = join(HOME, '.hermes')
   const dbPath = join(root, 'state.db')
   const files = new Map([[root, { type: 'dir' }], [dbPath, { type: 'file', text: '' }]])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.dbSessions = (kind) => (kind === 'hermes'
     ? [{ id: 'hm-a', title: 'Fix hermes build', directory: 'E:/demo/hermes', createdAt: 1786000000000, lastActiveAt: 1786000000100}]
     : null)
@@ -507,7 +458,7 @@ test('hermes：state.db 恒批量（复用读取器）+ db 不可用回退 JSONL
       j({ role: 'assistant', content: '一种系统编程语言。', ts: 1700000001 }),
     ].join('\n') }],
   ])
-  const host2 = mockHost(files2)
+  const host2 = memoryHost(files2)
   host2.dbSessions = () => null
   const r2 = await discoverSessions({ path: jsonlRoot, format: 'hermes', host: host2, imports: {} })
   assert.equal(r2.total, 1)
@@ -535,7 +486,7 @@ test('kimi：wire.jsonl 会话目录发现、custom_title 标题、kimi.json md5
     // 无 wire.jsonl 的目录不是会话
     [join(root, hashDir, 'not-a-session'), { type: 'dir' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(total, 1)
@@ -565,7 +516,7 @@ test('kimi：上下文 token 数取 usage 记录的 inputOther + inputCacheRead'
       j({ type: 'usage.record', usage: { inputOther: 3347, output: 138, inputCacheRead: 18432, inputCacheCreation: 0 } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const { sessions } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(sessions[0].contextTokens, 3347 + 18432)
 })
@@ -591,7 +542,7 @@ test('kimi：新 Kimi Code ~/.kimi-code agents/main/wire.jsonl 发现、state.js
     // agents/main 自身不是会话目录（没有 state.json 伴生）
     [join(workspace, 'not-a-session'), { type: 'dir' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(total, 1)
@@ -631,7 +582,7 @@ test('kimi：state.json 仅含 workDir 时发现层同样取到 cwd（#61）', a
     ].join('\n') }],
     [join(sessDir, 'state.json'), { type: 'file', text: j({ id: 'session-eb6808b9', workDir: 'D:/demo/ws/genius-invokation' }) }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(total, 1)
@@ -661,7 +612,7 @@ test('kimi：state.json 缺失时按 workspaces.json 的 workspace-id 回退 cwd
       j({ type: 'turn.prompt', input: [{ type: 'text', text: '帮我看看构建失败' }], time: 1786000000501 }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'kimi', host, imports: {} })
   assert.equal(total, 1)
@@ -699,7 +650,7 @@ test('antigravity：~/.gemini/antigravity 每会话一目录发现、.db/.pb 同
     // 有 .db 但无 transcript 的会话：无正文可导 → 不产出条目
     [join(convDir, 'conv-2.db'), { type: 'file', text: '' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'antigravity', host, imports: {} })
   assert.equal(total, 2)
@@ -741,7 +692,7 @@ test('antigravity：默认根同时覆盖 ~/.gemini/antigravity 与旧 antigravi
     const [, rows] = mkTree(root, id)
     for (const [p, v] of rows) fileMap.set(p, v)
   }
-  const host = mockHost(fileMap)
+  const host = memoryHost(fileMap)
 
   const { sessions, total } = await discoverSessions({ format: 'antigravity', home: HOME, host, imports: {} })
   assert.equal(total, 2)
@@ -761,7 +712,7 @@ test('antigravity：无 annotation 时回退首问标题（剥 <USER_REQUEST> �
     [logsDir, { type: 'dir' }],
     [join(logsDir, 'transcript.jsonl'), { type: 'file', text: j({ step_index: 0, source: 'USER_EXPLICIT', type: 'USER_INPUT', status: 'DONE', created_at: '2026-01-02T03:04:05Z', content: '<USER_REQUEST>回退标题</USER_REQUEST>' }) + '\n' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'antigravity', host, imports: {} })
   assert.equal(total, 1)
@@ -787,7 +738,7 @@ test('qoder：~/.qoder/projects 发现、ai-title 标题、cwd 项目名、subag
     [subDir, { type: 'dir' }],
     [join(subDir, 'agent-a.jsonl'), { type: 'file', text: j({ sessionId: 'sess-q1', type: 'user', message: { role: 'user', content: '子代理' } }) }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'qoder', host, imports: {} })
   assert.equal(total, 1)
@@ -815,7 +766,7 @@ test('workbuddy：~/.workbuddy/projects 发现、user_query 标题、cwd 项目�
       ].join('\n'),
     }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'workbuddy', host, imports: {} })
   assert.equal(total, 1)
@@ -861,7 +812,7 @@ test('qwen：~/.qwenworkcn/projects 发现、humanInput 首问、workspace-direc
     [f1, { type: 'file', mtimeMs: 1786000001000, text: head }],
     [f2, { type: 'file', mtimeMs: 1786000002000, text: head }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'qwen', host, imports: {} })
   assert.equal(total, 1) // 双 slug 副本按 sessionId 去重
@@ -900,7 +851,7 @@ test('continue：sessions.json 索引驱动发现（标题/创建时间/项目�
     // 同目录混入的非会话 JSON（`{}` 空文件、索引本身）都不产出条目
     [join(root, 'empty.json'), { type: 'file', text: '{}' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'continue', host, imports: {} })
   assert.equal(total, 1)
@@ -926,7 +877,7 @@ test('continue：sessions.json 索引驱动发现（标题/创建时间/项目�
       ]),
     }],
   ])
-  const fallback = await discoverSessions({ path: bare, format: 'continue', host: mockHost(files2), imports: {} })
+  const fallback = await discoverSessions({ path: bare, format: 'continue', host: memoryHost(files2), imports: {} })
   assert.equal(fallback.total, 1)
   assert.equal(fallback.sessions[0].title, '裸目录会话')
   assert.equal(fallback.sessions[0].cwd, '/home/u/repo')
@@ -943,7 +894,7 @@ test('continue：取消标题（默认 New Session）不冒充标题，交给首
       text: j({ sessionId: sid, title: 'New Session', workspaceDirectory: '/home/u/repo', history: [] }),
     }],
   ])
-  const { sessions, total } = await discoverSessions({ path: root, format: 'continue', host: mockHost(files), imports: {} })
+  const { sessions, total } = await discoverSessions({ path: root, format: 'continue', host: memoryHost(files), imports: {} })
   assert.equal(total, 1)
   assert.equal(sessions[0].title, null)
 })
@@ -962,7 +913,7 @@ test('cline：DB 索引优先（cwd/时间/标题），转写缺失的会话不�
       text: j({ version: 1, agent: 'lead', sessionId: sid, updated_at: '2026-04-22T17:42:10.123Z', messages: [] }),
     }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.dbSessions = (kind) => {
     assert.equal(kind, 'cline')
     return [
@@ -1010,7 +961,7 @@ test('cline：DB 不可用时回退扫目录（manifest 取标题/项目；子�
     }],
   ])
 
-  const { sessions, total } = await discoverSessions({ path: sessionsDir, format: 'cline', host: mockHost(files), imports: {} })
+  const { sessions, total } = await discoverSessions({ path: sessionsDir, format: 'cline', host: memoryHost(files), imports: {} })
   assert.equal(total, 1)
   const s = sessions[0]
   assert.equal(s.sessionId, sid)
@@ -1040,7 +991,7 @@ test('cline legacy：globalStorage 的 taskHistory 索引发现 api history，UI
     }],
     [ui, { type: 'file', text: j([{ type: 'ask', ask: 'followup', text: '标题来自 UI' }]) }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const result = await discoverSessions({ path: root, format: 'cline', host, imports: {} })
   assert.equal(result.total, 1)
   assert.deepEqual(result.sessions[0], {
@@ -1065,7 +1016,7 @@ test('goose：sessions.db 经 host.readSessions 发现（标题/项目/时间）
     // 旧版 jsonl 还在磁盘上（上游迁移后不删）→ 绝不能扫出来重复导入
     [join(sessionsDir, '20260301_1.jsonl'), { type: 'file', text: '{"id":"20260301_1"}\n' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.dbSessions = (kind) => {
     assert.equal(kind, 'goose')
     return [
@@ -1107,7 +1058,7 @@ test('zed：threads.db 经 host.readSessions 发现（标题/项目/时间）；
     [threadsDir, { type: 'dir' }],
     [dbPath, { type: 'file', mtimeMs: 1786000009000, text: 'SQLite format 3' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.dbSessions = (kind) => {
     assert.equal(kind, 'zed')
     return [{
@@ -1151,7 +1102,7 @@ test('crush：经 projects.json 与宿主工作区探测项目内 crush.db（DB 
     [dbA, { type: 'file', mtimeMs: 1786000010000, text: 'SQLite format 3' }],
     [dbB, { type: 'file', mtimeMs: 1786000011000, text: 'SQLite format 3' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.listWorkspaces = async () => [projB] // 宿主已知工作区 → 项目内探测
   host.dbSessions = (kind, dbPath) => {
     assert.equal(kind, 'crush')
@@ -1208,7 +1159,7 @@ test('30s TTL 缓存：命中不重读、过期重扫（注入时钟）', async 
       j({ sessionId: 'sess-001', type: 'user', cwd: 'D:\\p', message: { role: 'user', content: '问题' } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const first = await discoverSessions({ path: root, format: 'claude', host, imports: {}, cache })
   assert.equal(first.total, 1)
@@ -1241,7 +1192,7 @@ test('query：标题 / 项目 / 路径子串过滤（忽略大小写）', async 
       j({ sessionId: sid, type: 'user', cwd, message: { role: 'user', content: title } }),
     ].join('\n') })
   }
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const byTitle = await discoverSessions({ path: root, format: 'claude', host, imports: {}, query: '登录' })
   assert.equal(byTitle.total, 1)
@@ -1260,7 +1211,7 @@ test('query：标题 / 项目 / 路径子串过滤（忽略大小写）', async 
 test('importStatus：multi 源子表命中 imported、部分导入 partial', async () => {
   const dbPath = join(HOME, '.local', 'share', 'opencode', 'opencode.db')
   const files = new Map([[dbPath, { type: 'file', text: '' }]])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.dbSessions = (kind) => (kind === 'opencode'
     ? ['ses-a', 'ses-b', 'ses-c'].map((id) => ({ id, title: 'T ' + id, directory: 'E:/demo/op', createdAt: 1, lastActiveAt: 2}))
     : null)
@@ -1281,7 +1232,7 @@ test('importStatus：multi 源子表命中 imported、部分导入 partial', asy
 test('书签 WAL 盲区：-wal 出现/增长/删除都失效重扫，未变则命中', async () => {
   const dbPath = join(HOME, '.zcode', 'cli', 'db', 'db.sqlite')
   const files = new Map([[dbPath, { type: 'file', text: 'SQLite format 3', mtimeMs: 1786000000000 }]])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   let probe = 0
   host.dbSessions = (kind) => {
     if (kind !== 'zcode') return null
@@ -1331,7 +1282,7 @@ test('discoverSessions：archivedIds 传入 → 归档目标 importStatus=archiv
     [s1, { type: 'file', mtimeMs: 1, text: [j({ sessionId: 'sess-001', type: 'user', cwd: 'D:\\p', message: { role: 'user', content: '问题A' } })].join('\n') }],
     [s2, { type: 'file', mtimeMs: 2, text: [j({ sessionId: 'sess-002', type: 'user', message: { role: 'user', content: '问题B' } })].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const imports = {
     [s1]: { kind: 'single', dshId: 'import-sess-001' },
     [s2]: { kind: 'single', dshId: 'import-sess-002' },
@@ -1424,7 +1375,7 @@ test('chatgpt：无自动根；path 显式 conversations.json 才解析；默认
     return { id, title, create_time: 1710000000, mapping }
   }
   const files = new Map([[file, { type: 'file', text: j([conv('conv-001', 'Alpha', ['问题A']), conv('conv-002', 'Beta', ['问题B'])]) }]])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const explicit = await discoverSessions({ path: file, format: 'chatgpt', host, imports: {} })
   assert.equal(explicit.total, 2)
@@ -1450,7 +1401,7 @@ test('目录探测：claude 根不被其他 JSONL 格式误扫（自拒）', asy
       j({ sessionId: 'sess-001', type: 'user', cwd: 'D:\\p', message: { role: 'user', content: '问题' } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   // 不指定 format → 全部格式探测同一目录
   const { sessions, total } = await discoverSessions({ path: root, host, imports: {} })
@@ -1532,7 +1483,7 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
     ['E:\\dev-suite\\scheduled-tasks', { type: 'dir' }],
     [cwdHyphen, { type: 'dir' }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.resolveCursorSlug = async (s) => {
     const ctx = {
       get(service) {
@@ -1606,14 +1557,14 @@ test('git 状态：cwd 为 git 仓库（纯 JS 解析 .git/HEAD）→ 分支正�
       [repo, { type: 'dir' }],
       [transPath, { type: 'file', text: j({ sessionId: 'sess', type: 'user', cwd: repo, message: { role: 'user', content: 'hi' } }), mtimeMs: 1 }],
     ])
-    const clean = await discoverSessions({ path: repo, format: 'claude', host: mockHost(files), imports: {}, cache: createScanCache() })
+    const clean = await discoverSessions({ path: repo, format: 'claude', host: memoryHost(files), imports: {}, cache: createScanCache() })
     assert.equal(clean.sessions.length, 1)
     assert.equal(clean.sessions[0].gitBranch, expectedBranch)
     assert.equal(clean.sessions[0].gitDirty, null) // gitDirty 降级为 null（无法纯 JS 可靠判断）
 
     // detached HEAD（直接写提交 hash）→ 短 hash 近似分支名
     writeFileSync(join(repo, '.git', 'HEAD'), 'abc1234def5678\n')
-    const detached = await discoverSessions({ path: repo, format: 'claude', host: mockHost(files), imports: {}, cache: createScanCache() })
+    const detached = await discoverSessions({ path: repo, format: 'claude', host: memoryHost(files), imports: {}, cache: createScanCache() })
     assert.equal(detached.sessions[0].gitBranch, 'abc1234')
     assert.equal(detached.sessions[0].gitDirty, null)
 
@@ -1626,7 +1577,7 @@ test('git 状态：cwd 为 git 仓库（纯 JS 解析 .git/HEAD）→ 分支正�
       [plainCwd, { type: 'dir' }],
       [join(plainCwd, 'sess2.jsonl'), { type: 'file', text: j({ sessionId: 'sess2', type: 'user', cwd: plainCwd, message: { role: 'user', content: 'hi' } }), mtimeMs: 1 }],
     ])
-    const plain = await discoverSessions({ path: plainCwd, format: 'claude', host: mockHost(files2), imports: {}, cache: createScanCache() })
+    const plain = await discoverSessions({ path: plainCwd, format: 'claude', host: memoryHost(files2), imports: {}, cache: createScanCache() })
     const enclosing = enclosingGitRepo(plainCwd)
     if (enclosing) {
       t.skip('环境：' + plainCwd + ' 的上级存在 git 仓库（' + enclosing + '），无法构造无仓库 fixture')
@@ -1662,7 +1613,7 @@ test('issue #16：walkFiles 跳过 node_modules / .git / dist 等目录', async 
     [join(root, '.git'), { type: 'dir' }],
     [gitBait, { type: 'file', mtimeMs: 1, text: j({ sessionId: 'sess-git', type: 'user', message: { role: 'user', content: 'git 诱饵' } }) }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const { sessions, total } = await discoverSessions({ path: root, format: 'claude', host, imports: {}, cache: createScanCache() })
   assert.equal(total, 1, '只发现真实会话，不进入 node_modules / .git')
   assert.equal(sessions[0].sessionId, 'sess-real')
@@ -1685,7 +1636,7 @@ test('issue #16：walkFiles 限深切断病态深递归（>12 层不进入）', 
   const real = join(root, 'sess-real.jsonl')
   files.set(real, { type: 'file', mtimeMs: 1, text: j({ sessionId: 'sess-real', type: 'user', message: { role: 'user', content: '真实' } }) })
 
-  const { total } = await discoverSessions({ path: root, format: 'claude', host: mockHost(files), imports: {}, cache: createScanCache() })
+  const { total } = await discoverSessions({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cache: createScanCache() })
   assert.equal(total, 1, '限深切断病态深递归，只发现首层真实会话')
 })
 
@@ -1698,7 +1649,7 @@ test('issue #16：并发同 key 扫描共享进行中 Promise（不叠加全量�
   ])
   // 慢速 readDir：第一次扫描延迟 50ms，验证并发调用不触发第二次 readDir
   let dirCalls = 0
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const origReadDir = host.readDir.bind(host)
   host.readDir = async (path) => {
     dirCalls++
@@ -1738,7 +1689,7 @@ test('codex：扁平 archived_sessions/ 下的 rollout 可被发现', async () =
       j({ type: 'response_item', payload: { type: 'message', role: 'user', content: '归档会话也要能导入' } }),
     ].join('\n') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
 
   const { sessions, total } = await discoverSessions({ path: root, format: 'codex', host, imports: {} })
   assert.equal(total, 1)
@@ -1759,7 +1710,7 @@ test('dsh：单文件路径自动探测（不给 format）—— 代次工件名
   ].join('\n')
 
   for (const [file, id] of [[winFile, 'session-abc'], [posixFile, 'session-def']]) {
-    const host = mockHost(new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: body(id) }]]))
+    const host = memoryHost(new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: body(id) }]]))
     const { sessions, total } = await discoverSessions({ path: file, host, imports: {} })
     assert.equal(total, 1, '单文件目标应产出 1 条（' + file + '）')
     assert.equal(sessions[0].format, 'dsh', file)
@@ -1783,7 +1734,7 @@ test('dsh / dsh4：按日志代次给格式（v3 → dsh，v4 → dsh4）', asyn
     ['D:\\demo\\dsh-home\\sessions\\--D-Build--\\session-b\\session.v4.jsonl', 'session-b', 'dsh4'],
   ]
   for (const [file, id, fmt] of cases) {
-    const host = mockHost(new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: body(id) }]]))
+    const host = memoryHost(new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: body(id) }]]))
     const { sessions, total } = await discoverSessions({ path: file, host, imports: {} })
     assert.equal(total, 1, file)
     assert.equal(sessions[0].sessionId, id)
@@ -1806,10 +1757,10 @@ test('dsh / dsh4：默认数据根（不给 path）两个代次都能发现，�
       [join(dshHome, 'sessions', '--D-Build--', 'session-a', 'session.v3.jsonl'), { type: 'file', mtimeMs: 1786000002000, text: body('session-a') }],
       [join(dshHome, 'sessions', '--D-Build--', 'session-b', 'session.v4.jsonl'), { type: 'file', mtimeMs: 1786000002000, text: body('session-b') }],
     ])
-    const all = await discoverSessions({ home: HOME, host: mockHost(files), imports: {}, cache: new Map() })
+    const all = await discoverSessions({ home: HOME, host: memoryHost(files), imports: {}, cache: new Map() })
     const byId = Object.fromEntries(all.sessions.filter((e) => e.format === 'dsh' || e.format === 'dsh4').map((e) => [e.sessionId, e.format]))
     assert.deepEqual(byId, { 'session-a': 'dsh', 'session-b': 'dsh4' })
-    const v4 = await discoverSessions({ format: 'dsh4', home: HOME, host: mockHost(files), imports: {}, cache: new Map() })
+    const v4 = await discoverSessions({ format: 'dsh4', home: HOME, host: memoryHost(files), imports: {}, cache: new Map() })
     assert.deepEqual(v4.sessions.map((e) => e.sessionId), ['session-b'])
   } finally {
     if (saved === undefined) delete process.env.DSH_HOME
@@ -1856,7 +1807,7 @@ test('discoverSessions：persistedIds 过滤宿主已加载的原生会话（DSH
     [fImported, { type: 'file', mtimeMs: 1786000002000, text: body('session-imported') }],
     [fExternal, { type: 'file', mtimeMs: 1786000003000, text: body('session-external') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const imports = {
     [fImported]: { kind: 'single', dshId: 'session-imported', importedAt: 1786000002000 },
   }
@@ -1914,7 +1865,7 @@ test('discoverSessions：注册表指向的会话已删除 → importStatus not-
     [sessGone, { type: 'dir' }],
     [fGone, { type: 'file', mtimeMs: 1786000001000, text: body('session-gone') }],
   ])
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const imports = { [fGone]: { kind: 'single', dshId: 'import-deleted', importedAt: 1 } }
 
   // 注册表说导入过，但 import-deleted 已不在宿主（被删除）→ 该源回到未导入（可重新导入）

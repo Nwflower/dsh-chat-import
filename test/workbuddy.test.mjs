@@ -1,8 +1,24 @@
-// workbuddy.test.mjs — WorkBuddy 源转换核心单元测试（自包含合成数据，不掺真实 transcript）
-import { test } from 'node:test'
+// workbuddy.test.mjs — WorkBuddy 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据，不掺真实 transcript）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertWorkbuddyJsonl } from '../lib/convert/workbuddy.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { join } from 'node:path'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { mkdtempSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -260,4 +276,100 @@ test('失败重发 step 清洗：无重发（正常流程）不误删', () => {
   assert.equal(calls.length, 1)
   assert.equal(out.droppedRetrySteps, 0)
   assertToolPairing(out.events)
+})
+
+// ---- import_workbuddy 集成 ----
+
+// 合成 WorkBuddy transcript（事件词汇对齐 lib/convert/workbuddy.mjs）。
+const WB_SID = 'wb-sess-0001'
+const WB_CWD = hostAbs('D:/demo/workbuddy-proj')
+const WB_TS = 1787131157250
+function wbUser(text) {
+  return { id: 'u', timestamp: WB_TS, type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_query>' + text + '</user_query>' }], sessionId: WB_SID, cwd: WB_CWD }
+}
+function wbAssistant(text) {
+  return { id: 'a', timestamp: WB_TS + 1, type: 'message', role: 'assistant', content: [{ type: 'output_text', text }], sessionId: WB_SID, cwd: WB_CWD }
+}
+function wbReas(text) {
+  return { id: 'r', timestamp: WB_TS + 2, type: 'reasoning', rawContent: [{ type: 'reasoning_text', text }], sessionId: WB_SID, cwd: WB_CWD }
+}
+function wbCall(callId, name, args) {
+  return { id: 'c', timestamp: WB_TS + 3, type: 'function_call', callId, name, arguments: JSON.stringify(args), status: 'completed', sessionId: WB_SID, cwd: WB_CWD }
+}
+function wbResult(callId, text) {
+  return { id: 'x', timestamp: WB_TS + 4, type: 'function_call_result', callId, name: 'Bash', status: 'completed', output: { type: 'text', text }, sessionId: WB_SID, cwd: WB_CWD }
+}
+function wbTranscript(recs) {
+  return recs.map((r) => JSON.stringify(r)).join('\n')
+}
+
+test('import_workbuddy 单文件导入：落盘、归组、返回值符合 schema', async () => {
+  const src = 'D:\\demo\\workbuddy\\' + WB_SID + '.jsonl'
+  const { ctx, persistence, attached } = makeCtx({ [src]: wbTranscript([
+    wbUser('帮我看看这个项目'),
+    wbReas('先读结构再答'),
+    wbAssistant('好的，我先读一下结构。'),
+  ]) })
+  apply(ctx)
+  const def = chatDef(ctx, 'workbuddy')
+  const value = await def.execute({ path: src })
+
+  assert.equal(value.mode, 'single')
+  assert.equal(value.sessionId, 'import-' + WB_SID)
+  assert.equal(value.turns, 1)
+  assert.equal(value.messages, 2) // user + assistant（环境变更声明不计）
+  assert.equal(value.toolCalls, 0)
+  assert.equal(value.alreadyImported, false)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get('import-' + WB_SID)
+  assert.ok(saved)
+  assert.equal(saved.meta.cwd, WB_CWD)
+  assert.equal(saved.meta.sourceId, undefined)
+  // 宿主 header 白名单不含 sourceId（写入路径按 released-v2 schema 严格校验，
+  // 白名单外字段会让整次创建被拒）：源 id 只服务 registry 与导出协议，不落 header
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^WorkBuddy · /)
+  assert.ok(saved.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(saved.events)
+  assert.equal(attached.length, 1)
+  assert.equal(attached[0].id, 'import-' + WB_SID)
+})
+
+test('import_workbuddy 工具历史：tool/result 带 sourceEventSeqs 且 output 落盘', async () => {
+  const src = 'D:\\demo\\workbuddy\\' + WB_SID + '.jsonl'
+  const { ctx, persistence } = makeCtx({ [src]: wbTranscript([
+    wbUser('跑一下测试'),
+    wbReas('用命令跑'),
+    wbAssistant('我用命令跑。'),
+    wbCall('call_1', 'Bash', { command: 'npm test' }),
+    wbResult('call_1', 'ok 42 passed'),
+  ]) })
+  apply(ctx)
+  const def = chatDef(ctx, 'workbuddy')
+  const value = await def.execute({ path: src })
+  assert.equal(value.mode, 'single')
+  assert.equal(value.toolCalls, 1)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get(value.sessionId)
+  const result = saved.events.find((e) => e.type === 'tool/result')
+  assert.ok(result)
+  assert.deepEqual(result.sourceEventSeqs, [saved.events.find((e) => e.type === 'tool/call').seq])
+  assert.equal(result.data.message.content[0].content[0].text, 'ok 42 passed')
+})
+
+test('import_workbuddy 幂等：重复导入同一文件已存在则跳过', async () => {
+  const src = 'D:\\demo\\workbuddy\\' + WB_SID + '.jsonl'
+  const { ctx, persistence } = makeCtx({ [src]: wbTranscript([
+    wbUser('第一问'),
+    wbAssistant('一答'),
+  ]) })
+  apply(ctx)
+  const def = chatDef(ctx, 'workbuddy')
+  const first = await def.execute({ path: src })
+  const second = await def.execute({ path: src })
+  assert.equal(first.alreadyImported, false)
+  assert.equal(second.alreadyImported, true)
+  assert.equal(persistence.sessions.size, 1)
 })

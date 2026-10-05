@@ -1,8 +1,19 @@
-// test/_support/discovery-host.mjs — 发现层用例共用的内存 host（path → 节点的 Map，可观测读计数）。
+// test/_support/discovery-host.mjs — 发现层用例共用的 host（lib/discovery.mjs 的注入面：stat /
+// readHead / readTail / readText / readDir / readSessions）。
 //
-// 节点：{ type: 'dir' } | { type: 'file', text, mtimeMs? }。子项按「前缀 + 无更深分隔符」判定，
-// 分隔符跟随父路径（Windows / POSIX 夹具都能用）。counters 记录调用次数，dirsByPath 记录每个目录
-// 被列举的次数（验证一次发现内的目录列举记忆化）。readSessions 委托 host.dbSessions（可选）。
+//   memoryHost(files)  内存 host：path → 节点的 Map，可观测读计数。节点：{ type: 'dir' } |
+//                      { type: 'file', text, mtimeMs? }。子项按「前缀 + 无更深分隔符」判定，分隔符
+//                      跟随父路径（Windows / POSIX 夹具都能用）。counters 记录调用次数，dirsByPath
+//                      记录每个目录被列举的次数（验证一次发现内的目录列举记忆化）。readSessions 委托
+//                      host.dbSessions（可选）。
+//   withDirs(root, files)  补齐夹具里文件路径的全部祖先目录节点。
+//   diskHost({ readSessions })  真实磁盘 host（夹具写进临时目录）：stat 给 { type, size, mtimeMs }，
+//                      readHead 只读前 maxBytes 字节，读不了的文件 / 目录回 null；readSessions 由用例
+//                      注入（数据库源的摘要读取器），缺省 null。
+import { open, readFile, readdir, stat } from 'node:fs/promises'
+import { Buffer } from 'node:buffer'
+import { join } from 'node:path'
+
 export function memoryHost(files) {
   const counters = { reads: 0, stats: 0, dirs: 0, db: 0, tails: 0 }
   const dirsByPath = new Map()
@@ -70,4 +81,41 @@ export function withDirs(root, files) {
     }
   }
   return out
+}
+
+export function diskHost({ readSessions } = {}) {
+  return {
+    async stat(path) {
+      try {
+        const s = await stat(path)
+        return { type: s.isDirectory() ? 'directory' : 'file', size: s.size, mtimeMs: s.mtimeMs }
+      } catch {
+        return null // 不存在 / 不可访问
+      }
+    },
+    async readHead(path, maxBytes) {
+      let fh
+      try {
+        fh = await open(path, 'r')
+        const b = Buffer.alloc(Math.min(maxBytes, 64 * 1024))
+        const { bytesRead } = await fh.read(b, 0, b.length, 0)
+        return b.subarray(0, bytesRead).toString('utf8')
+      } catch {
+        return null // 不存在 / 是目录
+      } finally {
+        if (fh) await fh.close()
+      }
+    },
+    async readText(path) {
+      try { return await readFile(path, 'utf8') } catch { /* 不存在 / 是目录 */ return null }
+    },
+    async readDir(path) {
+      let entries
+      try { entries = await readdir(path, { withFileTypes: true }) } catch { /* 目录不存在 */ return null }
+      return entries.map((e) => ({ name: e.name, type: e.isDirectory() ? 'directory' : 'file', path: join(path, e.name) }))
+    },
+    async readSessions(kind, dbPath) {
+      return typeof readSessions === 'function' ? readSessions(kind, dbPath) : null
+    },
+  }
 }
