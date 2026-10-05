@@ -9,7 +9,7 @@
 // users/<账户>/teleagent.db 的枚举。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, statSync, readdirSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
@@ -21,6 +21,7 @@ import { discoverSessions } from '../lib/discovery.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { diskHost } from './_support/discovery-host.mjs'
 
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
@@ -185,39 +186,15 @@ test('readTeleagentDb：无 model 列 schema 兼容（PRAGMA 探测），会话�
 
 // ── 发现层：多账户目录枚举 ─────────────────────────────────────────────
 
-// 发现层 host：真实临时目录的 stat/readDir/readText/readHead + readSessions（内联
-// discovery-host 的 dbSummary 同款映射——扫描器只消费
-// id/title/directory/createdAt/lastActiveAt）
+// 发现层 host：真实临时目录（共享 diskHost）+ readSessions（内联 discovery-host 的 dbSummary
+// 同款映射——扫描器只消费 id/title/directory/createdAt/lastActiveAt）
 function discoveryHost() {
-  return {
-    async stat(path) {
-      let s
-      try { s = statSync(path) } catch { return null }
-      return s.isDirectory() ? { type: 'directory', mtimeMs: s.mtimeMs, size: s.size } : { type: 'file', mtimeMs: s.mtimeMs, size: s.size }
-    },
-    async readDir(dir) {
-      let list
-      try { list = readdirSync(dir) } catch { return null }
-      return list.filter((name) => !name.startsWith('.')).map((name) => {
-        const full = join(dir, name)
-        let isDir = false
-        try { isDir = statSync(full).isDirectory() } catch { isDir = false }
-        return { name, type: isDir ? 'directory' : 'file', path: full }
-      })
-    },
-    async readText(path) {
-      try { return readFileSync(path, 'utf8') } catch { return null }
-    },
-    async readHead(path, max) {
-      try { return readFileSync(path, 'utf8').slice(0, max) } catch { return null }
-    },
-    async readSessions(kind, dbPath) {
-      return readTeleagentDb(dbPath).map((s) => ({
-        id: s.id, title: s.title, directory: s.directory,
-        createdAt: s.createdAt, lastActiveAt: lastMsgTime(s.messages),
-      }))
-    },
-  }
+  return diskHost({
+    readSessions: (kind, dbPath) => readTeleagentDb(dbPath).map((s) => ({
+      id: s.id, title: s.title, directory: s.directory,
+      createdAt: s.createdAt, lastActiveAt: lastMsgTime(s.messages),
+    })),
+  })
 }
 
 function lastMsgTime(messages) {

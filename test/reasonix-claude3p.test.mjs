@@ -8,6 +8,7 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { discoverSessions, createScanCache, clearScanCache } from '../lib/discovery.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { memoryHost } from './_support/discovery-host.mjs'
 
 const j = (o) => JSON.stringify(o)
 
@@ -15,38 +16,6 @@ beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
   clearScanCache()
 })
-
-function mockHost(files) {
-  const host = {
-    async stat(path) {
-      const v = files.get(String(path))
-      if (!v) return null
-      return v.type === 'dir' ? { type: 'directory' } : { type: 'file', size: v.text.length, mtimeMs: v.mtimeMs }
-    },
-    async readText(path) {
-      const v = files.get(String(path))
-      return v && v.type === 'file' ? v.text : null
-    },
-    async readHead(path, maxBytes) {
-      const v = files.get(String(path))
-      return v && v.type === 'file' ? v.text.slice(0, maxBytes) : null
-    },
-    async readDir(path) {
-      const s = String(path).includes('\\') ? '\\' : '/'
-      const prefix = String(path).endsWith(s) ? String(path) : String(path) + s
-      const out = []
-      for (const [p, v] of files) {
-        if (!p.startsWith(prefix) || p === prefix) continue
-        const rest = p.slice(prefix.length)
-        if (rest.includes('\\') || rest.includes('/')) continue
-        out.push({ name: rest, type: v.type === 'dir' ? 'directory' : 'file', path: p })
-      }
-      return out.sort((a, b) => a.name.localeCompare(b.name))
-    },
-    async readSessions() { return null },
-  }
-  return host
-}
 
 test('REQ-45 发现：Reasonix 桌面版 projects/<slug>/sessions 布局，.titles.json 权威标题、sidecar 排除', async () => {
   const root = join('C:', 'Users', 'alice', 'AppData', 'Roaming', 'reasonix')
@@ -65,7 +34,7 @@ test('REQ-45 发现：Reasonix 桌面版 projects/<slug>/sessions 布局，.titl
   files.set(join(sessDir, 'abc123.conflicts.jsonl'), { type: 'file', mtimeMs: 1786000000000, text: '{}' })
   files.set(join(sessDir, '.titles.json'), { type: 'file', mtimeMs: 1786000000000, text: j({ 'abc123': '桌面版会话标题' }) })
 
-  const r = await discoverSessions({ path: root, format: 'reasonix', host: mockHost(files), imports: {}, cache: createScanCache() })
+  const r = await discoverSessions({ path: root, format: 'reasonix', host: memoryHost(files), imports: {}, cache: createScanCache() })
   assert.equal(r.total, 1)
   const s = r.sessions[0]
   assert.equal(s.sessionId, 'abc123')
@@ -120,7 +89,7 @@ test('REQ-45 发现：Claude-3p 元数据 → cliSessionId 反查 jsonl 合并�
     ].join('\n'),
   })
 
-  const r = await discoverSessions({ path: root, format: 'claude', host: mockHost(files), imports: {}, cache: createScanCache() })
+  const r = await discoverSessions({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cache: createScanCache() })
   assert.equal(r.total, 2)
   const linked = r.sessions.find((s) => s.sessionId === '282095ab-1111-4222-8333-444455556666')
   assert.ok(linked)

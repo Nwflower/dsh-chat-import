@@ -1,6 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtemp, mkdir, writeFile, stat, readFile, readdir, open, rm } from 'node:fs/promises'
+import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
 import { fileURLToPath } from 'node:url'
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
@@ -13,6 +13,7 @@ import { validateSessionEvents } from '../lib/convert/core.mjs'
 import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 import { defaultRoots, discoverSessions } from '../lib/discovery.mjs'
 import { dshSessionLogVersion, isDshSessionFile, readDshText, decodeZstdText } from '../lib/sources/dsh.mjs'
+import { diskHost } from './_support/discovery-host.mjs'
 
 const SESSION_LINES = [
   { type: 'session', id: 'session-dsh-test', cwd: '/tmp/proj', createdAt: 1700000000000 },
@@ -195,46 +196,13 @@ test('convertDshJsonl sourceEventSeqs 畸形形态：反向区间丢弃、重叠
   assert.deepEqual(results[1].sourceEventSeqs, [0, 1, 2])
 })
 
-// 真实文件系统 host stub（dsh 源发现面：stat / readHead / readText / readDir /
-// readSessions），默认根与显式 path 两条发现路径共用。
-function makeDshHost() {
-  return {
-    async stat(path) {
-      try {
-        const s = await stat(path)
-        return { type: s.isDirectory() ? 'directory' : 'file', size: s.size, mtimeMs: s.mtimeMs }
-      } catch {
-        return null
-      }
-    },
-    async readHead(path, bytes) {
-      const fh = await open(path, 'r')
-      try {
-        const b = Buffer.alloc(Math.min(bytes, 64 * 1024))
-        const { bytesRead } = await fh.read(b, 0, b.length, 0)
-        return b.subarray(0, bytesRead).toString('utf8')
-      } finally {
-        await fh.close()
-      }
-    },
-    async readText(path) {
-      try { return await readFile(path, 'utf8') } catch { return null }
-    },
-    async readDir(path) {
-      const entries = await readdir(path, { withFileTypes: true })
-      return entries.map((e) => ({ name: e.name, type: e.isDirectory() ? 'directory' : 'file', path: join(path, e.name) }))
-    },
-    async readSessions() { return [] },
-  }
-}
-
 test('discoverSessions format=dsh 发现 session.jsonl 会话', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-import-test-'))
   const dir = join(root, 'sessions', 'encoded', 'session-dsh-test')
   await mkdir(dir, { recursive: true })
   const file = join(dir, 'session.jsonl')
   await writeFile(file, RAW + '\n')
-  const host = makeDshHost()
+  const host = diskHost()
   try {
     const found = await discoverSessions({ format: 'dsh', path: join(root, 'sessions'), host, imports: {} })
     assert.equal(found.total, 1)
@@ -270,7 +238,7 @@ test('discoverSessions format=dsh：不传 path 时扫描 $DSH_HOME/sessions（�
     const dir = join(root, 'sessions', '_proj', 'session-root-test')
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'session.jsonl'), RAW + '\n')
-    const found = await discoverSessions({ format: 'dsh', host: makeDshHost(), imports: {} })
+    const found = await discoverSessions({ format: 'dsh', host: diskHost(), imports: {} })
     assert.equal(found.total, 1)
     assert.equal(found.sessions[0].sessionId, 'session-dsh-test')
     assert.equal(found.sessions[0].sourcePath, join(dir, 'session.jsonl'))
@@ -291,7 +259,7 @@ test('discoverSessions format=dsh：超过阈值的 .zstd 不解压，按目录�
     const smallDir = join(root, 'sessions', 'big-proj', 'session-small-test')
     await mkdir(smallDir, { recursive: true })
     await writeFile(join(smallDir, 'session.jsonl'), RAW + '\n')
-    const found = await discoverSessions({ format: 'dsh', path: join(root, 'sessions'), host: makeDshHost(), imports: {} })
+    const found = await discoverSessions({ format: 'dsh', path: join(root, 'sessions'), host: diskHost(), imports: {} })
     assert.equal(found.total, 2)
     const big = found.sessions.find((s) => s.sessionId === 'session-large-test')
     assert.ok(big, '大文件按目录名兜底出现在列表')
@@ -364,7 +332,7 @@ test('discoverSessions format=dsh：导入产物目录（import-<id>）也列出
     const dir = join(root, 'sessions', 'encoded', 'import-session-dsh-test')
     await mkdir(dir, { recursive: true })
     await writeFile(join(dir, 'session.jsonl'), RAW + '\n')
-    const found = await discoverSessions({ format: 'dsh', path: join(root, 'sessions'), host: makeDshHost(), imports: {} })
+    const found = await discoverSessions({ format: 'dsh', path: join(root, 'sessions'), host: diskHost(), imports: {} })
     assert.equal(found.total, 1)
     assert.equal(found.sessions[0].sessionId, 'session-dsh-test')
   } finally {
@@ -468,7 +436,7 @@ test('discoverSessions format=dsh 发现当前代次 session.v3.jsonl.zstd', asy
   // 超过快路径阈值即不解压，故无需真实 zstd 帧；本用例断言的是「发现」，不是解压。
   const file = join(dir, 'session.v3.jsonl.zstd')
   await writeFile(file, Buffer.alloc(256 * 1024 + 1, 7))
-  const host = makeDshHost()
+  const host = diskHost()
   try {
     const found = await discoverSessions({ format: 'dsh', path: join(root, 'sessions'), host, imports: {} })
     assert.equal(found.total, 1)

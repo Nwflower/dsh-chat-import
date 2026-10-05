@@ -14,46 +14,9 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { discoverSessions, createScanCache, SCAN_CACHE_FILE, SCAN_CACHE_VERSION } from '../lib/discovery.mjs'
 import { clearWorkspacePathCache } from '../lib/cwd-map.mjs'
+import { memoryHost } from './_support/discovery-host.mjs'
 
 const j = (o) => JSON.stringify(o)
-
-// mock host：path → { type:'file', text, mtimeMs } | { type:'dir' }；可观测读计数
-//（与 discovery.test.mjs 同款；书签测试只关心 readHead/readText 是否被调用）。
-function mockHost(files) {
-  const counters = { reads: 0 }
-  const host = {
-    counters,
-    async stat(path) {
-      const v = files.get(path)
-      if (!v) return null
-      return v.type === 'dir' ? { type: 'directory' } : { type: 'file', size: v.text.length, mtimeMs: v.mtimeMs }
-    },
-    async readText(path) {
-      counters.reads++
-      const v = files.get(path)
-      return v && v.type === 'file' ? v.text : null
-    },
-    async readHead(path, maxBytes) {
-      counters.reads++
-      const v = files.get(path)
-      return v && v.type === 'file' ? v.text.slice(0, maxBytes) : null
-    },
-    async readDir(path) {
-      const s = String(path).includes('\\') ? '\\' : '/'
-      const prefix = String(path).endsWith(s) ? String(path) : String(path) + s
-      const out = []
-      for (const [p, v] of files) {
-        if (!p.startsWith(prefix) || p === prefix) continue
-        const rest = p.slice(prefix.length)
-        if (rest.includes('\\') || rest.includes('/')) continue
-        out.push({ name: rest, type: v.type === 'dir' ? 'directory' : 'file', path: p })
-      }
-      return out.sort((a, b) => a.name.localeCompare(b.name))
-    },
-    async readSessions() { return null },
-  }
-  return host
-}
 
 // claude 合成夹具：两个会话（s1 带 cwd → 项目名） + agent-* 辅助 transcript（不发现）。
 function claudeFixture(root) {
@@ -85,7 +48,7 @@ test('首次扫描落书签（原子写）；同 mtime+size 二次扫描命中�
   const bmPath = join(cacheDir, SCAN_CACHE_FILE)
 
   // 首次扫描：全量读，书签落盘
-  const host1 = mockHost(files)
+  const host1 = memoryHost(files)
   const r1 = await scan({ path: root, format: 'claude', host: host1, imports: {}, cacheDir })
   assert.equal(r1.total, 2)
   const reads1 = host1.counters.reads
@@ -107,7 +70,7 @@ test('首次扫描落书签（原子写）；同 mtime+size 二次扫描命中�
   assert.equal(bm1.entries[0].sourcePath, s1)
 
   // 二次扫描：新 host + 新 TTL 缓存实例（模拟 TTL 过期 / 新进程态），书签命中 → 零内容读
-  const host2 = mockHost(files)
+  const host2 = memoryHost(files)
   const r2 = await scan({
     path: root, format: 'claude', host: host2, cacheDir,
     imports: { [s1]: { kind: 'single', dshId: 'import-sess-001', turns: 1, events: 3 } },
@@ -147,7 +110,7 @@ test('旧版本书签（version 不匹配）→ 忽略并重扫，写回当前�
     },
   }) + '\n', 'utf8')
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const r = await scan({ path: root, format: 'claude', host, imports: {}, cacheDir })
   assert.equal(r.total, 2)
   assert.ok(host.counters.reads > 0, '旧版本书签必须失效并重读源文件')
@@ -163,14 +126,14 @@ test('size 变化触发重读并更新书签', async (t) => {
   t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
   const bmPath = join(cacheDir, SCAN_CACHE_FILE)
 
-  await scan({ path: root, format: 'claude', host: mockHost(files), imports: {}, cacheDir })
+  await scan({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cacheDir })
 
   // 追加一个 user 回合 → size 变化（mtime 不变）
   const old = files.get(s1)
   const newText = old.text + '\n' + j({ sessionId: 'sess-001', type: 'user', message: { role: 'user', content: '追加的问题' } })
   files.set(s1, { type: 'file', mtimeMs: old.mtimeMs, text: newText })
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const r = await scan({ path: root, format: 'claude', host, imports: {}, cacheDir })
   assert.equal(r.total, 2)
   assert.equal(host.counters.reads, 1) // 只重读被改的 s1；s2 书签命中
@@ -185,13 +148,13 @@ test('mtime 变化（同 size）触发重读', async (t) => {
   const cacheDir = mkdtempSync(join(tmpdir(), 'scan-cache-mtime-'))
   t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
 
-  await scan({ path: root, format: 'claude', host: mockHost(files), imports: {}, cacheDir })
+  await scan({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cacheDir })
 
   // 仅 mtime 变化（内容与 size 都不变）
   const old = files.get(s1)
   files.set(s1, { type: 'file', mtimeMs: old.mtimeMs + 10000, text: old.text })
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const r = await scan({ path: root, format: 'claude', host, imports: {}, cacheDir })
   assert.equal(r.total, 2)
   assert.equal(host.counters.reads, 1) // mtime 命中失败 → 重读该文件
@@ -204,11 +167,11 @@ test('书签文件损坏按空书签处理，扫描后重写为合法', async (t
   t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
   const bmPath = join(cacheDir, SCAN_CACHE_FILE)
 
-  await scan({ path: root, format: 'claude', host: mockHost(files), imports: {}, cacheDir })
+  await scan({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cacheDir })
 
   writeFileSync(bmPath, '{ 这不是合法 JSON')
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const r = await scan({ path: root, format: 'claude', host, imports: {}, cacheDir })
   assert.equal(r.total, 2)
   assert.ok(host.counters.reads > 0) // 损坏 → 按空书签全量重扫
@@ -224,10 +187,10 @@ test('书签文件缺失按空书签处理，扫描后重建', async (t) => {
   t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
   const bmPath = join(cacheDir, SCAN_CACHE_FILE)
 
-  await scan({ path: root, format: 'claude', host: mockHost(files), imports: {}, cacheDir })
+  await scan({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cacheDir })
   rmSync(bmPath)
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   const r = await scan({ path: root, format: 'claude', host, imports: {}, cacheDir })
   assert.equal(r.total, 2)
   assert.ok(host.counters.reads > 0) // 缺失 → 全量重扫
@@ -278,7 +241,7 @@ test('cursor 书签命中：旧 slug-only entries 读时补丁解码 cwd/project
     },
   }) + '\n', 'utf8')
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.resolveCursorSlug = async (s) => (s === slug ? cwdDots : null)
 
   const r = await scan({ path: root, format: 'cursor', host, imports: {}, cacheDir })
@@ -336,7 +299,7 @@ test('cursor 书签命中：纯数字 slug 读时补丁清空 project，不误�
     },
   }) + '\n', 'utf8')
 
-  const host = mockHost(files)
+  const host = memoryHost(files)
   host.resolveCursorSlug = async () => null
 
   const r = await scan({ path: root, format: 'cursor', host, imports: {}, cacheDir })
@@ -354,14 +317,14 @@ test('跨进程模拟：重新 import 模块实例 + 复用书签文件 → 未�
 
   // 实例 A（进程 1）：全新模块态，首次扫描落书签
   const modA = await import('../lib/discovery.mjs?scan-cache-cross-a=1')
-  const hostA = mockHost(files)
+  const hostA = memoryHost(files)
   const rA = await modA.discoverSessions({ path: root, format: 'claude', host: hostA, imports: {}, cacheDir, cache: modA.createScanCache() })
   assert.equal(rA.total, 2)
   assert.ok(hostA.counters.reads > 0)
 
   // 实例 B（进程 2）：模块级缓存为空，仅复用磁盘书签 → 未变文件不重读
   const modB = await import('../lib/discovery.mjs?scan-cache-cross-b=2')
-  const hostB = mockHost(files)
+  const hostB = memoryHost(files)
   const rB = await modB.discoverSessions({ path: root, format: 'claude', host: hostB, imports: {}, cacheDir, cache: modB.createScanCache() })
   assert.equal(rB.total, 2)
   assert.equal(hostB.counters.reads, 0)
