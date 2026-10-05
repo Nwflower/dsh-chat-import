@@ -10,6 +10,7 @@ import { Buffer } from 'node:buffer'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
+import { setImmediate } from 'node:timers'
 import { makeDiscoveryHost } from '../lib/discovery-host.mjs'
 
 // 伪 fs：files 是 path → 文本；streamText 按 chunkSize 分块 yield（模拟宿主流式读）；
@@ -128,4 +129,13 @@ test('readSessions：读取器异常（非 SQLite 文件）原样抛出交给发
   } finally {
     rmSync(dir, { recursive: true, force: true })
   }
+})
+
+test('readSessions：同步 SQLite 读取前先让出一轮事件循环（库与库之间不连续阻塞）', async () => {
+  const host = makeDiscoveryHost({ fs: { resolve: async (p) => p } })
+  const order = []
+  setImmediate(() => order.push('macrotask'))
+  await assert.rejects(() => host.readSessions('opencode', join(tmpdir(), 'dsh-missing-' + Date.now() + '.db')))
+  order.push('read-done')
+  assert.deepEqual(order, ['macrotask', 'read-done'])
 })
