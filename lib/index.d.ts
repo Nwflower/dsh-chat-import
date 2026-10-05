@@ -644,7 +644,17 @@ export interface DiscoveredSession {
   importStatus: ImportStatusLabel
 }
 
+/** 扫描失败被跳过的目标（权限 / 库损坏 / 读取器异常）：其余目标照常产出。 */
+export interface ScanWarning {
+  format: ScanFormat
+  /** 失败的扫描目标（数据根、库文件或单个转录路径）。 */
+  target: string
+  error: string
+}
+
 export interface ScanDiscoverResult {
   total: number
   sessions: DiscoveredSession[]
+  /** 本次扫描失败的目标；空数组 = 全部目标扫描成功。 */
+  warnings: ScanWarning[]
 }

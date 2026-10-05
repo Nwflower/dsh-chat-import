@@ -38,6 +38,8 @@
       // 来源与落点之间的连接词（「导入到」），把两个下拉读成一句话
       rowJoin: { color: C.dim, flex: "none", fontSize: "13px", lineHeight: "20px", whiteSpace: "nowrap" },
       targetHint: { padding: "0 16px 10px", fontSize: "12px", color: C.dimmer, lineHeight: 1.5 },
+      // 扫描失败提示：与 targetHint 同一层级的小字（不抢列表），悬浮 title 看逐条明细
+      scanNotice: { padding: "4px 16px", fontSize: "12px", color: C.dim, lineHeight: 1.5, wordBreak: "break-word" },
       select: {
         flex: "1", background: C.field, border: "1px solid " + C.border, color: C.text,
         borderRadius: "8px", padding: "6px 8px", fontSize: "13px", outline: "none",
