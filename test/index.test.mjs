@@ -5754,6 +5754,21 @@ test('REQ-41 /api-import/import handler：单选导入（claude 夹具）→ imp
   assert.equal(persistence.sessions.size, 1)
 })
 
+// 面板多选一库多会话来源：只导所选会话。适用来源由 spec 的 multiSession 派生（面板曾在
+// 两处手写 opencode/mimocode/teleagent/zcode，漏了同样按 sessionIds 过滤的 kilocode）。
+// kilo.db 的 schema 是 opencode 超集，读取层按列自适应，用 opencode 夹具库即可。
+test('/api-import/import：kilocode 多选只导所选会话（multiSession 由 spec 派生）', async () => {
+  const dbPath = makeOpencodeDb(opencodeTestSessions())
+  const { ctx, persistence, webRoutes } = makeCtx({})
+  apply(ctx)
+  const route = webRoutes.find((r) => r.path === '/api-import/import')
+  const out = await invokeImportRoute(route, { items: [{ source: 'kilocode', sourcePath: dbPath, sessionId: 'ses-b' }] })
+  assert.equal(out.data.ok, true, JSON.stringify(out.data))
+  assert.equal(out.data.results[0].mode, 'batch')
+  assert.equal(out.data.results[0].imported, 1)
+  assert.deepEqual([...persistence.sessions.keys()], ['import-ses-b'])
+})
+
 test('REQ-41 /api-import/sessions handler：source dsh4 是已知来源（来源列表拆代次后不能漏）', async () => {
   // 面板的 SOURCE_FORMAT 与 discovery 的 FORMATS 必须同步：漏掉 dsh4 时面板会回
   // 「未知来源: dsh4」→ 列表空、默认「导入到」也拿不到 dshVersion。
