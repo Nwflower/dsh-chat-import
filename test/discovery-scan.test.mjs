@@ -116,3 +116,62 @@ test('codex：分页链书签命中时不重读 rollout；书签只存页摘要�
     assert.ok(!disk.includes('response_item'), '书签不含原始转录记录')
   })
 })
+
+// 一次发现内的目录列举记忆化：无 format 的目录探测让全部来源的扫描器遍历同一棵树，dsh 与
+// dsh4 共用默认根也各走一遍——同一目录在一次 discoverSessions 里只向 host 列举一次。
+test('目录探测（不给 format）：同一目录在一次发现内只列举一次，结果与逐格式扫描一致', async () => {
+  const root = join(HOME, '.claude', 'projects')
+  const files = withDirs(root, new Map([
+    [join(root, 'proj-a', 'sess-001.jsonl'), { type: 'file', mtimeMs: 1786000002000, text: j({ sessionId: 'sess-001', type: 'user', cwd: hostAbs('D:/p'), message: { role: 'user', content: '问题' } }) }],
+    [join(root, 'proj-b', 'nested', 'x.jsonl'), { type: 'file', mtimeMs: 1786000001000, text: j({ other: true }) }],
+  ]))
+  const host = memoryHost(files)
+  const { sessions } = await discoverSessions({ path: root, host, imports: {}, cache: new Map() })
+  assert.deepEqual(sessions.map((e) => [e.format, e.sessionId]), [['claude', 'sess-001']])
+  for (const [dir, n] of host.dirsByPath) assert.equal(n, 1, dir + ' 只列举一次')
+})
+
+test('dsh / dsh4 共用默认根：一次默认扫描内会话目录只列举一次', async () => {
+  const dshHome = join(HOME, 'dsh-home-memo')
+  const root = join(dshHome, 'sessions')
+  const body = (id) => [j({ type: 'session', id, cwd: '/demo/proj', createdAt: 1700000000000 }), j({ type: 'user/message', data: { content: [{ type: 'text', text: id }] } })].join('\n')
+  const files = withDirs(root, new Map([
+    [join(root, '--w--', 's-a', 'session.v3.jsonl'), { type: 'file', mtimeMs: 1786000002000, text: body('s-a') }],
+    [join(root, '--w--', 's-b', 'session.v4.jsonl'), { type: 'file', mtimeMs: 1786000003000, text: body('s-b') }],
+  ]))
+  const host = memoryHost(files)
+  const saved = process.env.DSH_HOME
+  process.env.DSH_HOME = dshHome
+  try {
+    const all = await discoverSessions({ home: HOME, host, imports: {}, cache: new Map() })
+    const got = all.sessions.filter((e) => e.format === 'dsh' || e.format === 'dsh4').map((e) => [e.format, e.sessionId])
+    assert.deepEqual(got.sort(), [['dsh', 's-a'], ['dsh4', 's-b']])
+    assert.equal(host.dirsByPath.get(root), 1)
+  } finally {
+    if (saved === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = saved
+  }
+})
+
+test('cursor：同一 slug 的多条会话在一次发现内只解码一次 slug（扫描与书签命中补丁同口径）', async () => {
+  const root = join(HOME, '.cursor', 'projects')
+  const slug = 'e-dev-demo'
+  const t = (id) => join(root, slug, 'agent-transcripts', id, id + '.jsonl')
+  const text = (q) => j({ role: 'user', message: { content: [{ type: 'text', text: '<user_query>' + q + '</user_query>' }] } })
+  const files = withDirs(root, new Map([
+    [t('aaa'), { type: 'file', mtimeMs: 1786000001000, text: text('一') }],
+    [t('bbb'), { type: 'file', mtimeMs: 1786000002000, text: text('二') }],
+  ]))
+  const host = memoryHost(files)
+  const calls = []
+  host.resolveCursorSlug = async (s) => { calls.push(s); return hostAbs('E:/dev/demo') }
+  await withCacheDir(async (scan) => {
+    const first = await scan({ path: root, format: 'cursor', host })
+    assert.equal(first.total, 2)
+    assert.deepEqual(calls, [slug], '扫描：同 slug 只解码一次')
+    calls.length = 0
+    const second = await scan({ path: root, format: 'cursor', host })
+    assert.deepEqual(second.sessions.map((e) => e.project), ['demo', 'demo'])
+    assert.deepEqual(calls, [slug], '书签命中补丁：同 slug 只解码一次')
+  })
+})
