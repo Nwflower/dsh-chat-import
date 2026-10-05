@@ -5,6 +5,18 @@
     // 视口上下各多渲染「一屏」（原来的 ±10 行在快滚时会露白，观感像「停下来才渲染」）
     const LIST_OVERSCAN_MIN = 10;
 
+    /** 行的点亮态 { key, group }（悬停或行内按钮聚焦；组头随所在分组一起变亮）。进入（key
+     *  非空）即点亮该行与所在分组；离开（key 为空，only = 离开的那一行）只在点亮的仍是这一行
+     *  时连同分组一起熄灭——焦点 / 悬停交错时（先进新行、后离旧行）不会把新行熄掉。 */
+    const NO_HOT = { key: null, group: null };
+    function nextHot(prev, key, only, group) {
+      if (key !== null) {
+        const g = group || null;
+        return prev.key === key && prev.group === g ? prev : { key, group: g };
+      }
+      return prev.key === only ? NO_HOT : prev;
+    }
+
     /** 页控件：显示「第 x / y 页」，点开在底栏之上弹出页码网格（像选集），点数字直接跳页。
      *  页多时网格自身滚动，并停在当前页附近。 */
     function PageJump({ page, totalPages, colors, style, onPick }) {
@@ -144,8 +156,7 @@
       // 随主题偏好变化，所以不写死阈值）。
       const [toolsRef, toolsWidth] = useContainerWidth();
       const [toolsProbeRef, toolsNeed] = useContainerWidth();
-      const [hotKey, setHotKey] = useState(null); // 点亮中的会话行（悬停或行内按钮聚焦）
-      const [hotKeyGroup, setHotKeyGroup] = useState(null); // 该行所属分组（组头随之变亮，O(1)）
+      const [hot, setHot] = useState(NO_HOT); // 点亮中的会话行与其所在分组（见 nextHot）
       const [hotGroup, setHotGroup] = useState(null); // 悬停的工作区分组头
 
       // 流式加载：后台扫描 + after 游标轮询——会话按发现顺序逐条 append 到缓冲，
@@ -347,11 +358,6 @@
       // memo 行的回调：实现随每次渲染更新，但暴露给行的函数引用恒定（否则 memo 白做）
       const rowActions = useRef({});
       rowActions.current = {
-        hot: (key, only, group) => {
-          if (key !== null) { setHotKey(key); setHotKeyGroup(group || null); return; }
-          setHotKey((k) => (k === only ? null : k));
-          setHotKeyGroup((current) => (only && current === null ? null : current));
-        },
         toggle: (key) => {
           setSelected((prev) => {
             const next = new Map(prev);
@@ -364,7 +370,7 @@
         },
         import: (s) => doImport([toItem(s)]),
       };
-      const onHot = useCallback((key, only, group) => rowActions.current.hot(key, only, group), []);
+      const onHot = useCallback((key, only, group) => setHot((prev) => nextHot(prev, key, only, group)), []);
       const onToggle = useCallback((key) => rowActions.current.toggle(key), []);
       const onImport = useCallback((s) => rowActions.current.import(s), []);
 
@@ -485,7 +491,7 @@
             time: relTime(ts, t) || t("timeUnknown"),
             tip: (s.title || t("noTitle")) + (tip ? "\n" + tip : ""),
             checked: selected.has(key),
-            hot: hotKey === key,
+            hot: hot.key === key,
             importing,
             onToggle,
             onImport,
@@ -498,7 +504,7 @@
         });
         // 分组头：与皮肤一致——悬停（或组内任意行悬停）时文字变亮并露出折叠箭头，
         // 不浮背景矩形（它是标题不是目标）
-        const headHot = hotGroup === group.name || hotKeyGroup === group.name;
+        const headHot = hotGroup === group.name || hot.group === group.name;
         return h(React.Fragment, { key: group.name },
           h("div", {
             style: { ...style.group, ...(headHot ? { color: colors.text } : null) },
