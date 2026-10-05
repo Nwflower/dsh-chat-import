@@ -43,12 +43,12 @@ export const FRAGMENTS = [
   'sources.js',   // 来源枚举 / 标签 / 徽标 / 分页常量 / 排序
   'logos.js',     // 来源品牌标与字标（lobehub 静态 SVG，生成物：scripts/gen-logos.mjs）
   'widgets.js',   // Icon / SourceBadge / useContainerWidth
-  'styles.js',    // themeColors + makeStyles（DSW 设计令牌）
+  'styles.js',    // COLORS + makeStyles → STYLES（DSW 设计令牌，模块级常量）
   'toast.js',     // ToastHost（官方 shell.overlay 落点提示；缺 primitives 时自绘横幅）
-  'utils.js',     // fmt* / 结果摘要 / 响应解析 worker / Toggle
+  'utils.js',     // fmt* / 结果摘要 / 响应解析 worker / postJson 请求出口 / Toggle
   'settings.js',  // 设置页「会话导入」分区 + 同步设置
   'tabs.js',      // ImportTabContent / SidebarImportTab / HistoryPanel / SearchableSelect
-  'discovery.js', // DiscoveryPanel（发现 + 多选导入主面板）
+  'discovery.js', // DiscoveryPanel（发现 + 多选导入主面板）及其纯函数 / hooks / 子组件
   'file-import.js', // FileImportPanel（「从文件导入」折叠区：上传 / 路径浏览 / 预览 / 目录批处理）
   'lib/footer-layout.mjs', // footer 车道量法与形态判定（宿主侧模块原样内联，测试直接 import）
   'footer.js',    // LogoIcon / 设置导航图标
