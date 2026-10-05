@@ -7,6 +7,8 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { discoverSessions, clearScanCache, clearInflightScans, FORMATS, defaultRoots } from '../lib/discovery.mjs'
+import { SOURCES } from '../lib/discovery/registry.mjs'
+import { DB_SUMMARY_FORMATS } from '../lib/discovery-host.mjs'
 import { memoryHost } from './_support/discovery-host.mjs'
 
 beforeEach(() => {
@@ -55,4 +57,9 @@ test('FORMATS 顺序固定（工具 schema enum 与默认扫描 / 流式产出�
     'zcode', 'grokbuild', 'openclaw', 'pi', 'hermes', 'kimi', 'kilocode', 'qoder', 'chatgpt', 'workbuddy', 'qwen',
     'continue', 'cline', 'goose', 'dsh4', 'zed', 'crush', 'teleagent', 'trae', 'vibe', 'dsh',
   ])
+})
+
+test('sessionsFromHost 的来源与 host.readSessions 读取器表一一对应（新增 SQLite 来源两侧都要登记）', () => {
+  const needed = SOURCES.filter((s) => s.sessionsFromHost).map((s) => s.format).sort()
+  assert.deepEqual([...DB_SUMMARY_FORMATS].sort(), needed)
 })
