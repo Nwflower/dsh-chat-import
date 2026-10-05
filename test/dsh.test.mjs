@@ -40,6 +40,21 @@ test('convertDshJsonl 保留核心事件并重排 seq', () => {
   assert.deepEqual(out.events.slice(0, 2).map((e) => e.type), ['turn/start', 'step/start'])
 })
 
+test('convertDshJsonl 畸形行与疑似 secret 走共享逐行解析器上报（行号明细 + secrets 位置，失败要大声）', () => {
+  const lines = RAW.split('\n')
+  lines.splice(1, 0, '{"type":"turn/start", truncated')
+  lines.splice(4, 0, JSON.stringify({ type: 'debug/chunk', seq: 99, data: { note: 'password=hunter2hunter2' } }))
+  const out = convertDshJsonl(lines.join('\n'), { sourcePath: '/tmp/proj/session.jsonl' })
+  assert.equal(out.skipped, 1)
+  assert.equal(out.skippedLines.length, 1)
+  assert.equal(out.skippedLines[0].line, 2)
+  assert.ok(!out.skippedLines[0].error.includes('truncated'))
+  assert.deepEqual(out.secrets, [{ line: 5, kind: 'password' }])
+  // 畸形行不影响其余事件
+  assert.equal(out.turns.length, 1)
+  assert.equal(out.messages, 2)
+})
+
 test('convertDshJsonl 保留原生压缩事务（重导压缩过的 DSH 会话不丢检查点）', () => {
   // 真源：用 codex 压缩夹具生成一份带原生检查点的事件日志，再当作 DSH 日志重导
   const codex = convertCodexJsonl(codexCompactedRollout(), { sessionId: 'codex-comp-1' })

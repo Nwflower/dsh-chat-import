@@ -1560,6 +1560,16 @@ test('convertPiJsonl: 简单问答、头行元数据、平衡回合', () => {
   assert.deepEqual(asst.source, { kind: 'model', provider: 'pi-coding-agent', model: 'claude-sonnet-4-5' })
 })
 
+test('convertPiJsonl: 畸形行与疑似 secret 走共享逐行解析器上报（行号明细 + secrets 位置，失败要大声）', () => {
+  const lines = load('pi-simple.jsonl').trimEnd().split('\n')
+  lines.splice(2, 0, '{"type":"message", not json')
+  lines.push(JSON.stringify({ type: 'label', id: 'z1', parentId: null, label: 'token=abcdefgh12345678' }))
+  const out = convertPiJsonl(lines.join('\n'), {})
+  assert.equal(out.skipped, 1)
+  assert.deepEqual(out.skippedLines.map((s) => s.line), [3])
+  assert.deepEqual(out.secrets, [{ line: lines.length, kind: 'token' }])
+})
+
 test('convertPiJsonl: 工具历史（arguments 对象序列化、thinking→reasoning、配对、孤儿丢弃、bash 注入文本）', () => {
   const out = convertPiJsonl(load('pi-tool.jsonl'), {})
   assert.equal(out.turns.length, 1)
