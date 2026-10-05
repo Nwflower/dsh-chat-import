@@ -1,49 +1,18 @@
     // 面板文案字典（自有 ns "chat-import"；zh 为现状中文，en 为翻译）。
     // 查键链：chat-import → chat-import.zh → common → 键本身（locale 服务负责）。
     const LOCALE_NS = "chat-import";
-    // 未分组桶的稳定键（排序钉最后；显示时经 t("noWorkspace") 翻译）
-    const NO_WORKSPACE_KEY = "__no_workspace__";
-    // 与 lib/panel-filter.mjs 同步：工作区筛选键 / 过滤
-    const workspaceKey = (s) => (s && s.project ? s.project : NO_WORKSPACE_KEY);
-    const filterByWorkspace = (list, ws) => (!ws ? list : list.filter((s) => workspaceKey(s) === ws));
-    // 工作区下拉的选项：key/latest 供排序与过滤，path 是该组里最新会话的绝对路径
-    //（discovery 的 project 通常只是文件夹名，下拉里用更淡的字把它后面的路径画出来；
-    // 同名不同路径时以最活跃的那个会话为准）。
-    const buildWorkspaceOptions = (list) => {
-      const map = new Map();
-      for (const s of list) {
-        const key = workspaceKey(s);
-        const t0 = (typeof s.lastActiveAt === "number" ? s.lastActiveAt : 0) || (typeof s.createdAt === "number" ? s.createdAt : 0);
-        const prev = map.get(key);
-        if (!prev) {
-          map.set(key, { key, latest: t0, at: t0, path: typeof s.cwd === "string" ? s.cwd : "" });
-        } else {
-          prev.latest = Math.max(prev.latest, t0);
-          if (t0 >= prev.at) {
-            prev.at = t0;
-            prev.path = typeof s.cwd === "string" ? s.cwd : "";
-          }
-        }
-      }
-      return [...map.values()].sort((a, b) => {
-        if (a.key === NO_WORKSPACE_KEY) return 1;
-        if (b.key === NO_WORKSPACE_KEY) return -1;
-        return (b.latest - a.latest) || String(a.key).localeCompare(String(b.key));
-      });
-    };
+    // 工作区键的显示名（NO_WORKSPACE_KEY / workspaceKey 等筛选纯函数内联自 lib/panel-filter.mjs）
     const workspaceLabel = (key, tr) => (key === NO_WORKSPACE_KEY ? tr("noWorkspace") : key);
     const DICT = {
       zh: {
         "trigger.title": "从其他工具导入会话（发现 + 单选/多选导入）",
         "trigger.label": "导入会话",
         "sidebar.guide.description": "从 Claude Code / Codex / ChatGPT 等 25+ 工具导入会话并续聊",
-        "source": "来源",
         "allSources": "全部来源",
         // DSH 两代的完整展示名（来源下拉用；会话行提示用 SOURCE_LABELS 的中性短名）
         "source.dsh": "DSH V3 会话格式",
         "source.dsh4": "DSH V4 会话格式",
         "source.title": "按外部工具过滤；切换来源会重新扫描",
-        "workspace": "工作区",
         "filter.path": "筛选：路径",
         "filter.time": "筛选：时间",
         "filter.all": "全部",
@@ -97,16 +66,11 @@
         "history.staging": "清理上传暂存",
         "history.staging.title": "删除未被导入记录引用的上传文件（被引用的保留：重导语义以它为源键）",
         "history.staging.done": "已清理 {removed} 个上传暂存件，保留 {kept} 个被引用的",
-        "history.col.source": "来源路径",
-        "history.col.session": "会话 ID",
-        "history.col.time": "导入时间",
-        "history.col.counts": "轮次/事件",
         "status.imported": "已导入",
         "status.partial": "部分",
         "status.archived": "已归档",
         "status.notImported": "未导入",
         "noTitle": "(无标题)",
-        "count.messages": "{n} 条",
         "count.contextTokens": "上下文 {n}",
         "count.sessions": "{n} 个会话",
         "timeUnknown": "时间未知",
@@ -116,7 +80,6 @@
         "time.daysAgo": "{n} 天前",
         "noMatch": "没有匹配的会话",
         "noSessions": "没有找到会话",
-        "loading": "正在准备扫描…",
         "scan.hint.start": "正在连接扫描…缓存命中通常几秒，首次全量可能十几秒到一分钟",
         // 底栏那一条的状态文案：扫描中报进度，完成后报页码与总数（两者合并显示）
         "scan.status.progress": "扫描中 · 已发现 {n} 个",
@@ -128,7 +91,9 @@
         "error.route": "导入失败：服务响应异常（路由可能未注册，请重启 dsh 后重试）",
         "error.import": "导入失败：{msg}",
         "error.load": "导入面板服务响应异常（路由可能未注册，请重启 dsh 后重试）",
-        "ungrouped": "(未分组)",
+        // 请求本身没发出去 / 连接中断（fetch 抛错），区别于服务端回了异常响应的 error.load
+        "error.request": "导入面板请求失败：{msg}",
+        "error.prefs": "导入偏好读取失败：{msg}",
         "multiSelect.title": "多选导入",
         "import.one": "导入",
         "import.one.title": "导入该会话：未导入则新建会话；DSH 里这条已续聊过则另建新副本，不追加进你自己的对话",
@@ -210,7 +175,6 @@
         "fileImport.detectedBy.marker": "文件标记",
         "fileImport.detectedBy.path-hint": "路径特征",
         "fileImport.detectedBy.content": "内容探测",
-        "fileImport.detectedBy.unknown": "未知依据",
         "fileImport.turns": "{n} 轮",
         "fileImport.messages": "{n} 条消息",
         "fileImport.toolCalls": "{n} 次工具调用",
@@ -265,12 +229,10 @@
         "trigger.title": "Import sessions from other tools (discover + single/multi select)",
         "trigger.label": "Import Sessions",
         "sidebar.guide.description": "Import and resume sessions from Claude Code, Codex, ChatGPT and 25+ tools",
-        "source": "Source",
         "allSources": "All sources",
         "source.dsh": "DSH V3 session format",
         "source.dsh4": "DSH V4 session format",
         "source.title": "Filter by external tool; changing source rescans",
-        "workspace": "Workspace",
         "filter.path": "Filter: path",
         "filter.time": "Filter: time",
         "filter.all": "All",
@@ -324,16 +286,11 @@
         "history.staging": "Clean upload staging",
         "history.staging.title": "Delete staged uploads no import record references (referenced ones are kept: re-import semantics key on them)",
         "history.staging.done": "Removed {removed} staged upload(s), kept {kept} referenced",
-        "history.col.source": "Source path",
-        "history.col.session": "Session ID",
-        "history.col.time": "Imported at",
-        "history.col.counts": "Turns/events",
         "status.imported": "Imported",
         "status.partial": "Partial",
         "status.archived": "Archived",
         "status.notImported": "Not imported",
         "noTitle": "(untitled)",
-        "count.messages": "{n} messages",
         "count.contextTokens": "{n} tokens",
         "count.sessions": "{n} sessions",
         "timeUnknown": "Time unknown",
@@ -343,7 +300,6 @@
         "time.daysAgo": "{n}d ago",
         "noMatch": "No matching sessions",
         "noSessions": "No sessions found",
-        "loading": "Preparing scan…",
         "scan.hint.start": "Connecting… cache hits usually take seconds; first full scan may take 15s–1min",
         "scan.status.progress": "Scanning · {n} found",
         "page.jump": "Page {page} / {pages}",
@@ -353,7 +309,8 @@
         "error.route": "Import failed: the service route is unavailable (the route may not be registered — restart dsh and retry)",
         "error.import": "Import failed: {msg}",
         "error.load": "Panel failed to load: the service route is unavailable (the route may not be registered — restart dsh and retry)",
-        "ungrouped": "(unassigned)",
+        "error.request": "Panel request failed: {msg}",
+        "error.prefs": "Failed to read import preferences: {msg}",
         "multiSelect.title": "Multi-select import",
         "import.one": "Import",
         "import.one.title": "Import this session: creates a new one when unimported; if you already chatted in the DSH copy, a new copy is made instead of appending",
@@ -433,7 +390,6 @@
         "fileImport.detectedBy.marker": "file marker",
         "fileImport.detectedBy.path-hint": "path hint",
         "fileImport.detectedBy.content": "content probe",
-        "fileImport.detectedBy.unknown": "unknown basis",
         "fileImport.turns": "{n} turns",
         "fileImport.messages": "{n} messages",
         "fileImport.toolCalls": "{n} tool calls",

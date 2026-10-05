@@ -1,6 +1,7 @@
 // footer-layout.test.mjs — footer 槽「本按钮还能占多宽」的判定纯函数
 // 夹具里的宽度都是 Chromium 实测值（256px 侧栏、宿主 `.footerActions` nowrap 行、
 // 宿主 slot 出口是 display:contents 外壳，见 lib/footer-layout.mjs 的说明）。
+// 本模块原样内联进 lib/client.js（scripts/build-client.mjs），这里测的就是浏览器里跑的那份。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
@@ -14,6 +15,7 @@ import {
   resolveFooterSize,
   needsFooterWrap,
 } from '../lib/footer-layout.mjs'
+import { inlineModule } from '../scripts/build-client.mjs'
 
 // 完整形态（图标 16 + 间距 8 + 「导入会话」+ 内边距 18）实测需要 98px
 const NEEDED = 98
@@ -154,51 +156,19 @@ test('measureFooterLane：无按钮 / 非浏览器视图 → 量不到，判定�
   assert.equal(resolveFooterSize({ ...facts }), 'row')
 })
 
-// —— 同步守卫：lib/client.js 内联的副本（bundle 不 import 模块，只能各存一份）——
-// 取出 client.js 里的 footerLaneFacts 源码，与模块版在同一个假 DOM 上跑，逐字段比对。
-function extractClientCopy() {
-  const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
-  const start = source.indexOf('const footerLaneFacts = (button, probe) => {')
-  assert.notEqual(start, -1, 'lib/client.js 缺少内联的 footerLaneFacts')
-  let depth = 0
-  let index = source.indexOf('{', start)
-  for (let cursor = index; cursor < source.length; cursor += 1) {
-    if (source[cursor] === '{') depth += 1
-    else if (source[cursor] === '}') {
-      depth -= 1
-      if (depth === 0) { index = cursor; break }
-    }
+// —— 单一真相源：lib/client.js 里跑的就是本模块（scripts/build-client.mjs 去 export 后原样
+// 内联），不再有「bundle 副本 + 逐字段同步」——上面这些用例测的就是发布出去的那份量法。
+test('lib/client.js 原样内联本模块，量法与判定在 bundle 里只有一份实现', () => {
+  const bundle = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
+  const module = readFileSync(new URL('../lib/footer-layout.mjs', import.meta.url), 'utf8')
+  assert.ok(bundle.includes(inlineModule('lib/footer-layout.mjs', module)),
+    'lib/client.js 应原样内联 lib/footer-layout.mjs（改了模块后重跑 npm run build:client）')
+  for (const name of ['measureFooterLane', 'resolveFooterSize', 'needsFooterWrap', 'footerLaneAvailable', 'claimsFooterRow', 'occupiesFooterLane']) {
+    assert.equal(bundle.split('function ' + name + '(').length - 1, 1, name + ' 在 bundle 里应恰好一份实现')
+    assert.equal(bundle.includes('const ' + name + ' ='), false, name + ' 不应再有片段内的同名副本')
   }
-  const body = source.slice(source.indexOf('=', start) + 1, index + 1).trim()
-  return new Function('FOOTER_LABEL_PADDING', 'occupiesFooterLane', 'claimsFooterRow', 'footerLaneAvailable', 'getComputedStyle', `return ${body}`)(
-    FOOTER_LABEL_PADDING, occupiesFooterLane, claimsFooterRow, footerLaneAvailable, fakeView.getComputedStyle,
-  )
-}
-
-test('lib/client.js 内联副本与 lib/footer-layout.mjs 同款量法（同槽条目数 / 占位 / 可用宽度）', () => {
-  const inlined = extractClientCopy()
-  const scenarios = [
-    [],
-    [{ width: 181.06, margin: 0 }],
-    [{ width: 256, margin: 0 }],
-    [{ width: 78, margin: 0 }, { width: 78, margin: 0 }],
-    [{ width: 102.6, margin: 0 }, { width: 102.6, margin: 0 }],
-    [{ width: 220, margin: -2 }, { width: 220, margin: -2 }],
-  ]
-  for (const entries of scenarios) {
-    const { button, probe } = fakeFooter(entries)
-    const fromModule = measureFooterLane(button, probe, fakeView)
-    const fromClient = inlined(button, probe)
-    assert.equal(fromClient.row, fromModule.row, JSON.stringify(entries))
-    assert.equal(fromClient.lane, fromModule.lane)
-    assert.equal(fromClient.wrapped, fromModule.wrapped)
-    assert.equal(fromClient.available, fromModule.available, JSON.stringify(entries))
-    assert.equal(fromClient.needed, fromModule.needed)
-    assert.equal(fromClient.wideOccupant, fromModule.wideOccupant, JSON.stringify(entries))
-    assert.equal(resolveFooterSize({ ...fromClient }), resolveFooterSize({ ...fromModule }))
-    assert.equal(needsFooterWrap({ ...fromClient }), needsFooterWrap({ ...fromModule }))
-    assert.equal(needsFooterWrap({ ...fromClient, wrapped: true }), needsFooterWrap({ ...fromModule, wrapped: true }))
-  }
+  assert.equal(bundle.includes('footerLaneFacts'), false, '旧的片段副本 footerLaneFacts 应已删除')
+  assert.match(bundle, /const facts = measureFooterLane\(button, probeRef\.current\);/, 'ImportButton 直接调用模块的量法')
 })
 
 test('occupiesFooterLane：浮层与零尺寸条目不占行内空间', () => {

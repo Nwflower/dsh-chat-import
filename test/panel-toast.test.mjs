@@ -92,7 +92,7 @@ test('官方 Toast 是 require 来的，且缺包时退回自绘横幅', () => {
   assert.notEqual(guardAt, -1, 'require 必须包在 try 里（旧宿主没有该包）')
   assert.match(source, /catch \{\s*\n\s*\/\/[^\n]*\n\s*HostToast = null;/, 'catch 要落到 HostToast = null')
   assert.match(source, /function FallbackToast\(/, '必须有无 primitives 时的自绘横幅')
-  assert.match(source, /React\.createElement\(FallbackToast/, 'HostToast 缺席时渲染自绘横幅')
+  assert.match(source, /\bh\(FallbackToast/, 'HostToast 缺席时渲染自绘横幅')
 })
 
 test('Toast 生命周期：显式给 holdMs，且新提示用 key 重开一条', () => {

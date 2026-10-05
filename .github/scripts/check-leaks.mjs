@@ -3,12 +3,13 @@
 // 背景：dev/ 虽被 gitignore，但「内容级泄漏」——内部项目名 / 绝对路径 / 凭据写进会发布的
 // 文件正文（如 docs/*.md 里引用内部项目路径）——gitignore 挡不住。本脚本做内容级扫描，分两层：
 //   1. 通用规则（本文件内置，可安全提交）：凭据模式（GitHub PAT / AWS key / PEM 私钥）、
-//      staged 路径命中 dev/（git add -f 误入库）。
+//      受版本管理的路径命中 dev/（git add -f 误入库）。
 //   2. 内部项目名黑名单：从 dev/leak-blocklist.txt（gitignore 本地文件）读取——黑名单本身
 //      绝不入库（入库即把内部项目存在性泄露到公开仓库）。CI 无此文件 → 自动跳过本层。
 //
 // 用法：
-//   node .github/scripts/check-leaks.mjs              # 扫仓库全部源文件（CI / 手动全量）
+//   node .github/scripts/check-leaks.mjs              # 扫受版本管理的全部文件（CI / 手动全量；
+//                                                     git ls-files，非 git 检出时退回遍历文件系统）
 //   node .github/scripts/check-leaks.mjs --staged     # 扫 git staged（本地 pre-commit）
 //   node .github/scripts/check-leaks.mjs --message <file>  # 扫待提交的提交信息（本地
 //                                                     commit-msg 钩子）。提交信息随仓库公开，
@@ -28,11 +29,22 @@ const messageArg = process.argv.indexOf('--message')
 const messagePath = messageArg >= 0 ? process.argv[messageArg + 1] : undefined
 
 // ── 待扫描文件集 ────────────────────────────────────────────────────────────
+// 遍历文件系统时跳过的本地目录（只在非 git 检出的回退路径上用到）
 const SKIP_DIRS = new Set(['.git', 'node_modules', 'dev', '.dsh-file-claim'])
 const SOURCE_RE = /\.(mjs|js|cjs|json|md|yml|yaml|ts|txt|sh)$/
+const isDevPath = (file) => file === 'dev' || file.startsWith('dev/')
 
 function git(args) {
   return execFileSync('git', args, { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] })
+}
+
+/** 受版本管理的文件（已提交 + 已 stage，git ls-files）；不在 git 检出里 / 没有 git 时返回 null。 */
+function trackedFiles() {
+  try {
+    return git(['ls-files', '-z']).split('\0').filter(Boolean)
+  } catch {
+    return null // 打包后的 tarball、git 缺失等：调用方退回遍历文件系统
+  }
 }
 
 function walkDir(dir, out) {
@@ -45,11 +57,17 @@ function walkDir(dir, out) {
   }
 }
 
+// 全量模式扫的是「受版本管理的文件」，而不是工作区里的文件：规则 1（dev/ 绝不入库）只在这份
+// 清单上有意义——dev/ 本来就躺在工作区里（gitignore），遍历文件系统时只能跳过它，规则永远
+// 不会触发。dev/ 下的条目不论扩展名都留给规则 1；其余只扫源文本类文件。非 git 检出时退回
+// 遍历文件系统（跳过 dev/ 等本地目录，规则 1 不适用——那里没有「入库」可言）。
 function targetFiles() {
   if (staged) {
     return git(['diff', '--cached', '--name-only', '--diff-filter=ACMR'])
       .trim().split(/\r?\n/).filter(Boolean)
   }
+  const tracked = trackedFiles()
+  if (tracked) return tracked.filter((file) => isDevPath(file) || SOURCE_RE.test(file))
   const out = []
   walkDir(root, out)
   return out
@@ -108,9 +126,9 @@ if (messagePath) {
   scanText('<commit message>', text)
 } else {
   for (const file of files) {
-    // 规则 1：dev/ 绝不入库（git add -f 误 stage）
-    if (file === 'dev' || file.startsWith('dev/')) {
-      problems.push(`${file}: dev/ 本地工程文件被 stage（gitignore 失效或被 -f 强制）——dev/ 绝不入库`)
+    // 规则 1：dev/ 绝不入库（git add -f 误 stage / 误提交）
+    if (isDevPath(file)) {
+      problems.push(`${file}: dev/ 本地工程文件受版本管理（gitignore 失效或被 -f 强制）——dev/ 绝不入库`)
       continue
     }
     let src

@@ -33,18 +33,18 @@
 
     // 会话条目唯一键（format + sourcePath + sessionId；\u0000 不在路径中出现）
     const itemKey = (s) => s.format + "\u0000" + s.sourcePath + "\u0000" + s.sessionId;
-    // 条目 → /api-import/import 的 items 项（client 来源 id + sourcePath + sessionId
-    // + cwd：转投 claude 时导出器需要 cwd 算项目 slug，发现条目上就有）
     // 列表累积的去重合并（同键保留后到的那条）：宿主分块重发、同一会话在 DSH 里两代各一份、
     // 或扫描器重复产出，都不会让列表出现「成对的行」——那种行还共享 hover/选中态（两者按
     // itemKey 索引），看起来像鬼影。sort 为真时按时间倒序（扫描完成时一次排序）。
     const mergeItems = (prev, batch, sort) => {
-      const byKey = new Map(prev.map((s) => [itemKey(s), s]))
-      for (const s of batch) byKey.set(itemKey(s), s)
-      const merged = [...byKey.values()]
-      return sort ? merged.sort(byTimeDesc) : merged
-    }
+      const byKey = new Map(prev.map((s) => [itemKey(s), s]));
+      for (const s of batch) byKey.set(itemKey(s), s);
+      const merged = [...byKey.values()];
+      return sort ? merged.sort(byTimeDesc) : merged;
+    };
 
+    // 条目 → /api-import/import 的 items 项（client 来源 id + sourcePath + sessionId
+    // + cwd：转投 claude 时导出器需要 cwd 算项目 slug，发现条目上就有）
     const toItem = (s) => ({
       source: FORMAT_SOURCE[s.format] || s.format,
       sourcePath: s.sourcePath,
@@ -211,15 +211,37 @@
       }
     };
 
+    // 面板 → 宿主 /api-import/* 路由的统一 POST：JSON 请求体 + 健壮解析（默认 readJson；
+    // 扫描传 parsePanelResponse 走 Worker）。返回 { ok, data, error, status }：ok = 响应体
+    // ok === true；error = 服务端给的 error 文本（没有为 null，调用方各自套兜底文案）；status =
+    // HTTP 状态码。请求本身失败（网络中断 / 连接被拒 / 读响应体中断）照常 reject，由调用方
+    // 按各自口径报错（errorText 取可读消息）。
+    async function postJson(path, body, parse = readJson) {
+      const resp = await fetch(path, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body === undefined ? {} : body),
+      });
+      const data = await parse(resp);
+      return {
+        ok: !!data && data.ok === true,
+        data,
+        error: data && typeof data.error === "string" && data.error ? data.error : null,
+        status: resp.status,
+      };
+    }
+    // 异常 → 可读文本（Error 取 message，其余原样转字符串）
+    const errorText = (err) => String((err && err.message) || err);
+
     function Toggle({ on, onChange, colors }) {
-      return React.createElement("button", {
+      return h("button", {
         type: "button",
         onClick: () => onChange(!on),
         style: {
           width: "40px", height: "22px", borderRadius: "999px", border: "none", cursor: "pointer",
           background: on ? colors.accent : colors.border, position: "relative", flex: "none",
         },
-      }, React.createElement("span", {
+      }, h("span", {
         style: {
           position: "absolute", top: "2px", left: on ? "20px" : "2px", width: "18px", height: "18px",
           borderRadius: "50%", background: colors.accentForeground, transition: "left .12s ease",

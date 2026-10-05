@@ -18,7 +18,7 @@
           .catch(() => {});
         return () => { sidebarButtonListeners.delete(listener); };
       }, []);
-      // 形态：'share' / 'icon' / 'row'（判定见 lib/footer-layout.mjs）。首帧按共享一行
+      // 形态：'share' / 'icon' / 'row'（判定见内联的 lib/footer-layout.mjs）。首帧按共享一行
       // 渲染，mount 后立刻按实测宽度修正（两种形态同高，不留可见跳动）。
       const [mode, setMode] = useState("share");
       // 观测面只有「本按钮 + 它所在的那条渲染行」：ResizeObserver 跟行/按钮尺寸变化
@@ -35,7 +35,7 @@
         let ro = null;
         let mo = null;
         const check = () => {
-          const facts = footerLaneFacts(button, probeRef.current);
+          const facts = measureFooterLane(button, probeRef.current);
           const next = resolveFooterSize({ rail, ...facts });
           // 连 36px 图标都放不下（同槽有不可收缩的整宽条目）→ 把行换成 wrap、自己独占
           // 一行（0.10.1 起对整宽占用者的既有处理），让 footArea 高度随内容增长。判定用
@@ -129,7 +129,7 @@
       };
       const hoverBg = "var(--dsw-alias-interactive-bg-hover)";
       if (!visible) return null;
-      return React.createElement("button", {
+      return h("button", {
         ref: buttonRef,
         style: triggerStyle, title: t("trigger.title"),
         "aria-label": t("trigger.label"),
@@ -143,13 +143,13 @@
         onMouseEnter: (e) => { e.currentTarget.style.background = hoverBg; },
         onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; },
       },
-        React.createElement(LogoIcon, { size: iconOnly ? 18 : 16 }),
+        h(LogoIcon, { size: iconOnly ? 18 : 16 }),
         !iconOnly && label,
         // 完整形态宽度镜像：绝对定位 + hidden，但仍参与布局计算——判定用的 needed
         // 取自它，因此与按钮当前形态无关（缩成图标后仍能算出「文字形态需要多宽」）。
-        React.createElement("span", { ref: probeRef, "aria-hidden": true, style: FOOTER_PROBE_STYLE },
-          React.createElement(LogoIcon, { size: 16 }),
-          React.createElement("span", null, label)));
+        h("span", { ref: probeRef, "aria-hidden": true, style: FOOTER_PROBE_STYLE },
+          h(LogoIcon, { size: 16 }),
+          h("span", null, label)));
     }
 
     const name = "import-claude";
