@@ -10,6 +10,9 @@ import { apply } from '../lib/index.mjs'
 import { resolveRegistryDir } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { importGrokbuildDirectory } from '../lib/import-variants.mjs'
+import { restoreBundle } from '../lib/restore.mjs'
+import { convertClaudeJsonl } from '../lib/convert/index.mjs'
+import { serializeBundle } from '../lib/export/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 
 beforeEach(() => {
@@ -152,4 +155,78 @@ test('批量计数：vibe 目录批量的结果条目带 path、符合 import_ch
   assert.equal(value.imported, 2)
   assert.ok(value.results.every((r) => typeof r.path === 'string' && r.path.startsWith(root)))
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+})
+
+// ── 落盘选项与转换收尾：特殊形态来源与标准来源同口径 ─────────────────────────
+
+const PNG_B64 = 'iVBORw0KGgoAAAANSUhEUg=='
+
+// Kimi 会话目录：一轮「截图工具调用 → 结果里带一张 data URL 图片」。
+function kimiSessionDir(root, id) {
+  const dir = join(root, 'sessions', 'wd-hash', id)
+  mkdirSync(dir, { recursive: true })
+  const recs = [
+    { type: 'TurnBegin', payload: { user_input: '截个图看看' } },
+    { type: 'StepBegin', payload: { n: 1 } },
+    { type: 'ToolCall', payload: { type: 'function', id: 'call_img', function: { name: 'Shot', arguments: '{}' } } },
+    { type: 'ToolResult', payload: { tool_call_id: 'call_img', return_value: { is_error: false, output: [{ type: 'image_url', imageUrl: { url: 'data:image/png;base64,' + PNG_B64 } }], message: '', display: [] } } },
+    { type: 'TextPart', payload: { text: '看到了。' } },
+    { type: 'TurnEnd', payload: {} },
+  ]
+  const lines = ['{"type":"metadata","protocol_version":"1"}']
+  recs.forEach((r, i) => lines.push(JSON.stringify({ timestamp: 1776162400 + i, message: r })))
+  writeFileSync(join(dir, 'wire.jsonl'), lines.join('\n'))
+  writeFileSync(join(dir, 'state.json'), JSON.stringify({ version: 1, cwd: hostAbs('D:/demo/kimi') }))
+  return dir
+}
+
+test('storeImages:false 对特殊形态来源同样生效（kimi 会话目录：不写附件，只留占位并计数）', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'kimi-img-'))
+  const dir = kimiSessionDir(root, 'sess-img')
+  let saves = 0
+  const attachments = { async saveImage() { saves++; return { attachmentId: 'sha256:k', mediaType: 'image/png', bytes: 1, width: 1, height: 1 } } }
+  const { ctx, persistence, chat } = makeCtx({ services: { attachments } })
+  apply(ctx)
+  const value = await chat('kimi').execute({ path: dir, storeImages: false })
+  assert.equal(value.status, 'imported')
+  assert.equal(saves, 0, '未调用附件服务')
+  assert.equal(value.images, undefined)
+  assert.equal(value.imagesDegraded, 1)
+  const flat = JSON.stringify(persistence.sessions.get('import-sess-img').events)
+  assert.ok(!flat.includes(PNG_B64), 'base64 永不进日志')
+})
+
+test('restamp:true 对特殊形态来源同样生效（grokbuild 会话目录：时间平移到当前）', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'grok-restamp-'))
+  const dir = join(root, 'g-restamp')
+  grokSession(dir, 'g-restamp', 1)
+  const { ctx, persistence, chat } = makeCtx()
+  apply(ctx)
+  const before = Date.now()
+  const value = await chat('grokbuild').execute({ path: dir, restamp: true })
+  assert.equal(value.status, 'imported')
+  const saved = persistence.sessions.get('import-g-restamp')
+  assert.ok(saved.meta.createdAt >= before - 1000, '会话创建时间已平移到导入时刻')
+})
+
+test('bundle 还原同样比对预算：bundle 未变但预算变 → 跳过并点名 budgetChanged', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bundle-budget-'))
+  const sid = 'sess-bundle-budget'
+  const conv = convertClaudeJsonl([
+    { sessionId: sid, type: 'user', cwd: hostAbs('D:/demo/bundle'), message: { role: 'user', content: '问题' } },
+    { sessionId: sid, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答' }] } },
+  ].map((r) => JSON.stringify(r)).join('\n'), {})
+  const path = join(dir, sid + '.dshbundle.json')
+  writeFileSync(path, JSON.stringify(serializeBundle({ meta: conv.meta, events: conv.events, sourceSessionId: sid })))
+  const { ctx } = makeCtx()
+  const registryDir = resolveRegistryDir()
+  const first = await restoreBundle(ctx, { path, budget: 100000 }, { registryDir })
+  assert.equal(first.status, 'imported')
+  const second = await restoreBundle(ctx, { path, budget: 200000 }, { registryDir })
+  assert.equal(second.status, 'already-imported')
+  assert.equal(second.budgetChanged, true)
+  // 未给预算口径（restore_bundle 工具不解析预算）时不比对，照常按 bundle 未变跳过
+  const third = await restoreBundle(ctx, { path }, { registryDir })
+  assert.equal(third.status, 'already-imported')
+  assert.equal(third.budgetChanged, undefined)
 })
