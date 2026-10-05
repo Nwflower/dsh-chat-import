@@ -8,7 +8,7 @@ import assert from 'node:assert/strict'
 import { join } from 'node:path'
 import { spawnSync } from 'node:child_process'
 import { discoverSessions, clearScanCache, clearInflightScans, FORMATS, defaultRoots, layoutProject } from '../lib/discovery.mjs'
-import { SOURCES } from '../lib/discovery/registry.mjs'
+import { SOURCES, fileFormatsForPath } from '../lib/discovery/registry.mjs'
 import { DB_SUMMARY_FORMATS } from '../lib/discovery-host.mjs'
 import { memoryHost, withDirs } from './_support/discovery-host.mjs'
 
@@ -92,4 +92,28 @@ test('import lib/discovery.mjs 不加载 node:sqlite', () => {
   assert.equal(res.status, 0, res.stderr)
   assert.deepEqual(JSON.parse(res.stdout), [])
   assert.ok(!/SQLite is an experimental feature/.test(res.stderr), res.stderr)
+})
+
+// 单文件判格式由描述符的 matchFile / fileFallback 派生：独占特征直接定格式，普通特征可多选，
+// 全不命中按扩展名组兜底。两种分隔符都认。
+test('fileFormatsForPath：独占 / 多候选 / 扩展名兜底', () => {
+  const cases = [
+    ['/h/.dsh/sessions/--w--/s1/session.v3.jsonl', ['dsh']],
+    ['D:\\h\\.dsh\\sessions\\--w--\\s1\\session.v4.jsonl.zstd', ['dsh4']],
+    ['/h/.continue/sessions/abc.json', ['continue']],
+    ['/h/.cline/data/sessions/s1/s1.messages.json', ['cline']],
+    ['C:\\Users\\u\\AppData\\Roaming\\Code\\User\\globalStorage\\saoudrizwan.claude-dev\\tasks\\t1\\api_conversation_history.json', ['cline']],
+    ['C:\\Users\\u\\AppData\\Roaming\\Trae CN\\User\\workspaceStorage\\abc\\state.vscdb', ['trae']],
+    ['/h/.local/share/goose/sessions/sessions.db', ['cline', 'goose']],
+    ['/h/.local/share/kilo/kilo.db', ['kilocode']],
+    ['/h/.zcode/cli/db/db.sqlite', ['zcode']],
+    ['/h/.hermes/state.db', ['hermes']],
+    ['/h/.codex/sessions/2026/09/14/rollout-2026-09-14T10-54-33-x.jsonl', ['codex']],
+    ['/h/.qoder/projects/p/s.jsonl', ['qoder']],
+    ['/tmp/random/export.jsonl', ['claude', 'codex', 'cursor', 'reasonix', 'openclaw', 'hermes']],
+    ['/tmp/random/export.json', ['gemini', 'chatgpt']],
+    ['/tmp/random/other.db', ['opencode', 'zcode', 'hermes']],
+    ['/tmp/random/notes.txt', []],
+  ]
+  for (const [path, want] of cases) assert.deepEqual(fileFormatsForPath(path), want, path)
 })
