@@ -12,6 +12,9 @@ import { resolveRegistryDir } from '../lib/imports.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { importGrokbuildDirectory } from '../lib/import-variants.mjs'
 import { restoreBundle } from '../lib/restore.mjs'
+import { importMultiSource } from '../lib/import-core.mjs'
+import { batchItem } from '../lib/import-batch.mjs'
+import { IMPORT_OUTPUT_SCHEMA } from '../lib/tools/schema.mjs'
 import { convertClaudeJsonl } from '../lib/convert/index.mjs'
 import { serializeBundle } from '../lib/export/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
@@ -301,4 +304,45 @@ test('bundle 未变的重复还原不读文件、不重算指纹（registry 短�
   const again = await restoreBundle(ctx, { path }, { registryDir })
   assert.equal(again.status, 'already-imported')
   assert.equal(reads, 0, '未变的 bundle 不读')
+})
+
+// ── 结构校验报告的透出路径（runDecision 的 validation）─────────────────────────
+
+test('多会话源落盘事件校验失败：validation 摊到批量顶层，结果仍符合 import_chat 批量 schema', async () => {
+  const { ctx } = makeCtx()
+  const registryDir = resolveRegistryDir()
+  const target = { targetKey: join(tmpdir(), 'no-such-fake.db'), displayPath: join(tmpdir(), 'no-such-fake.db') }
+  // seq 连续（假宿主在写盘侧只拦 seq 断档）但带未知事件类型：runDecision 的 check() 必报 unknown-type
+  const badEvents = [
+    { seq: 0, type: 'user/message', surfaceOp: 'append', data: { role: 'user', content: [{ type: 'text', text: '问' }] } },
+    { seq: 1, type: 'bogus/thing', data: {} },
+  ]
+  const result = await importMultiSource(ctx, target, {}, {
+    sourcePath: target.displayPath,
+    registryDir,
+    importFormat: 'fake',
+    load: async () => ({
+      total: 1,
+      items: [{
+        key: 's1',
+        converted: { meta: { id: 'import-fake-s1', createdAt: 1 }, events: badEvents, turns: [{}], messages: 1, toolCalls: 0, skipped: 0 },
+      }],
+    }),
+  })
+  assert.equal(result.imported, 1)
+  assert.equal(result.validation.ok, false, '校验失败必须大声摊到批量顶层')
+  assert.ok(result.validation.problems.some((p) => p.kind === 'unknown-type'))
+  // 与工具出口同形态（runImportSpec 加 mode:'batch'）：宿主按 schema 校验返回值，
+  // 顶层 validation 漏声明会让整次导入判失败
+  assert.deepEqual(validateJsonSchemaValue(IMPORT_OUTPUT_SCHEMA, { mode: 'batch', ...result }), [])
+})
+
+test('目录批量条目透出 validation / staleRegistry（batchItem 白名单）', () => {
+  const item = batchItem('p', {
+    status: 'imported', sessionId: 's', turns: 1, messages: 1, toolCalls: 0, skipped: 0,
+    validation: { ok: false, problems: [{ kind: 'seq-gap', seq: 3, message: 'seq 不连续' }] },
+    staleRegistry: { previous: 'old-id', reason: 'session-log-missing' },
+  })
+  assert.equal(item.validation.ok, false, '单文件结果的结构校验报告不得被批量条目静默丢掉')
+  assert.equal(item.staleRegistry.previous, 'old-id')
 })

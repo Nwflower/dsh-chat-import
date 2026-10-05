@@ -311,6 +311,8 @@ export interface BatchImportResult {
   workspaceMode?: string
   workspaceCreated?: boolean
   ungroupedReason?: string
+  /** 多会话源的落盘结构校验报告摊平在顶层（目录批量逐文件的在对应条目上）。 */
+  validation?: ValidationReport
   results: BatchItemResult[]
 }
 
