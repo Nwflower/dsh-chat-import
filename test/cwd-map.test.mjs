@@ -5,6 +5,7 @@ import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
 import { slugifyClaudeCwd, decodeClaudeSlug, isHomePath, resolveClaudeCwd, greedyDecodeSlugPath, encodeCursorSlug, resolveCursorSlugPath, greedyDecodeCursorSlugPath, parseCursorEmbeddedTimestamp, stripCursorTitleDecorations, isCursorNonRepoSlug, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
+import { makeFs } from './_support/fake-host.mjs'
 
 test('slugifyClaudeCwd / decodeClaudeSlug: 编码往返 + 中文路径 + 盘符边界', () => {
   const cwd = 'C:\\Users\\示例用户\\my-proj'
@@ -26,23 +27,8 @@ test('isHomePath: 主目录（含尾斜杠/大小写变体）判定，非主目�
   assert.equal(isHomePath(''), false)
 })
 
-function makeFsTree(tree) {
-  const norm = (p) => String(p).replace(/\\/g, '/')
-  return {
-    fs: {
-      async resolve(path) { return { targetKey: path, displayPath: path } },
-      async stat(target) {
-        const v = tree[target.targetKey] ?? tree[norm(target.targetKey)] ?? tree[norm(target.targetKey).replace(/\//g, '\\')]
-        return v === undefined ? undefined : { type: v === 'dir' ? 'directory' : 'file', size: 1, version: 'v' }
-      },
-      async readText(target) {
-        const v = tree[target.targetKey] ?? tree[norm(target.targetKey)]
-        if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND')
-        return v
-      },
-    },
-  }
-}
+// 只有内存树 fs 的 ctx（不回退真实磁盘：主目录下的真实 ~/.claude.json 不得干扰断言）。
+const makeFsTree = (tree) => ({ fs: makeFs(tree, { real: false }) })
 
 test('resolveClaudeCwd: ~/.claude.json projects 权威映射（精确 / basename / 下划线变体）', async () => {
   const home = homedir().replace(/[\\/]+$/, '')

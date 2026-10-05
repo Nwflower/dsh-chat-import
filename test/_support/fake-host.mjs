@@ -27,8 +27,9 @@
 //     versions = {}             钉住某路径的 stat version（模拟「内容变而 fs 版本不变」）
 //     caseInsensitive = false   树查找忽略大小写（Windows 盘符 / 目录大小写变体）
 //     readOnly = false          writeText 一律抛错
+//     writeThrough = false      writeText 真落盘（自动建父目录），用例直接到磁盘上验收产物
 //     返回的 fs 另带观测面：writes（writeText 记录 { path, content, options }）、reads.count
-//     （readText 次数）、lookup(path)（树查找）。writeText 写回 tree（内存覆盖层，不落盘）；
+//     （readText 次数）、lookup(path)（树查找）。writeText 缺省写回 tree（内存覆盖层，不落盘）；
 //     createIfAbsent 对已存在路径抛 EEXIST。
 //   forbiddenFs()               任何方法被取用即记录并在调用时抛错的 fs（断言「全程不碰 fs」）。
 //   makeWorkspaceRegistry(opts) resolveByPath / create / archivedSessionIds / archiveSession；
@@ -53,8 +54,8 @@
 //     on(event, handler) 记进 listeners（Map<event, handler[]>），用例可自行触发。
 //   toolDef(ctx, name)          取回注册的工具定义；chatDef(ctx, format) / exportDef(ctx, format)
 //                               是 import_chat / export_chat 分发器的「绑定 format」形态。
-import { readFileSync, readdirSync, statSync } from 'node:fs'
-import { join } from 'node:path'
+import { mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
 
 // ── sessionPersistence ──────────────────────────────────────────────
 
@@ -188,7 +189,7 @@ function realStat(path) {
   return { type: 'file', size: s.size, mtimeMs: s.mtimeMs, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
 }
 
-export function makeFs(tree = {}, { real = 'stat', versions = {}, caseInsensitive = false, readOnly = false } = {}) {
+export function makeFs(tree = {}, { real = 'stat', versions = {}, caseInsensitive = false, readOnly = false, writeThrough = false } = {}) {
   const writes = []
   const reads = { count: 0 }
   const keyOf = caseInsensitive ? (p) => toSlash(p).toLowerCase() : toSlash
@@ -258,10 +259,15 @@ export function makeFs(tree = {}, { real = 'stat', versions = {}, caseInsensitiv
     async writeText(target, content, options) {
       if (readOnly) throw new Error('read-only')
       const path = target.targetKey
-      if (options && options.kind === 'createIfAbsent' && (lookup(path) !== undefined || (real === true && realStat(path)))) {
+      if (options && options.kind === 'createIfAbsent' && (lookup(path) !== undefined || ((real === true || writeThrough) && realStat(path)))) {
         throw Object.assign(new Error('EEXIST ' + path), { code: 'EEXIST' })
       }
-      tree[path] = content
+      if (writeThrough) {
+        mkdirSync(dirname(path), { recursive: true })
+        writeFileSync(path, content, 'utf8')
+      } else {
+        tree[path] = content
+      }
       writes.push({ path, content, options })
       return { path }
     },
