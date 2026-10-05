@@ -18,7 +18,7 @@
           .catch(() => {});
         return () => { sidebarButtonListeners.delete(listener); };
       }, []);
-      // 形态：'share' / 'icon' / 'row'（判定见 lib/footer-layout.mjs）。首帧按共享一行
+      // 形态：'share' / 'icon' / 'row'（判定见内联的 lib/footer-layout.mjs）。首帧按共享一行
       // 渲染，mount 后立刻按实测宽度修正（两种形态同高，不留可见跳动）。
       const [mode, setMode] = useState("share");
       // 观测面只有「本按钮 + 它所在的那条渲染行」：ResizeObserver 跟行/按钮尺寸变化
@@ -35,7 +35,7 @@
         let ro = null;
         let mo = null;
         const check = () => {
-          const facts = footerLaneFacts(button, probeRef.current);
+          const facts = measureFooterLane(button, probeRef.current);
           const next = resolveFooterSize({ rail, ...facts });
           // 连 36px 图标都放不下（同槽有不可收缩的整宽条目）→ 把行换成 wrap、自己独占
           // 一行（0.10.1 起对整宽占用者的既有处理），让 footArea 高度随内容增长。判定用

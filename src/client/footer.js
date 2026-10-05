@@ -84,8 +84,8 @@
       };
     }
 
-    /** 触发按钮：三种形态按可用宽度自适应（判定纯函数见 lib/footer-layout.mjs，
-     * bundle 不做构建、只能内联同款副本）。
+    /** 触发按钮：三种形态按可用宽度自适应（量法 measureFooterLane 与判定 resolveFooterSize /
+     * needsFooterWrap 都在 lib/footer-layout.mjs，构建时原样内联进 bundle，与测试同一份）。
      *
      * footer 槽是宿主 ui-sidebar 的一条不换行 flex 行（`.footerActions`），同槽条目之间
      * 抢这条行。此前按①选择器白名单认「占用者是谁」②按 `[data-slot=...]` 槽元素内容被裁
@@ -108,106 +108,10 @@
      * 「不换行时能分到多少」的反事实口径，因此在「已注入 wrap → 空间仍不足」之间稳定。
      * 样式对齐设置按钮（透明底、12px 圆角、16px 图标 + 文字、悬停浅底），图标用插件 logo。
      */
-    /** 图标形态宽度（与 rail 态同款 36×36 圆钮；与 lib/footer-layout.mjs 同步） */
-    const FOOTER_ICON_WIDTH = 36;
-    /** 完整形态左右内边距之和（对齐「设置」按钮 padding: 0 10px 0 8px） */
-    const FOOTER_LABEL_PADDING = 18;
     /** 量「完整形态需要多宽」的隐藏镜像：脱离文档流 + visibility:hidden（仍参与布局计算）
      * + max-content 宽，因此与按钮当前形态/宽度无关。 */
     const FOOTER_PROBE_STYLE = {
       position: "absolute", visibility: "hidden", pointerEvents: "none",
       width: "max-content", display: "flex", alignItems: "center", gap: "8px",
       fontSize: "14px", lineHeight: "22px", left: 0, top: 0,
-    };
-    // —— 与 lib/footer-layout.mjs 同步的判定副本（bundle 不 import 模块，各存一份）——
-    /** 「整宽条目」判据：同槽条目占到半行以上（半宽入口如 78px 的「检查更新」远低于此线） */
-    const FOOTER_WIDE_OCCUPANT_RATIO = 0.5;
-    /** 行内条目是否占位：浮层（fixed/absolute）不占行内空间，零尺寸条目（隐藏）不计 */
-    const occupiesFooterLane = (entry) => !!entry
-      && entry.position !== "fixed" && entry.position !== "absolute"
-      && entry.width > 0 && entry.height > 0;
-    /** 同槽条目是否本来就是「整宽条目」：与本按钮同处一行只会互相压扁，该换行各占一行 */
-    const claimsFooterRow = (entry, rowWidth) => !!entry
-      && Number.isFinite(rowWidth) && rowWidth > 0
-      && entry.width >= rowWidth * FOOTER_WIDE_OCCUPANT_RATIO;
-    /** 行内还剩多少宽度给本按钮（量不到行宽返回 NaN，调用方按「维持现状」处理） */
-    const footerLaneAvailable = ({ rowWidth, padding = 0, occupiedWidth = 0, gap = 0, itemCount = 1 }) => (Number.isFinite(rowWidth)
-      ? rowWidth - padding - occupiedWidth - gap * Math.max(0, itemCount - 1)
-      : NaN);
-    /** 形态：'share'（与同槽共享一行）| 'icon'（36×36 圆钮）| 'row'（整宽自占一行） */
-    const resolveFooterSize = (facts) => {
-      if (facts.rail === true) return "icon";
-      if (facts.lane !== true || facts.wrapped === true) return "row";
-      const available = Number(facts.available);
-      const needed = Number(facts.needed);
-      // 量不到（未挂载 / 镜像未渲染）→ 维持共享一行的既有形态
-      if (!Number.isFinite(available) || !Number.isFinite(needed) || needed <= 0) return "share";
-      return available >= needed ? "share" : "icon";
-    };
-    /** 是否要把宿主行换成 wrap 让各方各占一整行：同槽有整宽条目而本按钮放不下，或连
-     * 36px 图标都放不下（反事实口径，因此在「已注入 wrap → 空间仍不足」之间稳定） */
-    const needsFooterWrap = (facts) => {
-      if (facts.rail === true || facts.lane !== true) return false;
-      const available = Number(facts.available);
-      if (!Number.isFinite(available)) return false;
-      if (available < FOOTER_ICON_WIDTH) return true;
-      const needed = Number(facts.needed);
-      if (Number.isFinite(needed) && needed > 0 && available >= needed) return false;
-      return facts.wideOccupant === true;
-    };
-    /** 量出本按钮所在的 footer 行：{ row, lane, wrapped, available, needed, wideOccupant }。
-     * 锚点是本按钮自己（ref）——`[data-slot=...]` 槽出口是 display:contents 外壳、没有
-     * 盒子，量不到任何东西（见 lib/footer-layout.mjs 的说明）。向上找第一条 flex 行时
-     * 跳过 display:contents 外壳（多级嵌套也跳过）与单子元素的普通包裹层；行内条目经
-     * 同款展开收集（跳过浮层 / 零尺寸 / 本按钮所在条目），并回报同槽是否有整宽条目。
-     * `lane` 表示这条行是横向的：纵排容器（issue #25）与换行容器都如实回报，判定侧按
-     * 「不换行时能分到多少」的反事实口径使用。 */
-    const footerLaneFacts = (button, probe) => {
-      const facts = { row: null, lane: false, wrapped: false, available: NaN, needed: NaN, wideOccupant: false };
-      if (!button || typeof getComputedStyle !== "function") return facts;
-      const probeRect = probe && probe.getBoundingClientRect();
-      if (probeRect && probeRect.width > 0) facts.needed = probeRect.width + FOOTER_LABEL_PADDING;
-      let node = button;
-      while (node && node.parentElement) {
-        const row = node.parentElement;
-        const cs = getComputedStyle(row);
-        if (cs.display === "contents") { node = row; continue; }
-        if (cs.display !== "flex" && cs.display !== "inline-flex") {
-          // 单子元素的普通包裹层不是行本身，真正的行还在上面
-          if (row.children.length === 1) { node = row; continue; }
-          return facts;
-        }
-        facts.row = row;
-        facts.lane = cs.flexDirection.startsWith("row");
-        facts.wrapped = cs.flexWrap !== "nowrap";
-        if (!facts.lane) return facts;
-        let occupiedWidth = 0;
-        let itemCount = 1; // 本按钮自己
-        let wideOccupant = false;
-        const collect = (container) => {
-          for (const child of container.children) {
-            const childCs = getComputedStyle(child);
-            // 槽出口（display:contents）把条目摊进行里：继续展开，别把它当成一个条目
-            if (childCs.display === "contents") { collect(child); continue; }
-            if (child.contains(button)) continue; // 本按钮所在的条目（含包裹层）不算「其它」
-            const rect = child.getBoundingClientRect();
-            if (!occupiesFooterLane({ position: childCs.position, width: rect.width, height: rect.height })) continue;
-            const marginBox = rect.width + (parseFloat(childCs.marginLeft) || 0) + (parseFloat(childCs.marginRight) || 0);
-            occupiedWidth += marginBox;
-            itemCount += 1;
-            if (claimsFooterRow({ width: marginBox }, row.clientWidth)) wideOccupant = true;
-          }
-        };
-        collect(row);
-        facts.wideOccupant = wideOccupant;
-        facts.available = footerLaneAvailable({
-          rowWidth: row.clientWidth,
-          padding: (parseFloat(cs.paddingLeft) || 0) + (parseFloat(cs.paddingRight) || 0),
-          occupiedWidth,
-          gap: parseFloat(cs.columnGap) || 0,
-          itemCount,
-        });
-        return facts;
-      }
-      return facts;
     };

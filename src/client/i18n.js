@@ -1,36 +1,7 @@
     // 面板文案字典（自有 ns "chat-import"；zh 为现状中文，en 为翻译）。
     // 查键链：chat-import → chat-import.zh → common → 键本身（locale 服务负责）。
     const LOCALE_NS = "chat-import";
-    // 未分组桶的稳定键（排序钉最后；显示时经 t("noWorkspace") 翻译）
-    const NO_WORKSPACE_KEY = "__no_workspace__";
-    // 与 lib/panel-filter.mjs 同步：工作区筛选键 / 过滤
-    const workspaceKey = (s) => (s && s.project ? s.project : NO_WORKSPACE_KEY);
-    const filterByWorkspace = (list, ws) => (!ws ? list : list.filter((s) => workspaceKey(s) === ws));
-    // 工作区下拉的选项：key/latest 供排序与过滤，path 是该组里最新会话的绝对路径
-    //（discovery 的 project 通常只是文件夹名，下拉里用更淡的字把它后面的路径画出来；
-    // 同名不同路径时以最活跃的那个会话为准）。
-    const buildWorkspaceOptions = (list) => {
-      const map = new Map();
-      for (const s of list) {
-        const key = workspaceKey(s);
-        const t0 = (typeof s.lastActiveAt === "number" ? s.lastActiveAt : 0) || (typeof s.createdAt === "number" ? s.createdAt : 0);
-        const prev = map.get(key);
-        if (!prev) {
-          map.set(key, { key, latest: t0, at: t0, path: typeof s.cwd === "string" ? s.cwd : "" });
-        } else {
-          prev.latest = Math.max(prev.latest, t0);
-          if (t0 >= prev.at) {
-            prev.at = t0;
-            prev.path = typeof s.cwd === "string" ? s.cwd : "";
-          }
-        }
-      }
-      return [...map.values()].sort((a, b) => {
-        if (a.key === NO_WORKSPACE_KEY) return 1;
-        if (b.key === NO_WORKSPACE_KEY) return -1;
-        return (b.latest - a.latest) || String(a.key).localeCompare(String(b.key));
-      });
-    };
+    // 工作区键的显示名（NO_WORKSPACE_KEY / workspaceKey 等筛选纯函数内联自 lib/panel-filter.mjs）
     const workspaceLabel = (key, tr) => (key === NO_WORKSPACE_KEY ? tr("noWorkspace") : key);
     const DICT = {
       zh: {
