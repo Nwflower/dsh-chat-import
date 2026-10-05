@@ -6,6 +6,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFile } from 'node:fs/promises'
 import { convertGenericJson, sniffInterchangeMarker } from '../lib/convert/generic.mjs'
+import { validateSessionEvents } from '../lib/convert/core.mjs'
 import { convertLocalJsonl } from '../lib/convert/local-jsonl.mjs'
 
 const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
@@ -127,6 +128,86 @@ test('generic：toolCalls 缺列表时从 content 的 tool-call 块派生；压�
   const userMsgs = out.events.filter((e) => e.type === 'user/message' && e.data.source && e.data.source.kind === 'user')
   assert.equal(userMsgs.length, 1)
   assert.equal(userMsgs[0].data.content[0].text, '旧问')
+})
+
+test('generic：step content 里的 tool-result 块派生进 toolResults，正文不留包装（issue #77）', () => {
+  const out = convertGenericJson(JSON.stringify(doc({
+    turns: [{
+      prompt: '搜一下',
+      steps: [{
+        content: [
+          { type: 'text', text: '查' },
+          { type: 'tool-call', id: 'c1', name: 'web_search', arguments: { q: 'x' } },
+          { type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: '命中 3 条' }], isError: false },
+        ],
+      }],
+    }],
+  })))
+  // 正文里的 tool-call / tool-result 块都按 id 派生：调用与结果各一条，配对不变量成立
+  assert.equal(out.toolCalls, 1)
+  assert.equal(out.skippedBlocks, 0)
+  assert.equal(out.droppedToolResults, 0)
+  const assistant = out.events.find((e) => e.type === 'assistant/message')
+  assert.ok(!assistant.data.message.content.some((b) => b.type === 'tool-result'), '正文不得残留结果包装')
+  const call = out.events.find((e) => e.type === 'tool/call')
+  const result = out.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.sourceEventSeqs, [call.seq])
+  assert.equal(result.data.message.content[0].toolCallId, 'c1')
+  assert.equal(result.data.message.content[0].content[0].text, '命中 3 条')
+  // 校验层不点名：写侧已无宿主 V4 codec 拒载的 tool-result 包装
+  assert.equal(validateSessionEvents(out.events).ok, true)
+})
+
+test('generic：显式 toolResults 与 content 结果块按 toolCallId 去重，显式列表优先', () => {
+  const out = convertGenericJson(JSON.stringify(doc({
+    turns: [{
+      prompt: 'p',
+      steps: [{
+        content: [
+          { type: 'tool-call', id: 'c1', name: 'read', arguments: '{}' },
+          { type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: '来自正文' }] },
+        ],
+        toolResults: [{ toolCallId: 'c1', content: [{ type: 'text', text: '来自列表' }] }],
+      }],
+    }],
+  })))
+  const results = out.events.filter((e) => e.type === 'tool/result')
+  assert.equal(results.length, 1)
+  assert.equal(results[0].data.message.content[0].content[0].text, '来自列表')
+  // 派生去重不是「重复结果」降级（计数留给合成层对显式重复的口径）
+  assert.equal(out.duplicateToolResults, undefined)
+})
+
+test('generic：content 结果块受配对不变量约束；错位结果块（promptBlocks / 结果内层）丢弃计数', () => {
+  const out = convertGenericJson(JSON.stringify(doc({
+    turns: [{
+      prompt: 'p',
+      promptBlocks: [
+        { type: 'text', text: 'p' },
+        { type: 'tool-result', toolCallId: 'c9', content: [{ type: 'text', text: '错位' }] },
+      ],
+      steps: [{
+        content: [
+          { type: 'tool-call', id: 'c1', name: 'read', arguments: '{}' },
+          { type: 'tool-result', toolCallId: 'orphan', content: [{ type: 'text', text: '无调用' }] },
+        ],
+        toolResults: [{
+          toolCallId: 'c1',
+          content: [
+            { type: 'text', text: '正常' },
+            { type: 'tool-result', toolCallId: 'c2', content: [{ type: 'text', text: '嵌套' }] },
+          ],
+        }],
+      }],
+    }],
+  })))
+  // promptBlocks 1 个 + 结果内层 1 个：无处安放的结果块丢弃并计入 skippedBlocks
+  assert.equal(out.skippedBlocks, 2)
+  // content 派生出的结果没有对应调用 → 与显式孤儿结果同口径丢弃计数
+  assert.equal(out.droppedToolResults, 1)
+  const results = out.events.filter((e) => e.type === 'tool/result')
+  assert.equal(results.length, 1)
+  assert.equal(results[0].data.message.content[0].content[0].text, '正常')
 })
 
 test('三级探测：内容标记优先（detectedBy=marker），强制格式报 override 并把失败摊开', () => {

@@ -180,6 +180,31 @@ test('verify: 正文残留展平信封 → flattened-tool-envelope + force 重�
   assert.match(hint.hint, /force:true/)
 })
 
+// ---- 存量旧形状：解释性 content 里的 tool-result 包装（issue #77，宿主 V4 退休语法）----
+
+test('verify: assistant 正文残留 tool-result 包装 → retired-tool-result-wrapper + force 重导提示', async () => {
+  const events = baseLog().map((ev) => {
+    if (ev.type !== 'assistant/message') return ev
+    const next = clone(ev)
+    // 旧转换路径把结果块留在助手正文里（结果本身另有一条 tool/result 事件）
+    next.data.message.content = [
+      { type: 'tool-call', id: 'c1', name: 'Bash', arguments: '{}' },
+      { type: 'tool-result', toolCallId: 'c1', content: [] },
+    ]
+    return next
+  })
+  const out = await verifySession(ctxFor(events), { sessionId: 's' })
+  assert.equal(kindsOf(out).has('retired-tool-result-wrapper'), true)
+  const hint = out.repairHints.find((h) => h.kind === 'retired-tool-result-wrapper')
+  assert.ok(hint, '有修复提示')
+  assert.match(hint.hint, /force:true/)
+})
+
+test('verify: 干净的 V3 形状（结果在 tool/result 事件的包装里）不误报', async () => {
+  const out = await verifySession(ctxFor(baseLog()), { sessionId: 's' })
+  assert.equal(kindsOf(out).has('retired-tool-result-wrapper'), false)
+})
+
 test('verify: 正文里只是引用该标记（非行首信封）不误报', async () => {
   const events = baseLog().map((ev) => {
     if (ev.type !== 'assistant/message') return ev

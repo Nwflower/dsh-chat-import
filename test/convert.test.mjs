@@ -2428,6 +2428,31 @@ test('validateSessionEvents：图片块带内联 data（未落成附件）被点
   assert.ok(nested.problems.some((p) => p.kind === 'inline-image-data'))
 })
 
+test('validateSessionEvents：解释性 content 里的 tool-result 包装被点名（宿主 V4 退休语法，issue #77）', () => {
+  const wrapper = { type: 'tool-result', toolCallId: 'c1', content: [] }
+  const assistant = validateSessionEvents([
+    ev(0, 'turn/start'),
+    ev(1, 'assistant/message', { surfaceOp: 'append', data: { message: { id: 'a1', role: 'assistant', content: [wrapper] } } }),
+  ])
+  assert.equal(assistant.ok, false)
+  const hit = assistant.problems.find((p) => p.kind === 'retired-tool-result-wrapper')
+  assert.ok(hit && hit.seq === 1)
+  assert.match(hit.message, /message\.content/)
+
+  const user = validateSessionEvents([
+    ev(0, 'turn/start'),
+    ev(1, 'user/message', { surfaceOp: 'append', data: { content: [wrapper] } }),
+  ])
+  assert.ok(user.problems.some((p) => p.kind === 'retired-tool-result-wrapper' && p.seq === 1))
+
+  // V3 形状的 tool/result 事件本身就带这个包装（写侧由 shapeToolResults 分流）：不误报
+  const v3 = validateSessionEvents([
+    ev(0, 'turn/start'),
+    ev(1, 'tool/result', { surfaceOp: 'append', data: { message: { role: 'user', content: [wrapper], source: { kind: 'tool', callId: 'c1' } } } }),
+  ])
+  assert.ok(!v3.problems.some((p) => p.kind === 'retired-tool-result-wrapper'))
+})
+
 test('validateSessionEvents：未知类型 / surface 缺 surfaceOp / sourceEventSeqs 指向非 call', () => {
   const unknown = validateSessionEvents([ev(0, 'bogus/event')])
   assert.ok(unknown.problems.some((p) => p.kind === 'unknown-type'))

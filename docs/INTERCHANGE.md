@@ -57,8 +57,12 @@
 }
 ```
 
-- `content` 块类型与 DSH 会话事件同构：`text` / `reasoning` / `image` / `tool-call` / `tool-result`
-  （`tool-result` 块出现在 `toolResults[].content` 内，或作为消息 content 块）。
+- `content` 块类型与 DSH 会话事件同构：`text` / `reasoning` / `image` / `tool-call` / `tool-result`。
+  工具结果的落点是 `toolResults[]`：写在 step `content` 里的 `tool-result` 块按 `toolCallId` 派生进
+  `step.toolResults`（显式列表优先，与 `tool-call` 块的派生对称）；写在 `promptBlocks` 或结果
+  内层 `content` 的结果块无处安放，丢弃并计入 `skippedBlocks`。**工具结果不允许留在
+  assistant / user 消息 content 里**——宿主 V4 codec 见到 `tool-result` 包装即拒载整份日志
+  （"released tool-result wrapper"），校验层的 `retired-tool-result-wrapper` 会先点名。
 - 回合模型：一条用户提问 = 一个 `turn`；一条助手消息（含其工具调用与结果）= 一个 `step`。
 - `turns[i].time` / `steps[j].time` / `toolResults[k].time`（可选，毫秒）：源转录的逐记录
   时间戳，是宿主耗时统计的原料（模型耗时 = step.start→assistant/message，工具耗时 =

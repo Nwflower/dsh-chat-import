@@ -79,14 +79,20 @@
 | `usage` | 可选 | `{ "inputTokens", "outputTokens", "cacheReadTokens"?, "cacheWriteTokens"?, "reasoningTokens"? }`，全部非负整数 |
 
 **内容块类型**：`text`（`{ "type": "text", "text" }`）、`reasoning`（同形）、
-`image`（见下）、`tool-call`（`{ "type": "tool-call", "id", "name", "arguments" }`）、
-`tool-result`（`{ "type": "tool-result", "toolCallId", "content": [...], "isError"? }`）。
-未知块类型会被丢弃并计入 `skippedBlocks`。
+`image`（见下）、`tool-call`（`{ "type": "tool-call", "id", "name", "arguments" }`）。
+
+工具结果不放进消息正文：写在该步的 `toolResults` 列表里
+（`{ "toolCallId", "content": [...], "isError"? }`）。写进同一步 `content` 的
+`tool-result` 块会被接受并归一进 `toolResults`（按 `toolCallId` 去重，显式列表优先）；
+但写在**其它位置**（`promptBlocks`、或结果内层 `content`）的结果块无处安放，会被丢弃并
+计入 `skippedBlocks`。未知块类型同样丢弃计数。
 
 **配对不变量**：每个 `toolResults[].toolCallId` 必须能在某一步的 `toolCalls` 里找到
 对应 `id`——找不到的结果会被**丢弃并计入 `droppedToolResults`**。反过来，有调用没结果
 不要紧（插件会兜底补空结果），但源里有结果就一定要配对写上。工具调用既可以写在
-`content` 里（`tool-call` 块），也可以写在显式 `toolCalls` 列表里，两者等价、按 id 去重。
+`content` 里（`tool-call` 块），也可以写在显式 `toolCalls` 列表里；工具结果同样既可以
+写成 `tool-result` 内容块，也可以写在显式 `toolResults` 列表里。两种写法等价，按 id 去重
+（结果是按 `toolCallId`）。
 
 **图片块**：带字节 `{ "type": "image", "data": "<base64>", "mediaType": "image/png", "name"? }`
 （mediaType 收 PNG/JPEG/WebP/GIF）。源里只有图片 URL 或本地路径时，读得到字节就转 base64；
@@ -180,6 +186,7 @@
 | 标记不在前 64KB | 探测不到，按未知格式处理 |
 | `version` 不是 `1` | 整体拒绝并点名版本 |
 | toolResult 无配对调用 | 该结果丢弃，计 `droppedToolResults` |
+| `tool-result` 块写在 step `content` 之外（`promptBlocks` / 结果内层） | 丢弃，计 `skippedBlocks` |
 | `usage` 含非整数 | 该条 usage 丢弃，计 `usageDropped` |
 | 空轮 | 丢弃，计 `malformedTurns`；全空则拒绝导入 |
 | 图片无合法 `data` | 降级为 `[image]` 文本，计 `imagesDegraded` |

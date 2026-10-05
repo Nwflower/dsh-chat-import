@@ -87,16 +87,22 @@ write it to a new file, and hand it back to the user for re-import.
 | `usage` | Optional | `{ "inputTokens", "outputTokens", "cacheReadTokens"?, "cacheWriteTokens"?, "reasoningTokens"? }`, all non-negative integers |
 
 **Content block types**: `text` (`{ "type": "text", "text" }`), `reasoning` (same shape),
-`image` (see below), `tool-call` (`{ "type": "tool-call", "id", "name", "arguments" }`),
-`tool-result` (`{ "type": "tool-result", "toolCallId", "content": [...], "isError"? }`).
-Unknown block types are dropped and counted as `skippedBlocks`.
+`image` (see below), `tool-call` (`{ "type": "tool-call", "id", "name", "arguments" }`).
+
+Tool results do not belong in message content: put them in the step's `toolResults` list
+(`{ "toolCallId", "content": [...], "isError"? }`). A `tool-result` block written into the
+same step's `content` is accepted and normalised into `toolResults` (de-duplicated by
+`toolCallId`, the explicit list wins), but a `tool-result` block **anywhere else** —
+`promptBlocks`, or nested inside another result's `content` — has nowhere to go and is
+dropped and counted as `skippedBlocks`. Unknown block types are dropped the same way.
 
 **Pairing invariant**: every `toolResults[].toolCallId` must match the `id` of a tool call
 in some step — unpaired results are **dropped and counted as `droppedToolResults`**. The
 reverse direction is safe (a call without a result gets a synthesized empty result), but if
 the source has the result, write it paired. Tool calls may appear either as `tool-call`
-content blocks or in the explicit `toolCalls` list; both are equivalent and de-duplicated
-by id.
+content blocks or in the explicit `toolCalls` list; tool results likewise either as
+`tool-result` content blocks or in the explicit `toolResults` list. Both placements are
+equivalent and de-duplicated by id (`toolCallId` for results).
 
 **Image blocks**: with bytes — `{ "type": "image", "data": "<base64>", "mediaType": "image/png", "name"? }`
 (PNG/JPEG/WebP/GIF accepted). When the source only has an image URL or local path, read the
@@ -196,6 +202,7 @@ JSON / unsupported version / no importable turns).
 | Marker beyond the first 64 KB | Not detected; treated as an unknown format |
 | `version` other than `1` | Wholesale rejection, version named |
 | Tool result without a matching call | Result dropped, counted as `droppedToolResults` |
+| `tool-result` block outside a step's `content` (in `promptBlocks` / nested in a result) | Dropped, counted as `skippedBlocks` |
 | Non-integer `usage` | That usage object dropped, counted as `usageDropped` |
 | Empty turn | Dropped, counted as `malformedTurns`; all-empty rejects the file |
 | Image without valid `data` | Degraded to `[image]` text, counted as `imagesDegraded` |
