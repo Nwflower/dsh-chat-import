@@ -478,3 +478,18 @@ test('import_chat: 批量导入多会话目录与直传 messages.jsonl 单文件
     rmSync(tmp, { recursive: true, force: true })
   }
 })
+test('readVibeSessionSummary：meta.json 缺失时标题取首条 user 消息，跳过头部里解析不了的行', async () => {
+  const head = [
+    '{"role":"system","content":"sys"',
+    JSON.stringify({ role: 'user', content: [null, { type: 'text', text: '帮我修构建' }] }),
+    '{"role":"assistant","content":"半截',
+  ].join('\n')
+  const host = {
+    async readText() { throw new Error('ENOENT meta.json') },
+    async readHead() { return head },
+  }
+  const summary = await readVibeSessionSummary(host, join('sessions', 'session_x'))
+  assert.equal(summary.title, '帮我修构建')
+  assert.equal(summary.id, 'session_x')
+  assert.equal(summary.directory, null)
+})
