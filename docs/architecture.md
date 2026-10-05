@@ -48,7 +48,11 @@
 
 ## D6. 已知体量热点与治理方向（2026-09 定）
 
-- **背景**：AI 辅助开发使代码增长快于人工维护速度；当前热点：`lib/discovery.mjs`（约 2390 行）、`lib/tools.mjs`（约 1660 行）。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片；`lib/import-variants.mjs` 曾以 1029 行触发停止线，SQLite 库类来源的 dry-run 预览已按来源迁入 `lib/sources/<src>.mjs`，余约 750 行。）
+- **背景**：AI 辅助开发使代码增长快于人工维护速度。热点曾是 `lib/discovery.mjs`（2629 行）、`lib/tools.mjs`（1663 行）、`lib/import-core.mjs`（1053 行）——三者都越过了停止线却仍在加功能。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片；`lib/import-variants.mjs` 曾以 1029 行触发停止线，SQLite 库类来源的 dry-run 预览已按来源迁入 `lib/sources/<src>.mjs`。）
+- **执行情况（2026-10）**：三处热点均已按下述方向拆完，`lib/` 下最大的手维护文件回到 1000 行以内：
+  - `lib/discovery.mjs` → 薄门面 + `lib/discovery/`：来源描述符表 `registry.mjs`（FORMATS / 默认根 / 扫描器 / 单文件判格式全部由描述符派生）、驱动 `discover.mjs`、书签缓存 `scan-cache.mjs`、遍历与状态标注件，以及按来源族的扫描器模块（`claude` / `jsonl` / `gemini` / `sqlite` / `cline` / `session-dirs` / `documents` / `dsh`）。
+  - `lib/tools.mjs` → 薄门面（`registerTools` + 档位对账）+ `lib/tools/`：导入 spec 表、参数派生、输出 schema 片段、结果文案、管理 / 导出 / 会话 / 扫描四组工具。
+  - `lib/import-core.mjs` → 共享状态机拆出 `lib/import-state.mjs`（已知记录 + 源未变短路径）、`lib/import-batch.mjs`（文件收集 + 批量计数）、`lib/host-session.mjs`（宿主会话读写适配）。
 - **决定**：治理方向不是「按行数强拆」，而是：
   - `discovery.mjs` 按**来源族**拆（每种来源的发现逻辑内聚，与 D3 的来源流水线对齐）；
   - `tools.mjs` 按**工具分组**拆（import / export / purge 各自的工具定义与 handler 同文件）；
@@ -62,8 +66,8 @@
 ## D7. 浏览器侧 bundle 例外于零构建：src/client/ 分片 + 组装脚本（2026-09 定）
 
 - **背景**：`lib/client.js`（侧面板 UI）长到 2131 行，触发体量停止线。但 DSH 的客户端模块加载器没有相对 require、也没有资源 URL——浏览器侧产物**必须**是单个自包含文件，「分文件但不构建」在平台上不存在。两条出路：全套 TS 工具链（dsh-better-sidebar 式）或分片+逐字拼接（dsh-claude-style 式）。前者违反 D1 且重审条件不成立（不对外发 TS 类型契约、不需要支持旧 Node），工具链成本对一个陈述式 UI bundle 不成比例。
-- **决定**：源码按职责拆到 `src/client/`（11 片：i18n / prefs / sources / widgets / styles / utils / settings / tabs / discovery / footer / entry），`scripts/build-client.mjs` 逐字拼回 `lib/client.js`（沿用 dsh-claude-style 已验证的同平台路线）。片段契约：禁 import/export（共享 factory 作用域，顺序即声明顺序）、4 空格基准缩进、LF 行尾；构建内置 vm 语法门禁，`npm run build` 含 `--check` 新鲜度校验（产物与源漂移即失败）。同时把根目录发布入口收进子目录：`index.mjs`/`index.d.ts` → `lib/`，`convert.mjs`/`export.mjs` shim → `lib/convert/index.mjs` / `lib/export/index.mjs`（`exports["./export.mjs"]` 子路径契约不变），ROADMAP/CONTRIBUTING → `docs/`。
-- **代价**：双层真相源——改面板必须改 `src/client/` 再组装，直接改 `lib/client.js` 会被 --check 拦下；eslint 对片段关闭 no-undef/no-unused-vars（跨片引用所致），由构建的整体语法门禁兜底。首拆以「产物逐字节一致」为验收，行为零变化。
+- **决定**：源码按职责拆到 `src/client/`（片段清单以 `scripts/build-client.mjs` 的 `FRAGMENTS` 为准），`scripts/build-client.mjs` 逐字拼回 `lib/client.js`（沿用 dsh-claude-style 已验证的同平台路线）。宿主侧与面板共用的纯函数（`lib/panel-filter.mjs`、`lib/footer-layout.mjs`）不在片段里另抄一份：组装脚本按白名单把它们内联进 bundle（去掉 `export` 关键字、按 4 空格基准缩进，拒绝 import / `export default` / 多行模板串），测试测的就是发布的那份。片段契约：禁 import/export（共享 factory 作用域，顺序即声明顺序）、4 空格基准缩进、LF 行尾；构建内置 vm 语法门禁，`npm run build` 含 `--check` 新鲜度校验（产物与源漂移即失败）。同时把根目录发布入口收进子目录：`index.mjs`/`index.d.ts` → `lib/`，`convert.mjs`/`export.mjs` shim → `lib/convert/index.mjs` / `lib/export/index.mjs`（`exports["./export.mjs"]` 子路径契约不变），ROADMAP/CONTRIBUTING → `docs/`。
+- **代价**：双层真相源——改面板必须改 `src/client/` 再组装，直接改 `lib/client.js` 会被 --check 拦下（CI 单独跑一步 `build-client.mjs --check`）；片段跨片引用，eslint 按组装脚本生成的跨片全局名单逐片段启用 no-undef（vm 语法门禁只管能否解析，管不到未定义引用）。首拆以「产物逐字节一致」为验收，行为零变化。
 - **重审条件**：DSH 客户端加载器支持相对 require / 资源 URL 之时（届时可回到纯 ESM 直发，拆掉的只是组装脚本）。
 
 ---
@@ -203,4 +207,14 @@
 - **代价**：探测要跑多个转换器（失败路径比成功路径更贵，故内容标记与路径特征都前置于试跑）；`convertLocalJsonl` 的结果多了三个键，工具 / 命令 / 面板三处都要透出；上传是唯一新增的「无盘来源」数据面，配额与暂存生命周期因此成为长期维护项；generic 是一份要跟着 IR 演进的第二契约（靠能力矩阵与同一个 `synthesizeSession` 收敛）；路径输入意味着目录要先扫一层再问（多一次轻量扫描，换掉「默默递归几十万文件」的风险）；识别失败的出路只剩「复制摘要 + 交给 Agent 按 Skill 转换」，用户手上有明确解析器目标时需要走工具面（`import_chat` 的 `parseFormat`）。
 - **重审条件**：宿主自身的拖放/附件交互改为不吞文件（或提供「拖到导入面板」的排他区域）时，可重新评估拖放入口；宿主提供文件（非目录）选择服务时，「选择…」改走该服务；出现被广泛采用的会话交换标准时，评估把 generic 换成或映射到该标准。
 
+---
 
+## D21. 同口径逻辑只留一份，来源清单由一张表派生（2026-10 定）
+
+- **背景**：来源一个个加进来，靠的是复制最近的那个来源再改。一次全量评审数出：标题归一 22 份（19 份逐字相同，注释还写着「需同步 5 处」）、源未变短路径 6 份（只有 2 份查 WAL）、批量计数 7 份、SQLite 只读打开 13 处、测试假宿主 15 份；来源清单在发现层有 5 张平行表、命令别名表与 `index.d.ts` 各自手写。副本已经漂移出真 bug：fork 目录导入退回 opencode 标签、`/import kilocode` 报未知来源、默认扫描看不到 V4 日志、`storeImages:false` 对一半来源无效、`imagesDegraded` 被重复计数。旧注释里的「core.mjs 属禁改面，各源按文件内联」是这些副本的由头，早已不成立。
+- **决定**：
+  1. **共用口径各有一个家**：转换层 `lib/convert/util.mjs`（标题 / 时间 / 正文抽取 / 跳过结果）、`lib/convert/ir.mjs`（调用与结果整理）、`core.mjs` 的 `finishSession`；导出层 `lib/export/common.mjs`；host 面 `lib/sources/sqlite.mjs`（只读打开 / 列自适应）、`lib/import-state.mjs`（已知记录 + 源未变短路径，含 WAL 与选择性补导守卫）、`lib/import-batch.mjs`（文件收集 + 批量计数）、`lib/atomic-write.mjs`；测试 `test/_support/`。来源确有不同语义时**参数化**共用件，不复制。
+  2. **清单派生，不手写**：发现层每个来源一个描述符（`lib/discovery/registry.mjs`），FORMATS / 默认根 / 扫描器 / 单文件判格式由它派生；`import_chat` 的格式表（`lib/toolkit.mjs` 的 `CHAT_FORMATS`）派生 `/import` 别名；导入 spec 的 `multiSession` 标记派生面板与工具的 `sessionIds` 适用范围；`index.d.ts` 的格式联合类型由一致性测试对照运行时清单。
+  3. **边界由测试与门禁守住，不靠自觉**：转换 / 导出层的 import 边界有测试（越界即失败，D3）；`build-check` 从发布入口沿模块图走一遍，可达模块不在 `files` 白名单即失败（新子目录忘登记曾让 `lib/tools/`、`lib/discovery/` 差点漏发）。
+- **代价**：模块数变多、跳转多一层；改一个共用件会同时影响所有来源——这正是目的，回归由各来源的测试兜住。
+- **重审条件**：无；新增来源仍走 AGENTS.md「新增一个来源」，其中「第 3 处副本即停」的停止线照旧有效。
