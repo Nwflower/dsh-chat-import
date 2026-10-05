@@ -9,27 +9,15 @@ import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { isTransferTarget, transferDiscoveryItem, transferHint, TRANSFER_TARGETS } from '../lib/transfer.mjs'
+import { makeCtx, makePersistence } from './_support/fake-host.mjs'
 
 const item = (over = {}) => ({ format: 'claude', sourcePath: 'D:\\demo\\sess-1.jsonl', sessionIds: [], target: 'opencode', ...over })
 
 // 极小 ctx：导出器只用到 fs.writeText / fs.resolve 与 sessionPersistence（后者缺席时
 // 导出会以「sessionPersistence 不可用」失败，正是「导出失败」分支要覆盖的形态）。
 function fakeCtx({ persistence, attachments } = {}) {
-  const writes = []
-  return {
-    writes,
-    fs: {
-      async resolve(path) { return { targetKey: path, displayPath: path } },
-      async writeText(target, content) { writes.push({ path: target.targetKey, content }); return { path: target.targetKey } },
-      async stat() { return undefined },
-      async readText() { throw new Error('FS_NOT_FOUND') },
-    },
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'attachments') return attachments
-      return undefined
-    },
-  }
+  const { ctx, writes } = makeCtx({}, { real: false, persistence, services: { attachments } })
+  return Object.assign(ctx, { writes })
 }
 
 test('目标白名单与落点提示：dsh 不在转投目标里，四个外部目标都有提示', () => {
@@ -98,7 +86,8 @@ test('批量形态：逐条展开转投，跳过/失败的条目不进转投（�
 })
 
 test('转投的图片口径：能承载图片的目标落附件并点名撤回后不可回收的张数', async () => {
-  const store = new Map()
+  const persistence = makePersistence({ omit: ['remove'] })
+  const store = persistence.sessions
   const sessionId = 'import-sess-img'
   store.set(sessionId, {
     meta: { id: sessionId, version: 4, createdAt: 1785000000000, cwd: 'D:\\demo\\proj', isSeeded: false, delegationDepth: 0 },
@@ -107,10 +96,6 @@ test('转投的图片口径：能承载图片的目标落附件并点名撤回�
       { type: 'assistant/message', seq: 1, time: 1785000000002, data: { turn: 0, step: 1, stream: [], message: { id: 'a', role: 'assistant', content: [{ type: 'image', attachment: { attachmentId: 'sha256:i', mediaType: 'image/png', bytes: 3, width: 1, height: 1 } }] } } },
     ],
   })
-  const persistence = {
-    async list() { return [...store.values()].map((s) => s.meta) },
-    async readFrom(id) { const s = store.get(id); if (!s) throw new Error('unknown'); return { meta: s.meta, events: s.events } },
-  }
   const registryDir = mkdtempSync(join(tmpdir(), 'dsh-transfer-img-'))
   // 先让会话进 registry，撤回才可能成功
   const { rememberImport } = await import('../lib/imports.mjs')
@@ -154,7 +139,8 @@ test('转投的图片口径：能承载图片的目标落附件并点名撤回�
 
 test('导出成功但撤回失败 → 保留会话并把原因带到结果（kept + purgeError，不静默）', async () => {
   // 用一个真的能被导出的最小 DSH 会话：persistence 提供 list/readFrom，导出走 opencode
-  const store = new Map()
+  const persistence = makePersistence({ omit: ['remove'] })
+  const store = persistence.sessions
   const sessionId = 'import-sess-keep'
   store.set(sessionId, {
     meta: { id: sessionId, version: 3, createdAt: 1785000000000, cwd: 'D:\\demo\\proj', isSeeded: false, delegationDepth: 0 },
@@ -163,10 +149,6 @@ test('导出成功但撤回失败 → 保留会话并把原因带到结果（kep
       { type: 'assistant/message', seq: 1, time: 1785000000002, data: { turn: 0, step: 1, stream: [], message: { id: 'a', role: 'assistant', content: [{ type: 'text', text: 'ok' }] } } },
     ],
   })
-  const persistence = {
-    async list() { return [...store.values()].map((s) => s.meta) },
-    async readFrom(id) { const s = store.get(id); if (!s) throw new Error('unknown'); return { meta: s.meta, events: s.events } },
-  }
   const ctx = fakeCtx({ persistence })
   // registry 目录用临时目录；会话不在 registry 里 → deleteImportedSession 会抛
   //「会话不在 imports registry」，正好模拟撤回失败

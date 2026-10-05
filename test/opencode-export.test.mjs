@@ -228,6 +228,9 @@ test('verifyOpencodeImportJson：抓出前缀 / 必填 / 外键类缺陷（护�
   assert.match(verifyOpencodeImportJson(JSON.stringify(floatTime)).errors.join('|'), /必须是非负整数/)
 
   assert.equal(verifyOpencodeImportJson('{ not json').ok, false)
+  const leaky = verifyOpencodeImportJson('{"info": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "x": password=hunter2hunter2}\n')
+  assert.equal(leaky.ok, false)
+  assert.ok(!leaky.errors.join('|').includes('password'), '解析错误经净化，不携带文档内容')
 })
 
 test('buildOpencodeImportDoc：从真实夹具（claude tool 会话）导出后结构校验通过', () => {

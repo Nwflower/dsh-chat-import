@@ -1,12 +1,13 @@
 // settings.test.mjs — settings.json / config.toml 翻译建议
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync } from 'node:fs'
+import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   parseClaudeSettings, parseCodexConfig, buildSettingsSuggestions, runSettingsSuggest,
 } from '../lib/settings.mjs'
+import { makeFs } from './_support/fake-host.mjs'
 
 test('parseClaudeSettings: model / permissions / hooks / env 建议', () => {
   const json = JSON.stringify({
@@ -35,11 +36,7 @@ test('runSettingsSuggest: 只读解析两个来源', async () => {
   const codexPath = join(root, 'config.toml')
   writeFileSync(claudePath, JSON.stringify({ model: 'claude-sonnet-4-5' }))
   writeFileSync(codexPath, 'model = "gpt-5"\n')
-  const fsLike = {
-    async resolve(p) { return { targetKey: p, displayPath: p } },
-    async readText(t) { return readFileSync(t.targetKey, 'utf8') },
-  }
-  const ctx = { fs: fsLike }
+  const ctx = { fs: makeFs({}, { real: true }) }
   const out = await runSettingsSuggest(ctx, { claudeSettingsPath: claudePath, codexConfigPath: codexPath })
   assert.equal(out.total, 2)
   assert.deepEqual(out.sources.sort(), ['claude', 'codex'].sort())

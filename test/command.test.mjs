@@ -6,11 +6,13 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync, statSync, mkdirSync, readdirSync, existsSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, statSync, mkdirSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { registerTools } from '../lib/tools.mjs'
 import { registerImportCommand } from '../lib/command.mjs'
+import { CHAT_FORMAT_NAMES } from '../lib/toolkit.mjs'
+import { makeCtx as makeHostCtx, makeRegistrar } from './_support/fake-host.mjs'
 
 // 最小 Claude transcript（user + assistant 两行；cwd 用不存在路径触发 REQ-39-lite
 // 回退归组到源目录——mkdtemp 目录真实存在，attach 不落「未分组」）。
@@ -21,77 +23,28 @@ function simpleClaudeJsonl(sessionId) {
   ].join('\n') + '\n'
 }
 
+// 真实临时目录上的 ctx（fs 全部回退 node:fs）+ commands 服务（命令注册可观测）。
+// workspaceRegistry 只接受磁盘上真实存在的目录（宿主 realpath 校验）：cwd 不存在 →
+// 创建失败 → attachToWorkspace 触发 REQ-39-lite 回退。
 function makeCtx() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-cmd-'))
   const registryDir = join(home, 'dsh-chat-import')
   mkdirSync(registryDir, { recursive: true })
-  const sessions = new Map() // id → { header, events }
-  const attached = []
-  const registered = []
-  const commands = []
-
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      try {
-        const st = statSync(target.targetKey)
-        return { type: st.isDirectory() ? 'directory' : 'file', size: st.size, version: String(st.mtimeMs) }
-      } catch { return undefined }
-    },
-    async readText(target) { return readFileSync(target.targetKey, 'utf8') },
-    async listDir(target) {
-      // /import-all 走发现层目录扫描：真实列出目录项（mock 空 listDir 会让扫描落空）
-      return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => ({
-        name: e.name,
-        type: e.isDirectory() ? 'directory' : 'file',
-        target: { targetKey: join(target.targetKey, e.name), displayPath: join(target.targetKey, e.name) },
-      }))
-    },
-    async writeText(target, content) { writeFileSync(target.targetKey, content, 'utf8'); return { path: target.targetKey } },
-    processPath(target) { return target.targetKey },
-  }
-  const persistence = {
-    async create(meta) { sessions.set(meta.id, { header: meta, events: [] }) },
-    async append(id, events) { const s = sessions.get(id); if (s) s.events.push(...events) },
-    async list() { return [...sessions.values()].map((s) => s.header) },
-    async locate() { return undefined },
-    async readFrom() { return undefined },
-  }
-  const workspaces = new Map()
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) {
-      // 模拟真实 workspaceRegistry：路径必须真实存在（fs.realpath 校验），
-      // 不存在 → 失败 → attachToWorkspace 触发 REQ-39-lite 回退源目录
-      let real = null
-      try { if (statSync(p).isDirectory()) real = p } catch { real = null }
-      if (!real) return undefined
-      const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }
-      workspaces.set(p, ws)
-      return ws
-    },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    workspaceRegistry,
-    tools: { register(def) { registered.push(def); return () => {} } },
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
-      return undefined // agentDefaultModel / llm 缺失 → 预算回退默认（不报错）
-    },
-    inject(serviceList, cb) {
-      if (Array.isArray(serviceList) && serviceList.includes('commands')) {
-        cb({ ...ctx, commands: { register(def) { commands.push(def); return () => {} } } })
-      }
-      return undefined
-    },
-  }
+  const commands = makeRegistrar()
+  const isDir = (p) => { try { return statSync(p).isDirectory() } catch { /* 不存在 → 非目录 */ return false } }
+  const host = makeHostCtx(null, {
+    real: true,
+    services: { commands },
+    rejectWorkspaceCreate: (p) => !isDir(p),
+    // 会话库有读面但读不出事件：源增长时插件拿不到 DSH 侧日志长度（见「读不到日志」用例）
+    persistenceOptions: { unreadable: true },
+  })
   return {
-    ctx, registryDir, sessions, attached, registered, workspaces,
-    getCommand: (name) => commands.find((c) => c.name === (name || 'import')),
-    getAllCommands: () => commands,
+    ...host,
+    registryDir,
+    sessions: host.persistence.sessions,
+    getCommand: (name) => commands.find(name || 'import'),
+    getAllCommands: () => commands.defs,
   }
 }
 
@@ -159,6 +112,25 @@ test('REQ-42 /import：幂等重导跳过（源未变）', async () => {
   assert.ok(second.text.includes('已存在'), '重导应幂等跳过: ' + second.text)
 })
 
+// /import 与 import_chat 工具共用同一份结果文案：跳过原因要说全。命令面曾自带一份
+// 简化文案，漏掉 appendedSkipped / backfilled——源文件长了却读不到 DSH 侧日志长度时，
+// 只会说「源文件未变化」。本 mock 的 sessionPersistence 没有可读事件面，正好落进该分支。
+test('REQ-42 /import：源增长但读不到 DSH 侧日志长度 → 如实说明跳过原因（与工具文案同源）', async () => {
+  const { cmd } = setup()
+  const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-grow-')), 'cmd-sess.jsonl')
+  writeFileSync(file, simpleClaudeJsonl('cmd-sess'), 'utf8')
+
+  const first = await cmd.handler({ rawInput: 'claude ' + file })
+  assert.equal(first.kind, 'success', first.text)
+  writeFileSync(file, simpleClaudeJsonl('cmd-sess') + [
+    JSON.stringify({ parentUuid: 'a-1', userType: 'user', cwd: 'D:\\no-such\\proj', sessionId: 'cmd-sess', type: 'user', message: { role: 'user', content: '再问一句' }, uuid: 'u-2', timestamp: '2026-08-01T10:00:02.000Z' }),
+    JSON.stringify({ parentUuid: 'u-2', userType: 'user', cwd: 'D:\\no-such\\proj', sessionId: 'cmd-sess', type: 'assistant', message: { role: 'assistant', content: '再答一句' }, uuid: 'a-2', timestamp: '2026-08-01T10:00:03.000Z' }),
+  ].join('\n') + '\n', 'utf8')
+  const again = await cmd.handler({ rawInput: 'claude ' + file })
+  assert.equal(again.kind, 'success', again.text)
+  assert.ok(again.text.includes('读不到 DSH 侧日志长度'), again.text)
+})
+
 test('REQ-42 /import：工具全名 import_claude 与客户端来源 id claude-code 均接受', async () => {
   const { cmd } = setup()
   const file = join(mkdtempSync(join(tmpdir(), 'dsh-cmd-src3-')), 'cmd-sess.jsonl')
@@ -189,6 +161,15 @@ test('REQ-42 /import：未知来源报错', async () => {
   const out = await cmd.handler({ rawInput: 'foobar C:\\x.jsonl' })
   assert.equal(out.kind, 'error')
   assert.ok(out.text.includes('未知来源'), out.text)
+})
+
+test('/import：import_chat 的每个 format 都是合法来源名（别名表由 CHAT_FORMAT_NAMES 派生）', async () => {
+  const { cmd } = setup()
+  for (const f of CHAT_FORMAT_NAMES) {
+    const out = await cmd.handler({ rawInput: f + ' ' + join(tmpdir(), 'dsh-missing-' + f) })
+    assert.ok(!String(out.text).includes('未知来源'), f + ' 被当成未知来源：' + out.text)
+  }
+  for (const f of ['kilocode', 'antigravity', 'dsh4']) assert.ok(cmd.description.includes(f), '用法里列出 ' + f)
 })
 
 test('REQ-42 /import：缺 path 报用法', async () => {

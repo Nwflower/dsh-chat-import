@@ -1,9 +1,25 @@
-// continue.test.mjs — Continue 源转换核心单元测试（自包含合成数据，不掺真实会话）
-import { test } from 'node:test'
+// continue.test.mjs — Continue 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据，不掺真实会话）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertContinueJson, readContinueIndex } from '../lib/convert/continue.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -283,4 +299,108 @@ test('readContinueIndex：解析索引数组，脏条目跳过（非数组 / 缺
 
   assert.equal(readContinueIndex('{oops').size, 0)
   assert.equal(readContinueIndex('{"sessionId":"x"}').size, 0)
+})
+
+// ---- import_continue 集成 ----
+
+// 合成 Continue 会话（结构与 lib/convert/continue.mjs 的契约一致：toolCalls 在 message 上，
+// reasoning/toolCallStates/conversationSummary 在 ChatHistoryItem 上）。
+const CID = '3f2b9c14-58a7-4f6d-9c31-0d5e7a1b2c34'
+const CCWD = hostAbs('D:/demo/continue-proj')
+const CONTINUE_TS = 1787131157250
+const CONTINUE_DIR = 'D:\\demo\\continue\\sessions\\'
+function continueItem(message, extra = {}) {
+  return { message, contextItems: [], ...extra }
+}
+function continueSession(history, over = {}) {
+  return JSON.stringify({
+    sessionId: CID, title: 'New Session', workspaceDirectory: CCWD, history, ...over,
+  })
+}
+const continueIndex = JSON.stringify([
+  { sessionId: CID, title: '修登录页分页', dateCreated: String(CONTINUE_TS), workspaceDirectory: CCWD},
+])
+
+test('import_continue 单文件导入：落盘、归组、索引带出的创建时间、返回值符合 schema', async () => {
+  const src = CONTINUE_DIR + CID + '.json'
+  const { ctx, persistence, attached } = makeCtx({
+    [src]: continueSession([
+      continueItem({ id: 'u1', role: 'user', content: '修一下登录页分页' }),
+      continueItem({ id: 'a1', role: 'assistant', content: '已修好。' }),
+    ], { title: '修登录页分页' }),
+    [CONTINUE_DIR + 'sessions.json']: continueIndex,
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'continue')
+  const value = await def.execute({ path: src })
+
+  assert.equal(value.mode, 'single')
+  assert.equal(value.sessionId, 'import-' + CID)
+  assert.equal(value.turns, 1)
+  assert.equal(value.messages, 2) // user + assistant（环境变更声明不计）
+  assert.equal(value.toolCalls, 0)
+  assert.equal(value.alreadyImported, false)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get('import-' + CID)
+  assert.ok(saved)
+  assert.equal(saved.meta.cwd, CCWD)
+  // 会话文件内部没有时间戳：创建时间只能来自同目录 sessions.json 索引
+  assert.equal(saved.meta.createdAt, CONTINUE_TS)
+  assert.equal(saved.events.at(-1).type, 'session/title')
+  assert.match(saved.events.at(-1).data.title, /^Continue · /)
+  assert.ok(saved.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(saved.events)
+  assert.equal(attached.length, 1)
+  assert.equal(attached[0].id, 'import-' + CID)
+})
+
+test('import_continue 工具历史：tool/result 带 sourceEventSeqs、思考与结果落盘', async () => {
+  const src = CONTINUE_DIR + CID + '.json'
+  const { ctx, persistence } = makeCtx({
+    [src]: continueSession([
+      continueItem({ id: 'u1', role: 'user', content: '跑一下测试' }),
+      continueItem({ id: 't1', role: 'thinking', content: '先用命令跑' }),
+      continueItem({
+        id: 'a1', role: 'assistant', content: '',
+        toolCalls: [{ id: 'call_1', type: 'function', function: { name: 'run_tests', arguments: '{"command":"npm test"}' } }],
+      }),
+      continueItem({ id: 'r1', role: 'tool', content: 'ok 42 passed', toolCallId: 'call_1' }),
+      continueItem({ id: 'a2', role: 'assistant', content: '测试通过。' }),
+    ]),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'continue')
+  const value = await def.execute({ path: src })
+  assert.equal(value.mode, 'single')
+  assert.equal(value.toolCalls, 1)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const saved = persistence.sessions.get(value.sessionId)
+  const result = saved.events.find((e) => e.type === 'tool/result')
+  assert.ok(result)
+  assert.deepEqual(result.sourceEventSeqs, [saved.events.find((e) => e.type === 'tool/call').seq])
+  assert.equal(result.data.message.content[0].content[0].text, 'ok 42 passed')
+  // thinking 消息落在承载工具调用的那一步内容头部（reasoning 块）
+  const reasoning = saved.events
+    .flatMap((e) => (e.type === 'assistant/message' ? e.data.message.content : []))
+    .filter((b) => b.type === 'reasoning')
+  assert.deepEqual(reasoning, [{ type: 'reasoning', text: '先用命令跑' }])
+})
+
+test('import_continue 幂等：重复导入同一文件已存在则跳过', async () => {
+  const src = CONTINUE_DIR + CID + '.json'
+  const { ctx, persistence } = makeCtx({
+    [src]: continueSession([
+      continueItem({ id: 'u1', role: 'user', content: '第一问' }),
+      continueItem({ id: 'a1', role: 'assistant', content: '一答' }),
+    ]),
+  })
+  apply(ctx)
+  const def = chatDef(ctx, 'continue')
+  const first = await def.execute({ path: src })
+  const second = await def.execute({ path: src })
+  assert.equal(first.alreadyImported, false)
+  assert.equal(second.alreadyImported, true)
+  assert.equal(persistence.sessions.size, 1)
 })

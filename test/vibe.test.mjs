@@ -1,7 +1,7 @@
 // test/vibe.test.mjs — Mistral Vibe CLI 会话导入单元与集成测试（合成数据）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { convertVibeJson, parseVibeTime } from '../lib/convert/vibe.mjs'
@@ -9,6 +9,7 @@ import { listVibeSessions, readVibeSessionSummary, vibeUserDataDirs, previewVibe
 import { discoverSessions } from '../lib/discovery.mjs'
 import { apply } from '../lib/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, makeFs, toolDef } from './_support/fake-host.mjs'
 
 const TEST_CWD = hostAbs('C:/projects/vibe-demo')
 
@@ -246,76 +247,11 @@ test('import_chat 工具可正常导入 Mistral Vibe 会话目录', async () => 
     writeFileSync(join(sessionDir, 'meta.json'), JSON.stringify(syntheticMeta({ title: 'Tool Imported Session' })))
     writeFileSync(join(sessionDir, 'messages.jsonl'), syntheticMessages().map((m) => JSON.stringify(m)).join('\n'))
 
-    const createdSessions = new Map()
-    const persistence = {
-      async list() { return [...createdSessions.values()].map((s) => s.meta) },
-      async create(meta) {
-        createdSessions.set(meta.id, { meta, events: [] })
-      },
-      async append(id, events) {
-        const s = createdSessions.get(id)
-        if (s) s.events.push(...events)
-      },
-      async inspect(id) { return createdSessions.get(id) },
-      async readFrom(id, fromSeq = 0) {
-        const s = createdSessions.get(id)
-        return { meta: s.meta, events: s.events.slice(fromSeq) }
-      },
-    }
-
-    const registeredTools = new Map()
-    const workspaces = new Map()
-
-    const ctx = {
-      sessionPersistence: persistence,
-      workspaceRegistry: {
-        async resolveByPath(p) { return workspaces.get(p) ?? null },
-        async create(p) {
-          const ws = { path: p, attachSession: async () => {} }
-          workspaces.set(p, ws)
-          return ws
-        },
-      },
-      tools: {
-        register(tool) {
-          registeredTools.set(tool.name, tool)
-        },
-      },
-      webServer: { register() {} },
-      fs: {
-        async resolve(p) { return { targetKey: p, displayPath: p } },
-        async stat(target) {
-          try {
-            const s = statSync(target.targetKey)
-            return s.isDirectory() ? { type: 'directory' } : { type: 'file', size: s.size, version: 'v1' }
-          } catch {
-            return undefined
-          }
-        },
-        async readText(target) {
-          const { readFileSync } = await import('node:fs')
-          return readFileSync(target.targetKey, 'utf8')
-        },
-        async listDir(target) {
-          const { readdirSync } = await import('node:fs')
-          return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => {
-            const path = join(target.targetKey, e.name)
-            return { name: e.name, type: e.isDirectory() ? 'directory' : 'file', target: { targetKey: path, displayPath: path } }
-          })
-        },
-        processPath(target) { return target.targetKey },
-      },
-      inject(serviceList, cb) {
-        const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-        if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-        return undefined
-      },
-      get(s) { return ctx[s] },
-      on() { return () => {} },
-    }
+    const { ctx, persistence } = makeCtx(null, { real: true })
+    const createdSessions = persistence.sessions
 
     apply(ctx)
-    const importTool = registeredTools.get('import_chat')
+    const importTool = toolDef(ctx, 'import_chat')
     assert.ok(importTool, 'import_chat 工具已注册')
 
     const result = await importTool.execute({
@@ -362,29 +298,7 @@ test('previewVibeDirectory & previewVibeFile: 支持目录与单文件只读预�
     writeFileSync(join(s1, 'meta.json'), JSON.stringify(syntheticMeta({ title: 'Preview S1' })))
     writeFileSync(join(s1, 'messages.jsonl'), syntheticMessages().map((m) => JSON.stringify(m)).join('\n'))
 
-    const ctx = {
-      fs: {
-        async resolve(p) { return { targetKey: p, displayPath: p } },
-        async stat(target) {
-          try {
-            const s = statSync(target.targetKey)
-            return s.isDirectory() ? { type: 'directory' } : { type: 'file', size: s.size, version: 'v1' }
-          } catch { return undefined }
-        },
-        async readText(target) {
-          const { readFileSync } = await import('node:fs')
-          return readFileSync(target.targetKey, 'utf8')
-        },
-        async listDir(target) {
-          const { readdirSync } = await import('node:fs')
-          return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => {
-            const p = join(target.targetKey, e.name)
-            return { name: e.name, type: e.isDirectory() ? 'directory' : 'file', target: { targetKey: p, displayPath: p } }
-          })
-        },
-        processPath(target) { return target.targetKey },
-      },
-    }
+    const ctx = { fs: makeFs({}, { real: true }) }
 
     const prevSingle = await previewVibeFile(ctx, { targetKey: s1, displayPath: s1 }, {})
     assert.equal(prevSingle.title, 'Preview S1')
@@ -410,56 +324,11 @@ test('import_chat: 批量导入多会话目录与直传 messages.jsonl 单文件
     writeFileSync(join(s2, 'meta.json'), JSON.stringify(syntheticMeta({ session_id: 'vibe-2', title: 'Session 2' })))
     writeFileSync(join(s2, 'messages.jsonl'), syntheticMessages().map((m) => JSON.stringify(m)).join('\n'))
 
-    const createdSessions = new Map()
-    const persistence = {
-      async list() { return [...createdSessions.values()].map((s) => s.meta) },
-      async create(meta) { createdSessions.set(meta.id, { meta, events: [] }) },
-      async append(id, events) { const s = createdSessions.get(id); if (s) s.events.push(...events) },
-      async inspect(id) { return createdSessions.get(id) },
-      async readFrom(id, fromSeq = 0) { const s = createdSessions.get(id); return { meta: s.meta, events: s.events.slice(fromSeq) } },
-    }
-    const registeredTools = new Map()
-    const workspaces = new Map()
-    const ctx = {
-      sessionPersistence: persistence,
-      workspaceRegistry: {
-        async resolveByPath(p) { return workspaces.get(p) ?? null },
-        async create(p) { const ws = { path: p, attachSession: async () => {} }; workspaces.set(p, ws); return ws },
-      },
-      tools: { register(t) { registeredTools.set(t.name, t) } },
-      webServer: { register() {} },
-      fs: {
-        async resolve(p) { return { targetKey: p, displayPath: p } },
-        async stat(target) {
-          try {
-            const s = statSync(target.targetKey)
-            return s.isDirectory() ? { type: 'directory' } : { type: 'file', size: s.size, version: 'v1' }
-          } catch { return undefined }
-        },
-        async readText(target) {
-          const { readFileSync } = await import('node:fs')
-          return readFileSync(target.targetKey, 'utf8')
-        },
-        async listDir(target) {
-          const { readdirSync } = await import('node:fs')
-          return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => {
-            const p = join(target.targetKey, e.name)
-            return { name: e.name, type: e.isDirectory() ? 'directory' : 'file', target: { targetKey: p, displayPath: p } }
-          })
-        },
-        processPath(target) { return target.targetKey },
-      },
-      inject(serviceList, cb) {
-        const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-        if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-        return undefined
-      },
-      get(s) { return ctx[s] },
-      on() { return () => {} },
-    }
+    const { ctx, persistence } = makeCtx(null, { real: true })
+    const createdSessions = persistence.sessions
 
     apply(ctx)
-    const importTool = registeredTools.get('import_chat')
+    const importTool = toolDef(ctx, 'import_chat')
 
     // 1. 批量目录导入
     const batchRes = await importTool.execute({ format: 'vibe', path: tmp })
@@ -477,4 +346,19 @@ test('import_chat: 批量导入多会话目录与直传 messages.jsonl 单文件
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
+})
+test('readVibeSessionSummary：meta.json 缺失时标题取首条 user 消息，跳过头部里解析不了的行', async () => {
+  const head = [
+    '{"role":"system","content":"sys"',
+    JSON.stringify({ role: 'user', content: [null, { type: 'text', text: '帮我修构建' }] }),
+    '{"role":"assistant","content":"半截',
+  ].join('\n')
+  const host = {
+    async readText() { throw new Error('ENOENT meta.json') },
+    async readHead() { return head },
+  }
+  const summary = await readVibeSessionSummary(host, join('sessions', 'session_x'))
+  assert.equal(summary.title, '帮我修构建')
+  assert.equal(summary.id, 'session_x')
+  assert.equal(summary.directory, null)
 })

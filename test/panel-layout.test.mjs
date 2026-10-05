@@ -4,24 +4,43 @@
 // 行内不画分隔线），工作区筛选并入筛选层与搜索框同排，工具栏只留选择类动作
 //（已选条数由底部主按钮的「导入所选 (N)」承担，不再单独占一个 label）。
 //
-// 为什么读源码断言：面板是 client.js 里的 React.createElement 内联树，零构建、
+// 为什么读源码断言：面板是 client.js 里的 h()（= React.createElement）内联树，零构建、
 // 无 DOM 测试环境（devDependencies 只有 eslint）。这些约定在真实 UI 上肉眼可见、
 // 但没有任何模块边界能兜住——顺序或分隔线一旦被改回去，只有这里会响。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { readFileSync } from 'node:fs'
 
-const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
+// core.autocrlf=true 的 Windows 检出会把 bundle 变成 CRLF；按 LF 切函数前先归一
+const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8').replace(/\r\n/g, '\n')
 
-/** DiscoveryPanel 的 body 表达式：从函数内 `const body = React.createElement` 到收尾 `return`。 */
+/** 组件函数的渲染树：从函数内第一处 `return h(` 到同缩进（4 空格）的函数收尾。 */
+function renderTree(name) {
+  const start = source.indexOf('function ' + name + '(')
+  assert.notEqual(start, -1, 'lib/client.js 缺少 ' + name)
+  const ret = source.indexOf('return h(', start)
+  const end = source.indexOf('\n    }\n', start)
+  assert.ok(ret !== -1 && end !== -1 && ret < end, name + ' 没有可识别的渲染树')
+  return source.slice(ret, end)
+}
+
+/** DiscoveryPanel 的 body 表达式（函数内 `const body = h(` 到收尾 `return`），拆出去的子组件
+ *  （工具栏 DiscoveryToolbar / 分页条 PageBar）在各自调用点就地展开——下面的断言看的是
+ *  「渲染出来的自上而下顺序」，与某一块是内联在 body 里还是拆成子组件无关。 */
 function panelBody() {
   const start = source.indexOf('function DiscoveryPanel()')
   assert.notEqual(start, -1, 'lib/client.js 缺少 DiscoveryPanel')
-  const bodyAt = source.indexOf('const body = React.createElement', start)
+  const bodyAt = source.indexOf('const body = h(', start)
   assert.notEqual(bodyAt, -1, 'DiscoveryPanel 缺少 body 树')
-  const end = source.indexOf('\n      return React.createElement("div", { ref: rootRef', bodyAt)
+  const end = source.indexOf('\n      return h("div", { ref: rootRef', bodyAt)
   assert.notEqual(end, -1, 'DiscoveryPanel body 树没有可识别的收尾')
-  return source.slice(bodyAt, end)
+  let body = source.slice(bodyAt, end)
+  for (const name of ['DiscoveryToolbar', 'PageBar']) {
+    const call = body.indexOf('h(' + name + ', {')
+    assert.notEqual(call, -1, 'DiscoveryPanel 应在 body 里渲染 ' + name)
+    body = body.slice(0, call) + renderTree(name) + '\n' + body.slice(call)
+  }
+  return body
 }
 
 const at = (haystack, needle) => {
@@ -119,12 +138,15 @@ test('底部主操作区自带上边框，与列表/分页分区；导入结果�
 test('会话行：多选入口是整行（role=checkbox + 键盘切换），工具标只作指示，导入按钮不冒泡', () => {
   const rowAt = source.indexOf('const SessionRow = React.memo(function SessionRow')
   assert.notEqual(rowAt, -1, 'lib/client.js 缺少 SessionRow')
-  const row = source.slice(rowAt, source.indexOf('function DiscoveryPanel()', rowAt))
+  // 行组件到 memo 比较函数为止（之后是分组 / 工具栏等别的组件）
+  const rowEnd = source.indexOf('\n    }, (a, b) =>', rowAt)
+  assert.notEqual(rowEnd, -1, 'SessionRow 应是带比较函数的 React.memo')
+  const row = source.slice(rowAt, rowEnd)
 
   // 整行：勾选语义 + 键盘可达（挂在行容器上，而不是消息体内部的某个子节点）
-  const rowOpenAt = row.indexOf('return React.createElement("div", {')
+  const rowOpenAt = row.indexOf('return h("div", {')
   assert.notEqual(rowOpenAt, -1, 'SessionRow 应渲染行容器')
-  const rowOpen = row.slice(rowOpenAt, row.indexOf('React.createElement(SourceBadge'))
+  const rowOpen = row.slice(rowOpenAt, row.indexOf('h(SourceBadge'))
   assert.match(rowOpen, /role: "checkbox"/, '行容器应带 checkbox 角色')
   assert.match(rowOpen, /"aria-checked": checked/, '行容器应暴露 aria-checked')
   assert.match(rowOpen, /"aria-label": (s.title || props.noTitle)/, '行容器应带可读的 aria-label')
@@ -138,7 +160,7 @@ test('会话行：多选入口是整行（role=checkbox + 键盘切换），工�
   assert.ok(!row.slice(mainAt, mainAt + 80).includes('toggleProps'), '消息体不应再挂 toggleProps')
 
   // 工具标：只作指示器
-  const badgeAt = row.indexOf('React.createElement(SourceBadge, {')
+  const badgeAt = row.indexOf('h(SourceBadge, {')
   assert.notEqual(badgeAt, -1, '行内应仍渲染来源工具标')
   const badge = row.slice(badgeAt, row.indexOf('}),', badgeAt))
   assert.ok(!/onClick/.test(badge), '工具标不应再接收点击（勾选入口已移到消息体）')

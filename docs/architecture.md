@@ -48,7 +48,11 @@
 
 ## D6. 已知体量热点与治理方向（2026-09 定）
 
-- **背景**：AI 辅助开发使代码增长快于人工维护速度；当前热点：`lib/discovery.mjs`（约 2390 行）、`lib/tools.mjs`（约 1660 行）。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片；`lib/import-variants.mjs` 曾以 1029 行触发停止线，SQLite 库类来源的 dry-run 预览已按来源迁入 `lib/sources/<src>.mjs`，余约 750 行。）
+- **背景**：AI 辅助开发使代码增长快于人工维护速度。热点曾是 `lib/discovery.mjs`（2629 行）、`lib/tools.mjs`（1663 行）、`lib/import-core.mjs`（1053 行）——三者都越过了停止线却仍在加功能。（`lib/client.js` 曾以 2131 行触发停止线，已按 D7 拆分为 `src/client/` 分片；`lib/import-variants.mjs` 曾以 1029 行触发停止线，SQLite 库类来源的 dry-run 预览已按来源迁入 `lib/sources/<src>.mjs`。）
+- **执行情况（2026-10）**：三处热点均已按下述方向拆完，`lib/` 下最大的手维护文件回到 1000 行以内：
+  - `lib/discovery.mjs` → 薄门面 + `lib/discovery/`：来源描述符表 `registry.mjs`（FORMATS / 默认根 / 扫描器 / 单文件判格式全部由描述符派生）、驱动 `discover.mjs`、书签缓存 `scan-cache.mjs`、遍历与状态标注件，以及按来源族的扫描器模块（`claude` / `jsonl` / `gemini` / `sqlite` / `cline` / `session-dirs` / `documents` / `dsh`）。
+  - `lib/tools.mjs` → 薄门面（`registerTools` + 档位对账）+ `lib/tools/`：导入 spec 表、参数派生、输出 schema 片段、结果文案、管理 / 导出 / 会话 / 扫描四组工具。
+  - `lib/import-core.mjs` → 共享状态机拆出 `lib/import-state.mjs`（已知记录 + 源未变短路径）、`lib/import-batch.mjs`（文件收集 + 批量计数）、`lib/host-session.mjs`（宿主会话读写适配）。
 - **决定**：治理方向不是「按行数强拆」，而是：
   - `discovery.mjs` 按**来源族**拆（每种来源的发现逻辑内聚，与 D3 的来源流水线对齐）；
   - `tools.mjs` 按**工具分组**拆（import / export / purge 各自的工具定义与 handler 同文件）；
@@ -62,8 +66,8 @@
 ## D7. 浏览器侧 bundle 例外于零构建：src/client/ 分片 + 组装脚本（2026-09 定）
 
 - **背景**：`lib/client.js`（侧面板 UI）长到 2131 行，触发体量停止线。但 DSH 的客户端模块加载器没有相对 require、也没有资源 URL——浏览器侧产物**必须**是单个自包含文件，「分文件但不构建」在平台上不存在。两条出路：全套 TS 工具链（dsh-better-sidebar 式）或分片+逐字拼接（dsh-claude-style 式）。前者违反 D1 且重审条件不成立（不对外发 TS 类型契约、不需要支持旧 Node），工具链成本对一个陈述式 UI bundle 不成比例。
-- **决定**：源码按职责拆到 `src/client/`（11 片：i18n / prefs / sources / widgets / styles / utils / settings / tabs / discovery / footer / entry），`scripts/build-client.mjs` 逐字拼回 `lib/client.js`（沿用 dsh-claude-style 已验证的同平台路线）。片段契约：禁 import/export（共享 factory 作用域，顺序即声明顺序）、4 空格基准缩进、LF 行尾；构建内置 vm 语法门禁，`npm run build` 含 `--check` 新鲜度校验（产物与源漂移即失败）。同时把根目录发布入口收进子目录：`index.mjs`/`index.d.ts` → `lib/`，`convert.mjs`/`export.mjs` shim → `lib/convert/index.mjs` / `lib/export/index.mjs`（`exports["./export.mjs"]` 子路径契约不变），ROADMAP/CONTRIBUTING → `docs/`。
-- **代价**：双层真相源——改面板必须改 `src/client/` 再组装，直接改 `lib/client.js` 会被 --check 拦下；eslint 对片段关闭 no-undef/no-unused-vars（跨片引用所致），由构建的整体语法门禁兜底。首拆以「产物逐字节一致」为验收，行为零变化。
+- **决定**：源码按职责拆到 `src/client/`（片段清单以 `scripts/build-client.mjs` 的 `FRAGMENTS` 为准），`scripts/build-client.mjs` 逐字拼回 `lib/client.js`（沿用 dsh-claude-style 已验证的同平台路线）。宿主侧与面板共用的纯函数（`lib/panel-filter.mjs`、`lib/footer-layout.mjs`）不在片段里另抄一份：组装脚本按白名单把它们内联进 bundle（去掉 `export` 关键字、按 4 空格基准缩进，拒绝 import / `export default` / 多行模板串），测试测的就是发布的那份。片段契约：禁 import/export（共享 factory 作用域，顺序即声明顺序）、4 空格基准缩进、LF 行尾；构建内置 vm 语法门禁，`npm run build` 含 `--check` 新鲜度校验（产物与源漂移即失败）。同时把根目录发布入口收进子目录：`index.mjs`/`index.d.ts` → `lib/`，`convert.mjs`/`export.mjs` shim → `lib/convert/index.mjs` / `lib/export/index.mjs`（`exports["./export.mjs"]` 子路径契约不变），ROADMAP/CONTRIBUTING → `docs/`。
+- **代价**：双层真相源——改面板必须改 `src/client/` 再组装，直接改 `lib/client.js` 会被 --check 拦下（CI 单独跑一步 `build-client.mjs --check`）；片段跨片引用，eslint 按组装脚本生成的跨片全局名单逐片段启用 no-undef（vm 语法门禁只管能否解析，管不到未定义引用）。首拆以「产物逐字节一致」为验收，行为零变化。
 - **重审条件**：DSH 客户端加载器支持相对 require / 资源 URL 之时（届时可回到纯 ESM 直发，拆掉的只是组装脚本）。
 
 ---
@@ -184,7 +188,7 @@
 
 ## D19. opencode 双存储世代：按表分派读取，绝不两边都读（2026-10 定）
 
-- **背景**：opencode 2.x（npm `@opencode/cli`，命令仍是 `opencode` / `opencode2`）**沿用 V1 的 `opencode.db`**，但把会话搬到 `session_v2`、转录搬到 `session_message`；V1 的 `session`/`message`/`part` 只是 V1→V2 迁移的来源。实测（本机 opencode 2.0.21 对 V1 库跑一次 `session list`）：迁移后 `session` 4 行、`session_v2` 4 行、`message` 51 行、`session_message` 51 行——**旧行仍在库里**。只读 V1 三表会让 V2 原生会话凭空消失（issue #71 的现象）；两边都读会把同一会话导入两次。
+- **背景**：opencode 2.x（npm `@opencode/cli`，命令仍是 `opencode` / `opencode2`）**沿用 V1 的 `opencode.db`**，但把会话搬到 `session_v2`、转录搬到 `session_message`；V1 的 `session`/`message`/`part` 只是 V1→V2 迁移的来源。实测（本机 opencode 2.0.21 对 V1 库跑一次 `session list`）：迁移后 `session` 4 行、`session_v2` 4 行、`message` 51 行、`session_message` 51 行——**旧行仍在库里**。只读 V1 三表会让 V2 原生会话凭空消失；两边都读会把同一会话导入两次。
 - **决定**：`readOpencodeDb` / `readOpencodeDbSummaries` 先按 `sqlite_master` 探测世代：有 `session_v2` → V2（`session_v2` + `session_message`，按 `seq` 升序），否则有 `session` → V1，两者都没有 → 大声报错（不返回空列表，否则面板显示的是「没有会话」而不是「库不认识」）。两代产出**同一形状**的中间 JSON，转换器 `lib/convert/opencode.mjs` 无世代分支；导入编排、DB 指纹短路径、`sessionIds` 过滤、registry 子表全部复用。压缩边界取「最近一条 `status='completed'` 的 compaction 行」——这正是 V2 自己的模型上下文口径（`session_message.seq >=` 该行的行才是模型可见内容），该行之前的轮进日志但不进模型上下文。
 - **代价**：V2 的压缩正文分 `summary` 与 `recent` 两个字段（V2 模型两段都看，见 `session/compaction.ts` 的 `<summary>` / `<recent-context>`），检查点正文因此是两段之和：比 V1 的「摘要 + 保留窗口仍以轮呈现」更粗（保留窗口变成文本），换来的是与源侧投影逐字一致。非 `completed` 的 compaction 行（running/failed）不是模型可见边界，正文按普通内容保留、绝不静默丢。V2 原生工具名（`shell`/`subagent`/`patch`、`path` 取代 `filePath`）按「未知名原样保留」处理，不新造 DSH 侧对照（迁移后的历史行里仍是 V1 名，两套都要能读）。
 - **重审条件**：opencode 再换存储世代（第三种表名/库）时按同一分派扩一项；V2 若开始删除 V1 三表，本决策无需改动（分派已覆盖）。反向导出（`export_chat({ format: 'opencode' })`）目前仍写 V1 `opencode import` 能吃的 JSON，V2 的 `session import` 契约未验证前不改。
@@ -193,14 +197,24 @@
 
 ## D20. 从文件导入：三级探测 + generic 文档 + 上传通道（2026-10 定）
 
-- **背景**：发现列表只覆盖内置来源，而「手上有一个文件」是最常见的入口形态：网页版导出（无官方格式）、自写脚本产物、长尾工具的原生存储——以及 issue #70 那类「我下载了一个导出文件，却无处可导」。此前的文件路径只有 `import_chat({ format: "local-jsonl" })`：只收 `.jsonl`、失败只给一句「未识别」（死胡同：既不说支持什么，也不给出路）、面板完全没有文件入口；远程部署（浏览器只有 `File` 对象、拿不到路径）更是无路可走。
+- **背景**：发现列表只覆盖内置来源，而「手上有一个文件」是最常见的入口形态：网页版导出（无官方格式）、自写脚本产物、长尾工具的原生存储——以及「我下载了一个导出文件，却无处可导」这类报告。此前的文件路径只有 `import_chat({ format: "local-jsonl" })`：只收 `.jsonl`、失败只给一句「未识别」（死胡同：既不说支持什么，也不给出路）、面板完全没有文件入口；远程部署（浏览器只有 `File` 对象、拿不到路径）更是无路可走。
 - **决定**：
   1. **三级探测**（`lib/convert/local-jsonl.mjs`）：显式 `format` 覆盖 > **内容标记**（`"interchange":"dsh-chat-import"` → generic；`"bundle"` → 便携包转 `restore_bundle`；只扫前 64KB）> 路径特征排序候选后逐个试跑。结果带 `detectedFormat` / `detectedBy` / `failures`（**每个**候选格式的失败原因，全量而非只记第一条）。
-  2. **generic 文档成为一等导入格式**（`lib/convert/generic.mjs`，契约见 INTERCHANGE.md §5）：INTERCHANGE §1 的 turns 文档带版本与内容标记即可导入。这是长尾来源与 skill 路线的落点——写一份 JSON 比内置一个转换器便宜，也不必让 LLM 手写 DSH 事件日志（seq / surfaceOp / protected head / V3-V4 形状任一不合就整份被宿主拒载）。**不选 DSH 会话日志当撰写格式**：它是存储格式，不是 authoring 格式。校验按 D4 大声计数（未知块 / 图片降级 / 畸形轮步 / 孤儿结果 / 非法 usage / 0 轮 skipReason）。**工具结果的落点收敛到 `step.toolResults`**：写在 step `content` 里的 `tool-result` 块按 `toolCallId` 派生进结果列表（显式列表优先，与 `tool-call` 块的派生对称），写在 `promptBlocks` 或结果内层的无处安放、丢弃并计入 `skippedBlocks`——宿主 V4 codec 见到解释性 content 里的 `tool-result` 包装即拒载整份日志（`"released tool-result wrapper"`，issue #77），正文里不能残留结果块。
+  2. **generic 文档成为一等导入格式**（`lib/convert/generic.mjs`，契约见 INTERCHANGE.md §5）：INTERCHANGE §1 的 turns 文档带版本与内容标记即可导入。这是长尾来源与 skill 路线的落点——写一份 JSON 比内置一个转换器便宜，也不必让 LLM 手写 DSH 事件日志（seq / surfaceOp / protected head / V3-V4 形状任一不合就整份被宿主拒载）。**不选 DSH 会话日志当撰写格式**：它是存储格式，不是 authoring 格式。校验按 D4 大声计数（未知块 / 图片降级 / 畸形轮步 / 孤儿结果 / 非法 usage / 0 轮 skipReason）。**工具结果的落点收敛到 `step.toolResults`**：写在 step `content` 里的 `tool-result` 块按 `toolCallId` 派生进结果列表（显式列表优先，与 `tool-call` 块的派生对称），写在 `promptBlocks` 或结果内层的无处安放、丢弃并计入 `skippedBlocks`——宿主 V4 codec 见到解释性 content 里的 `tool-result` 包装即拒载整份日志（`"released tool-result wrapper"`），正文里不能残留结果块。
   3. **上传通道**（`lib/upload.mjs` + 三条路由）：init / chunk / complete 三步，按 (sha256, size) 幂等（刷新或断线从已收字节续传，同一文件零重传），整文件指纹校验通过才产出可导入路径；配额单文件 256MiB / 暂存 2GiB、未完成 24h 回收、文件名 sanitize 且落点固定在 `$DSH_HOME/dsh-chat-import/uploads/<uuid>/`。暂存件导入后**保留**（D13 的重导语义以它为源键），未被 registry 引用的件由维护入口清理。
   4. **一个编排、三个入口**：`lib/file-import.mjs` 同时服务面板 `/api-import/file`、`/import auto <path>` 与 `local-jsonl` 工具面（`parseFormat` 增补 `generic`）；预览复用 import-core 的 preview 家族，零新状态机；目录批量复用 `importDirectory`，vibe 形态目录（`messages.jsonl` + `meta.json`）经该来源自己的 `vibeDeriveArgs` 补 meta（不重写第二份映射）。
   5. **交互按「不跟宿主抢手势」定形**（2026-10 收口）：面板**不注册拖放**——把会话文件拖到 DSH 窗口会被宿主当成「给当前对话加附件」，抢过来只会让用户困惑；给文件的入口是系统文件框（「选择…」→ 隐藏 `<input type=\"file\" multiple>` → 上传通道）与**路径回车**两种。路径是目录时**显式弹窗问「是否搜索子文件夹」**：先按当前层扫一遍（`recursive:false`），用户选「包含子文件夹」才重扫（目录树可能很大，不做无谓下钻）。弹窗用**宿主内置预设样式的 Modal / Button**（`@deepseek-ai/dsh-client-ui-primitives`，与落点 Toast 同一条 require 通道 + 同一条降级策略），不引入 Electron 原生对话框，也不自造一套视觉。原先的 `/api-import/browse`（目录选择器 / 自绘清单）随「浏览…」按钮一并删除——它的唯一消费者就是那个按钮。
 - **代价**：探测要跑多个转换器（失败路径比成功路径更贵，故内容标记与路径特征都前置于试跑）；`convertLocalJsonl` 的结果多了三个键，工具 / 命令 / 面板三处都要透出；上传是唯一新增的「无盘来源」数据面，配额与暂存生命周期因此成为长期维护项；generic 是一份要跟着 IR 演进的第二契约（靠能力矩阵与同一个 `synthesizeSession` 收敛）；路径输入意味着目录要先扫一层再问（多一次轻量扫描，换掉「默默递归几十万文件」的风险）；识别失败的出路只剩「复制摘要 + 交给 Agent 按 Skill 转换」，用户手上有明确解析器目标时需要走工具面（`import_chat` 的 `parseFormat`）。
 - **重审条件**：宿主自身的拖放/附件交互改为不吞文件（或提供「拖到导入面板」的排他区域）时，可重新评估拖放入口；宿主提供文件（非目录）选择服务时，「选择…」改走该服务；出现被广泛采用的会话交换标准时，评估把 generic 换成或映射到该标准。
 
+---
 
+## D21. 同口径逻辑只留一份，来源清单由一张表派生（2026-10 定）
+
+- **背景**：来源一个个加进来，靠的是复制最近的那个来源再改。一次全量评审数出：标题归一 22 份（19 份逐字相同，注释还写着「需同步 5 处」）、源未变短路径 6 份（只有 2 份查 WAL）、批量计数 7 份、SQLite 只读打开 13 处、测试假宿主 15 份；来源清单在发现层有 5 张平行表、命令别名表与 `index.d.ts` 各自手写。副本已经漂移出真 bug：fork 目录导入退回 opencode 标签、`/import kilocode` 报未知来源、默认扫描看不到 V4 日志、`storeImages:false` 对一半来源无效、`imagesDegraded` 被重复计数。旧注释里的「core.mjs 属禁改面，各源按文件内联」是这些副本的由头，早已不成立。
+- **决定**：
+  1. **共用口径各有一个家**：转换层 `lib/convert/util.mjs`（标题 / 时间 / 正文抽取 / 跳过结果）、`lib/convert/ir.mjs`（调用与结果整理）、`core.mjs` 的 `finishSession`；导出层 `lib/export/common.mjs`；host 面 `lib/sources/sqlite.mjs`（只读打开 / 列自适应）、`lib/import-state.mjs`（已知记录 + 源未变短路径，含 WAL 与选择性补导守卫）、`lib/import-batch.mjs`（文件收集 + 批量计数）、`lib/atomic-write.mjs`；测试 `test/_support/`。来源确有不同语义时**参数化**共用件，不复制。
+  2. **清单派生，不手写**：发现层每个来源一个描述符（`lib/discovery/registry.mjs`），FORMATS / 默认根 / 扫描器 / 单文件判格式由它派生；`import_chat` 的格式表（`lib/toolkit.mjs` 的 `CHAT_FORMATS`）派生 `/import` 别名；导入 spec 的 `multiSession` 标记派生面板与工具的 `sessionIds` 适用范围；`index.d.ts` 的格式联合类型由一致性测试对照运行时清单。
+  3. **边界由测试与门禁守住，不靠自觉**：转换 / 导出层的 import 边界有测试（越界即失败，D3）；`build-check` 从发布入口沿模块图走一遍，可达模块不在 `files` 白名单即失败（新子目录忘登记曾让 `lib/tools/`、`lib/discovery/` 差点漏发）。
+- **代价**：模块数变多、跳转多一层；改一个共用件会同时影响所有来源——这正是目的，回归由各来源的测试兜住。
+- **重审条件**：无；新增来源仍走 AGENTS.md「新增一个来源」，其中「第 3 处副本即停」的停止线照旧有效。

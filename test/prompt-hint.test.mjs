@@ -6,10 +6,11 @@
 
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, mkdirSync, readFileSync, statSync, readdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerSessionHint } from '../lib/prompt-hint.mjs'
+import { makeCtx as makeHostCtx } from './_support/fake-host.mjs'
 
 // 最小 codex rollout（首记录 session_meta 带 payload 为格式签名；discovery 识别 + 找到即算可导入）
 function codexRollout() {
@@ -19,54 +20,12 @@ function codexRollout() {
   ].join('\n') + '\n'
 }
 
+// 真实 node:fs 包装的 ctx（discovery host 读真实临时目录）；listeners 收集 ctx.on 注册的处理器。
 function makeCtx() {
   const home = mkdtempSync(join(tmpdir(), 'dsh-hint-'))
   const registryDir = join(home, 'dsh-chat-import')
-  const listeners = new Map() // event → [handlers]
-  const sessions = new Map()
-
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      try {
-        const st = statSync(target.targetKey)
-        return { type: st.isDirectory() ? 'directory' : 'file', size: st.size, mtimeMs: st.mtimeMs }
-      } catch { return undefined }
-    },
-    async readText(target) { return readFileSync(target.targetKey, 'utf8') },
-    async listDir(target) {
-      const names = readdirSync(target.targetKey, { withFileTypes: true })
-      return names.map((d) => ({
-        name: d.name,
-        type: d.isDirectory() ? 'directory' : 'file',
-        target: { targetKey: join(target.targetKey, d.name), displayPath: join(target.targetKey, d.name) },
-      }))
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const persistence = {
-    async create(meta) { sessions.set(meta.id, { header: meta, events: [] }) },
-    async append(id, events) { const s = sessions.get(id); if (s) s.events.push(...events) },
-    async list() { return [...sessions.values()].map((s) => s.header) },
-    async locate() { return undefined },
-    async readFrom() { return undefined },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    tools: { register() { return () => {} } },
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      return undefined
-    },
-    on(event, handler) {
-      const list = listeners.get(event) || []
-      list.push(handler)
-      listeners.set(event, list)
-      return () => {}
-    },
-  }
-  return { ctx, registryDir, sessions, listeners }
+  const host = makeHostCtx(null, { real: true })
+  return { ctx: host.ctx, registryDir, sessions: host.persistence.sessions, listeners: host.listeners }
 }
 
 // 触发一次 agent/session-start（模拟 Scoped<Agent> payload）；handler 是 async（内部
@@ -144,4 +103,40 @@ test('REQ-53 迁移提示：DSH_IMPORT_SESSION_HINT=0 关闭', async () => {
     if (prev === undefined) delete process.env.DSH_IMPORT_SESSION_HINT
     else process.env.DSH_IMPORT_SESSION_HINT = prev
   }
+})
+
+// 短会话（headless 单轮）在发现跑完前就结束：agent scope 失活后读 agent.ctx 的服务会抛
+// "cannot get required service … in inactive context"，注册效果会抛 CordisError INACTIVE_EFFECT。
+// 服务在第一个 await 前取到；会话已结束则安静放弃（没有可提示的对象，不是故障），也不记
+// 记忆——下一个会话照常提示。
+test('迁移提示：会话在发现期间结束 → 不告警、不记记忆', async () => {
+  const env = makeCtx()
+  const cwd = mkdtempSync(join(tmpdir(), 'dsh-hint-ended-'))
+  seedCodexHistory(cwd)
+  registerSessionHint(env.ctx, env.registryDir)
+  let ended = false
+  const inactive = Object.assign(new Error('cannot create effect on inactive context'), { code: 'INACTIVE_EFFECT' })
+  const agent = {
+    session: { header: { cwd } },
+    ctx: {
+      get systemPrompt() {
+        if (ended) throw new Error('cannot get required service "systemPrompt" in inactive context')
+        return { context() { if (ended) throw inactive } }
+      },
+    },
+  }
+  const warnings = []
+  const warn = console.warn
+  console.warn = (...args) => warnings.push(args.join(' '))
+  try {
+    const runs = (env.listeners.get('agent/session-start') || []).map((h) => h({ agent }))
+    ended = true // handler 已同步跑到第一个 await：此后 agent 失活
+    await Promise.all(runs)
+  } finally {
+    console.warn = warn
+  }
+  assert.deepEqual(warnings, [], '会话已结束不是故障：' + warnings.join(' | '))
+  let hints = {}
+  try { hints = JSON.parse(readFileSync(join(env.registryDir, 'hints.json'), 'utf8')) } catch { /* 未写记忆文件 */ }
+  assert.equal(hints[cwd], undefined, '没提示出去就不记记忆')
 })

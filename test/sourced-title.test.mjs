@@ -50,3 +50,8 @@ test('pinSourcedSessionTitle：转换层显式给空标题 = 无话题，不回�
   pinSourcedSessionTitle(bare, 'Claude Code')
   assert.equal(bare.title, 'Claude · Hello')
 })
+
+test('sourceLabelFromKey：kilocode → Kilo Code（与面板来源展示名一致，不再以短名出现在标题里）', () => {
+  assert.equal(sourceLabelFromKey('kilocode'), 'Kilo Code')
+  assert.equal(formatSourcedTitle('kilocode', '修复登录', 1_700_000_000_000), 'Kilo Code · 修复登录')
+})

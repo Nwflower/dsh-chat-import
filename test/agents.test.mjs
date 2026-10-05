@@ -4,13 +4,14 @@
 // 避免 mock 树与 node:path 运算的跨平台分隔符差异）。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync, readdirSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   parseFrontmatter, yamlScalar, collectCandidates, planSkillWrites, skillFrontmatter,
   resolveAgentsHome, runAgentsImport,
 } from '../lib/agents.mjs'
+import { makeFs } from './_support/fake-host.mjs'
 
 // ── 纯函数：parseFrontmatter ────────────────────────────────────────────────
 
@@ -179,37 +180,9 @@ test('resolveAgentsHome: $DSH_AGENTS_HOME 优先，缺省 ~/.agents', () => {
 
 // ── 集成：runAgentsImport（真实临时目录）────────────────────────────────────
 
-// 真实 fs 适配层：把 lib/agents.mjs 需要的 resolve/stat/readText/listDir/writeText
-// 接到 node:fs 上（与 index.test.mjs makeCtx 的 fs 同契约，但读真实磁盘）。
-function realFs(root) {
-  const p = (path) => (path.startsWith(root) ? path : join(root, path))
-  return {
-    async resolve(path) { const t = p(String(path)); return { targetKey: t, displayPath: t } },
-    async stat(target) {
-      try {
-        const s = await import('node:fs/promises').then((m) => m.stat(target.targetKey))
-        return s.isDirectory() ? { type: 'directory' } : { type: 'file', size: s.size, version: String(s.mtimeMs) }
-      } catch { return undefined }
-    },
-    async readText(target) { return readFileSync(target.targetKey, 'utf8') },
-    async listDir(target) {
-      let names
-      try { names = readdirSync(target.targetKey, { withFileTypes: true }) } catch { throw new Error('FS_NOT_FOUND ' + target.targetKey) }
-      return names.map((e) => ({
-        name: e.name,
-        type: e.isDirectory() ? 'directory' : 'file',
-        target: { targetKey: join(target.targetKey, e.name), displayPath: join(target.targetKey, e.name) },
-        version: 1,
-      }))
-    },
-    async writeText(target, content) {
-      const dir = target.targetKey.slice(0, target.targetKey.lastIndexOf('/'))
-      mkdirSync(dir, { recursive: true })
-      writeFileSync(target.targetKey, content, 'utf8')
-      return { path: target.targetKey }
-    },
-  }
-}
+// 真实 fs 适配层：lib/agents.mjs 需要的 resolve/stat/readText/listDir/writeText 接到 node:fs 上
+// （共享 fake host 的 fs 契约，读写真实临时目录，产物直接到磁盘上验收）。
+const realFs = () => makeFs({}, { real: true, writeThrough: true })
 
 test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + provenance', async () => {
   const root = mkdtempSync(join(tmpdir(), 'agents-'))
@@ -225,11 +198,11 @@ test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + proven
   writeFileSync(join(piRoot, 'prompts', 'refactor.md'), '---\ndescription: refactor\n---\nrefactor body')
   writeFileSync(join(ocRoot, 'skill', 'search.md'), '---\ndescription: search skill\n---\nsearch body')
 
-  const fsLike = realFs(root)
+  const fsLike = realFs()
   const ctx = { fs: fsLike }
 
   // 1) dry-run：plan 返回但零写盘
-  const dry = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome })
+  const dry = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome })
   assert.equal(dry.total, 3)
   assert.equal(dry.planned, 3)
   assert.equal(dry.applied, 0)
@@ -239,7 +212,7 @@ test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + proven
   assert.ok(!existsSync(join(agentsHome, 'skills')))
 
   // 2) apply：落盘 + frontmatter provenance
-  const applied = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome, apply: true })
+  const applied = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome, apply: true })
   assert.equal(applied.applied, 3)
   const skillsRoot = join(agentsHome, 'skills')
   assert.ok(existsSync(join(skillsRoot, 'reviewer', 'SKILL.md')))
@@ -253,7 +226,7 @@ test('REQ-59 runAgentsImport: dry-run 预览零副作用 + apply 落盘 + proven
   assert.ok(reviewerSkill.includes('review body'))
 
   // 3) 幂等：内容未变 → 全部 skip
-  const again = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome, apply: true })
+  const again = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome, apply: true })
   assert.equal(again.planned, 3)
   assert.equal(again.applied, 0)
   assert.equal(again.skipped, 3)
@@ -268,14 +241,15 @@ test('REQ-59 runAgentsImport: kind:dsh 源过滤 + 缺目录静默空清单', as
   mkdirSync(join(piRoot, 'agents'), { recursive: true })
   writeFileSync(join(piRoot, 'agents', 'native.md'), '---\nname: native\nkind: dsh\n---\nbody')
 
-  const ctx = { fs: realFs(root) }
+  const ctx = { fs: realFs() }
   // 源带 kind:dsh → 0 候选；缺 opencode 目录 → 静默空
-  const r1 = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome })
+  //（claudeRoot 必须显式指向不存在的目录：缺省会读真实 ~/.claude，测试随机器环境漂移）
+  const r1 = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome })
   assert.equal(r1.total, 0)
   assert.equal(r1.planned, 0)
 
   // 全缺目录 → 空清单不报错
-  const r2 = await runAgentsImport(ctx, { piRoot: join(root, 'missing-pi'), opencodeRoot: join(root, 'missing-oc'), codexRoot: join(root, 'missing-codex'), agentsHome })
+  const r2 = await runAgentsImport(ctx, { piRoot: join(root, 'missing-pi'), opencodeRoot: join(root, 'missing-oc'), codexRoot: join(root, 'missing-codex'), claudeRoot: join(root, 'no-claude'), agentsHome })
   assert.equal(r2.total, 0)
   assert.equal(r2.planned, 0)
 })
@@ -290,8 +264,8 @@ test('REQ-59 runAgentsImport: 同名跨源冲突落盘为 -source 后缀', async
   writeFileSync(join(piRoot, 'agents', 'shared.md'), '---\nname: shared\n---\npi body')
   writeFileSync(join(ocRoot, 'agents', 'shared.md'), '---\nname: shared\n---\noc body')
 
-  const ctx = { fs: realFs(root) }
-  const r = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), agentsHome, apply: true })
+  const ctx = { fs: realFs() }
+  const r = await runAgentsImport(ctx, { piRoot, opencodeRoot: ocRoot, codexRoot: join(root, 'codex'), claudeRoot: join(root, 'no-claude'), agentsHome, apply: true })
   assert.equal(r.applied, 2)
   const skillsRoot = join(agentsHome, 'skills')
   assert.ok(existsSync(join(skillsRoot, 'shared', 'SKILL.md')))
@@ -314,7 +288,7 @@ test('REQ-61 runAgentsImport: Claude memory/skills/CLAUDE.md 落盘 + provenance
   writeFileSync(join(claudeRoot, 'skills', 'my-skill', 'SKILL.md'), '---\nname: My Skill\ndescription: does things\n---\nskill body')
   writeFileSync(join(projectRoot, 'CLAUDE.md'), '# CLAUDE.md\nproject instructions')
 
-  const ctx = { fs: realFs(root) }
+  const ctx = { fs: realFs() }
   // 1) dry-run：4 个候选（2 memory + 1 skill + 1 CLAUDE.md），零写盘
   const dry = await runAgentsImport(ctx, { piRoot: join(root, 'no-pi'), opencodeRoot: join(root, 'no-oc'), codexRoot: join(root, 'no-codex'), claudeRoot, claudeProjectRoot: projectRoot, agentsHome })
   assert.equal(dry.total, 4)
@@ -349,7 +323,7 @@ test('REQ-61: Claude 源带 kind:skill frontmatter 过滤 + 缺目录静默空�
   const agentsHome = join(root, 'agents-home')
   mkdirSync(join(claudeRoot, 'skills', 'native-skill'), { recursive: true })
   writeFileSync(join(claudeRoot, 'skills', 'native-skill', 'SKILL.md'), '---\nname: native\nkind: skill\n---\nbody')
-  const ctx = { fs: realFs(root) }
+  const ctx = { fs: realFs() }
   // 已是 DSH 技能（kind:skill）→ 0 候选
   const r = await runAgentsImport(ctx, { piRoot: join(root, 'no-pi'), opencodeRoot: join(root, 'no-oc'), codexRoot: join(root, 'no-codex'), claudeRoot, agentsHome })
   assert.equal(r.total, 0)
@@ -370,7 +344,7 @@ test('runAgentsImport: Codex skills/instructions/AGENTS/config 落盘 + provenan
   writeFileSync(join(codexRoot, 'AGENTS.md'), '# Codex AGENTS\nagents body')
   writeFileSync(join(codexRoot, 'config.toml'), 'model = "gpt-5"\n[extra]\nkey = "value"')
 
-  const ctx = { fs: realFs(root) }
+  const ctx = { fs: realFs() }
   // 1) dry-run：4 个候选，零写盘
   const dry = await runAgentsImport(ctx, {
     piRoot: join(root, 'no-pi'), opencodeRoot: join(root, 'no-oc'),

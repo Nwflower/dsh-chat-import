@@ -1,12 +1,13 @@
 // mcp.test.mjs — MCP 镜像（Claude/Codex → DSH MCP client 计划）
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, mkdirSync } from 'node:fs'
+import { mkdtempSync, writeFileSync, readFileSync, existsSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import {
   parseClaudeMcp, parseCodexMcp, buildMcpPlan, renderMcpPlan, runMcpMirror,
 } from '../lib/mcp.mjs'
+import { makeFs } from './_support/fake-host.mjs'
 
 test('parseClaudeMcp: 解析 mcpServers command/args/env', () => {
   const json = JSON.stringify({
@@ -85,16 +86,7 @@ test('runMcpMirror: dry-run 零写盘 + apply 只写 outPath', async () => {
   const outPath = join(root, 'mcp-mirror.cordis.yml')
   writeFileSync(claudePath, JSON.stringify({ mcpServers: { fs: { command: 'npx', args: ['-y', 'x'] } } }))
   writeFileSync(codexPath, '[mcp_servers.remote]\ncommand = "mcp-remote"\n')
-  const fsLike = {
-    async resolve(p) { return { targetKey: p, displayPath: p } },
-    async readText(t) { return readFileSync(t.targetKey, 'utf8') },
-    async writeText(t, content) {
-      mkdirSync(t.targetKey.slice(0, t.targetKey.lastIndexOf('/')), { recursive: true })
-      writeFileSync(t.targetKey, content, 'utf8')
-      return { path: t.targetKey }
-    },
-  }
-  const ctx = { fs: fsLike }
+  const ctx = { fs: makeFs({}, { real: true, writeThrough: true }) }
   const dry = await runMcpMirror(ctx, { claudeMcpPath: claudePath, codexConfigPath: codexPath })
   assert.equal(dry.total, 2)
   assert.equal(dry.writtenTo, null)

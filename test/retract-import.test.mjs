@@ -19,19 +19,13 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { resolveRegistryDir, loadImports, rememberImport, removeImport } from '../lib/imports.mjs'
 import { forgetIgnore } from '../lib/ignore.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx as makeHostCtx, makePersistence as makeHostPersistence, forbiddenFs, chatDef } from './_support/fake-host.mjs'
 
 const T0 = 1710000000000 // 固定毫秒时间戳（导入时间）
 
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
 })
-
-// 辅助：import_chat 分发器定义——execute 时注入 format（收敛后单工具的测试形态，
-// 等价旧 import_claude 的调用方式）
-function chatDef(ctx, format = 'claude') {
-  const tool = ctx.tools.registered('import_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
 
 // ── 自包含 mock ────────────────────────────────────────────────
 
@@ -54,61 +48,15 @@ function balancedEvents(marker, title) {
   return events
 }
 
-// 内存会话库：list / readFrom / locate / create / append / inspect。
-// 刻意没有 delete / remove 面（平台 sessionPersistence 亦无）——测试断言撤回
-// 全程零删除。readFromThrows 模拟日志不可读（registry 兜底场景）。
-// issue #22 幽灵会话支持：
-//   ghost(id)    —— 模拟「宿主内存索引仍保留 id，但工件已删」：list 仍返回该会话
-//                   （GUI 列表可见），inspect / readFrom 抛错（磁盘侧已认可删除）；
-//   hostReject(id)—— 模拟更病态的宿主：list 已不暴露该 id，但 create 仍对原 id 抛
-//                   `already exists in this backend`（真实 DSH 0.1.1-rc.2 行为）。
+// 内存会话库（共享 fake host）：list / readFrom / locate / create / append / inspect。
+// 刻意没有 delete / remove 面（平台 sessionPersistence 亦无）——测试断言撤回全程零删除。
+// 幽灵会话注入见 fake-host 的 ghost(id) / hostReject(id)（issue #22）。
 function makePersistence() {
-  const sessions = new Map()
-  const calls = []
-  const rejectIds = new Set() // create 拒绝的幽灵 id（list 不暴露）
-  const api = {
-    sessions,
-    calls,
-    ghost(id) {
-      const s = sessions.get(id)
-      if (s) { s.ghosted = true; s.readFromThrows = true }
-    },
-    hostReject(id) {
-      rejectIds.add(id)
-      sessions.delete(id) // list 不再暴露
-    },
-    async list() { calls.push('list'); return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      calls.push('create')
-      if (rejectIds.has(meta.id)) throw new Error('session "' + meta.id + '" already exists in this backend')
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [], readFromThrows: false })
-    },
-    async append(id, events) {
-      calls.push('append')
-      sessions.get(id).events.push(...events)
-    },
-    async inspect(id) {
-      calls.push('inspect')
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      if (s.ghosted) throw new Error('session artifact missing (ghost)')
-      return { meta: s.meta, events: s.events }
-    },
-    async readFrom(id, fromSeq = 0) {
-      calls.push('readFrom')
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      if (s.readFromThrows) throw new Error('readFrom failed (torn log)')
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
+  return makeHostPersistence({
+    omit: ['remove'],
     // 同步、不落盘（对齐 dsh-session-persistence 契约）
-    locate(meta) {
-      calls.push('locate')
-      return { kind: 'jsonl', path: 'D:\\dsh-logs\\' + meta.id + '\\session.jsonl' }
-    },
-  }
-  return api
+    locate: (meta) => ({ kind: 'jsonl', path: 'D:\\dsh-logs\\' + meta.id + '\\session.jsonl' }),
+  })
 }
 
 function seedSession(persistence, { id, meta, events, readFromThrows = false }) {
@@ -116,59 +64,11 @@ function seedSession(persistence, { id, meta, events, readFromThrows = false }) 
 }
 
 // ctx：fs 为抛错代理（REQ-33 工具不碰 fs；被调用即失败暴露），tools 收集注册。
-// tree 可选：提供后 fs 变成真实文件树 mock（重导端到端用例用）。
+// tree 可选：提供后 fs 变成内存文件树（重导端到端用例用）。
 function makeCtx(persistence, tree) {
-  const fsCalls = []
-  const registered = []
-  // 跨平台分隔符归一（与 index.test.mjs makeCtx 同款）：树查找三态命中，防 CI（Linux）红
-  const norm = (p) => String(p).replace(/\\/g, '/')
-  const lookup = (p) => {
-    const f = norm(p)
-    return tree[p] ?? tree[f] ?? tree[f.replace(/\//g, '\\')]
-  }
-  const fs = tree
-    ? {
-      async resolve(path) { return { targetKey: path, displayPath: path } },
-      async stat(target) {
-        const v = lookup(target.targetKey)
-        if (v === undefined) throw new Error('FS_NOT_FOUND ' + target.targetKey)
-        return v === 'dir' ? { type: 'directory' } : { type: 'file', size: v.length, version: 'v' + v.length }
-      },
-      async readText(target) {
-        const v = lookup(target.targetKey)
-        if (v === undefined) throw new Error('FS_NOT_FOUND ' + target.targetKey)
-        return v
-      },
-      processPath(target) { return target.targetKey },
-    }
-    : new Proxy({}, {
-      get(_t, prop) {
-        fsCalls.push(String(prop))
-        return async () => { throw new Error('fs.' + String(prop) + ' 不应被 REQ-33 工具调用') }
-      },
-    })
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} }, // REQ-41：apply 注册 /api-import/sessions 路由（REQ-33 测试不关心）
-    // 模拟 Cordis ctx.inject：依赖服务在 ctx 上存在才执行回调（webServer 在场 →
-    // 路由注册执行；commands 缺席 → /import 命令不注册，插件照常激活）。
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-      return undefined
-    },
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'fs') return fs
-      if (service === 'workspaceRegistry') return { resolveByPath: async () => null, create: async () => ({ attachSession: async () => {} }) }
-      return undefined
-    },
-    tools: { register(def) { registered.push(def); return () => {} } },
-    on() { return () => {} }, // REQ-53：apply 监听 agent/session-start（本测试不模拟事件）
-  }
-  ctx.tools.registered = (name) => registered.find((d) => d.name === name)
-  return { ctx, registered, fsCalls }
+  const forbidden = forbiddenFs()
+  const host = makeHostCtx(tree, { persistence, real: false, ...(tree ? {} : { fs: forbidden.fs }) })
+  return { ctx: host.ctx, registered: host.registered, fsCalls: forbidden.calls }
 }
 
 // ── list_imported_sessions ─────────────────────────────────────
@@ -395,7 +295,7 @@ test('撤回后重导：墓碑拦截；解除忽略后副本仍在 → backfill 
   const persistence = makePersistence()
   const { ctx } = makeCtx(persistence, tree)
   apply(ctx)
-  const imp = chatDef(ctx)
+  const imp = chatDef(ctx, 'claude')
 
   // 首次导入（建 registry 记录）
   const first = await imp.execute({ path: src })
@@ -432,7 +332,7 @@ test('撤回后重导：宿主残留幽灵会话（list 仍暴露、日志不可
   const persistence = makePersistence()
   const { ctx } = makeCtx(persistence, tree)
   apply(ctx)
-  const imp = chatDef(ctx)
+  const imp = chatDef(ctx, 'claude')
   const first = await imp.execute({ path: src })
   assert.equal(first.sessionId, 'import-sess-ghost-001')
 
@@ -463,7 +363,7 @@ test('撤回后重导：宿主 create 拒绝幽灵 id（list 已不暴露）→ 
   const persistence = makePersistence()
   const { ctx } = makeCtx(persistence, tree)
   apply(ctx)
-  const imp = chatDef(ctx)
+  const imp = chatDef(ctx, 'claude')
   await imp.execute({ path: src })
   await ctx.tools.registered('retract_import').execute({ sessionId: 'import-sess-ghost2-001' })
   // 宿主病态：list 已不暴露幽灵，但 create 仍对原 id 抛 already exists

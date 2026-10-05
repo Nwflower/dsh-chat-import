@@ -1,9 +1,25 @@
-// goose.test.mjs — Goose 源转换核心单元测试（自包含合成数据，不掺真实会话）
-import { test } from 'node:test'
+// goose.test.mjs — Goose 源转换核心单元测试 + import_chat 集成测试（假宿主见 _support/fake-host.mjs；自包含合成数据，不掺真实会话）
+import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertGooseJson, gooseDataDir, gooseSessionsDir, gooseDefaultDbPath } from '../lib/convert/goose.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { join } from 'node:path'
+import { mkdtempSync, writeFileSync } from 'node:fs'
+import { tmpdir } from 'node:os'
+import { DatabaseSync } from 'node:sqlite'
+import { apply } from '../lib/index.mjs'
+import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
+import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { clearScanCache } from '../lib/discovery.mjs'
+
+// 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
+// 进程内共享的扫描缓存每用例清空。
+beforeEach(() => {
+  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  clearScanCache()
+})
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -262,4 +278,174 @@ test('路径解析：GOOSE_PATH_ROOT 仅绝对路径生效，三平台默认根�
   assert.equal(gooseSessionsDir('C:\\Users\\u', { APPDATA: 'C:\\Users\\u\\AppData\\Roaming' }, 'win32'),
     'C:\\Users\\u\\AppData\\Roaming\\Block\\goose\\data\\sessions')
   assert.equal(gooseDefaultDbPath(home, {}, process.platform), p(home, '.local', 'share', 'goose', 'sessions', 'sessions.db'))
+})
+
+// ---- import_goose 集成（真实 SQLite 临时库） ----
+
+// 合成 Goose 会话库（sessions/messages 两表，schema 对齐 lib/sources/goose.mjs 头部契约）。
+const GOOSE_CWD = hostAbs('D:/demo/goose-proj')
+const GOOSE_TS = 1745343730 // Unix 秒（goose 的 created_timestamp 是整数）
+function gooseFixtureSessions() {
+  const text = (t) => [{ type: 'text', text: t }]
+  return [
+    {
+      id: '20260422_1',
+      name: '修登录页分页',
+      description: '',
+      workingDir: GOOSE_CWD,
+      sessionType: 'user',
+      parent: null,
+      messages: [
+        { role: 'user', ts: GOOSE_TS, content: text('修一下登录页分页') },
+        {
+          role: 'assistant',
+          ts: GOOSE_TS + 1,
+          content: [
+            { type: 'thinking', thinking: '先读文件', signature: '' },
+            { type: 'toolRequest', id: 'call_1', tool_call: { status: 'success', value: { name: 'read_file', arguments: { path: 'a.ts' } } } },
+          ],
+        },
+        { role: 'user', ts: GOOSE_TS + 2, content: [{ type: 'toolResponse', id: 'call_1', tool_result: { status: 'success', value: { content: [{ type: 'text', text: 'export const a = 1' }] } } }] },
+        { role: 'assistant', ts: GOOSE_TS + 3, content: text('只有一个导出。') },
+      ],
+    },
+    {
+      id: '20260422_2',
+      name: '',
+      description: '遗留描述标题',
+      workingDir: GOOSE_CWD,
+      sessionType: 'user',
+      parent: null,
+      messages: [
+        { role: 'user', ts: GOOSE_TS + 10, content: text('第二个会话') },
+        { role: 'assistant', ts: GOOSE_TS + 11, content: text('好') },
+      ],
+    },
+    // 子代理会话：带 parent_session_id，不单独成会话
+    {
+      id: '20260422_3',
+      name: '子任务',
+      description: '',
+      workingDir: GOOSE_CWD,
+      sessionType: 'sub_agent',
+      parent: '20260422_1',
+      messages: [
+        { role: 'user', ts: GOOSE_TS + 20, content: text('子任务提问') },
+        { role: 'assistant', ts: GOOSE_TS + 21, content: text('子任务回答') },
+      ],
+    },
+  ]
+}
+
+function makeGooseDb(sessions) {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-goose-'))
+  const dbPath = join(dir, 'sessions.db')
+  const db = new DatabaseSync(dbPath)
+  db.exec(`CREATE TABLE sessions (
+    id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
+    session_type TEXT NOT NULL DEFAULT 'user', working_dir TEXT NOT NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    provider_name TEXT, parent_session_id TEXT)`)
+  db.exec(`CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT NOT NULL, role TEXT NOT NULL,
+    content_json TEXT NOT NULL, created_timestamp INTEGER NOT NULL, metadata_json TEXT)`)
+  for (const s of sessions) {
+    db.prepare('INSERT INTO sessions (id, name, description, session_type, working_dir, created_at, updated_at, provider_name, parent_session_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(s.id, s.name, s.description, s.sessionType, s.workingDir, '2026-04-22 17:40:00', '2026-04-22 17:42:10', 'anthropic', s.parent)
+    for (const m of s.messages) {
+      db.prepare('INSERT INTO messages (session_id, role, content_json, created_timestamp) VALUES (?, ?, ?, ?)')
+        .run(s.id, m.role, JSON.stringify(m.content), m.ts)
+    }
+  }
+  db.close()
+  return dbPath
+}
+
+test('import_goose 单库文件：批量形态、逐会话落盘、子代理不导入、schema 校验', async () => {
+  const dbPath = makeGooseDb(gooseFixtureSessions())
+  const { ctx, persistence, attached } = makeCtx({}) // stat 不在 tree 里 → 按真实 DB 文件处理
+  apply(ctx)
+  const def = chatDef(ctx, 'goose')
+  const value = await def.execute({ path: dbPath })
+
+  assert.equal(value.mode, 'batch') // 单 .db 也恒批量
+  assert.equal(value.total, 2) // 读取层已滤掉子代理会话（parent_session_id / sub_agent）
+  assert.equal(value.imported, 2)
+  assert.equal(value.failed, 0)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
+
+  const first = persistence.sessions.get('import-20260422_1')
+  assert.ok(first)
+  assert.equal(first.meta.cwd, GOOSE_CWD)
+  // 创建时间取会话级 created_at（CURRENT_TIMESTAMP 文本按 **UTC** 解析；按本地时区会偏几小时）
+  assert.equal(first.meta.createdAt, Date.parse('2026-04-22T17:40:00Z'))
+  assert.match(first.events.at(-1).data.title, /^Goose · /)
+  assert.ok(first.events.every((e, i) => e.seq === i))
+  assertEnvelopeHygiene(first.events)
+
+  // 工具配对 + 推理块
+  const result = first.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.sourceEventSeqs, [first.events.find((e) => e.type === 'tool/call').seq])
+  assert.equal(result.data.message.content[0].content[0].text, 'export const a = 1')
+  const reasoning = first.events
+    .flatMap((e) => (e.type === 'assistant/message' ? e.data.message.content : []))
+    .filter((b) => b.type === 'reasoning')
+  assert.deepEqual(reasoning, [{ type: 'reasoning', text: '先读文件' }])
+
+  // 标题回退：name 为空 → description
+  const second = persistence.sessions.get('import-20260422_2')
+  assert.match(second.events.at(-1).data.title, /遗留描述标题/)
+  assert.equal(persistence.sessions.has('import-20260422_3'), false)
+  assert.equal(attached.length, 2)
+})
+
+test('import_goose 目录模式：自动定位 sessions.db；sessionIds 过滤只导所选会话', async () => {
+  const dbPath = makeGooseDb(gooseFixtureSessions())
+  const dir = join(dbPath, '..')
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'goose')
+
+  const filtered = await def.execute({ path: dir, sessionIds: ['20260422_2'] })
+  assert.equal(filtered.mode, 'batch')
+  assert.equal(filtered.imported, 1)
+  assert.equal(persistence.sessions.has('import-20260422_1'), false)
+  assert.equal(persistence.sessions.has('import-20260422_2'), true)
+})
+
+test('import_goose 幂等：重复导入同一库只落盘一次', async () => {
+  const dbPath = makeGooseDb(gooseFixtureSessions())
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'goose')
+  const first = await def.execute({ path: dbPath })
+  const second = await def.execute({ path: dbPath })
+  assert.equal(first.imported, 2)
+  assert.equal(second.imported, 0)
+  assert.equal(second.alreadyImported, 2)
+  assert.equal(persistence.sessions.size, 2)
+})
+
+test('import_goose 读不到 Goose 库：失败大声抛错', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'dsh-goose-bad-'))
+  const bogus = join(dir, 'sessions.db')
+  writeFileSync(bogus, 'not a sqlite db')
+  const { ctx } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'goose')
+  await assert.rejects(() => def.execute({ path: bogus }), /Goose/)
+})
+
+test('import_goose preview：SQLite 库逐会话 dry-run（恒批量、零副作用、标题与落盘同口径）', async () => {
+  const dbPath = makeGooseDb(gooseFixtureSessions())
+  const { ctx, persistence } = makeCtx({})
+  apply(ctx)
+  const def = chatDef(ctx, 'goose')
+  const value = await def.execute({ path: dbPath, preview: true })
+  assert.equal(value.mode, 'batch')
+  assert.equal(value.preview, true)
+  assert.equal(value.total, 2)
+  assert.equal(persistence.sessions.size, 0) // 零副作用
+  assert.ok(value.results.every((r) => typeof r.title === 'string'))
+  assert.ok(value.results.some((r) => r.title.startsWith('Goose · ')))
 })

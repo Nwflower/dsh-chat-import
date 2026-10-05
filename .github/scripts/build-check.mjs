@@ -56,6 +56,34 @@ for (const entry of pkg.files || []) {
   }
 }
 
+// 可达性：从发布入口（main / exports / bin）沿静态相对 import / export-from / 字面量
+// 动态 import 走遍模块图，每个可达模块都必须在 files 白名单展开出的发布集合里——
+// 新建子目录（如 lib/tools/）忘记登记时，npm pack 会静默漏发，安装后 import 即崩。
+const shipped = new Set(jsFiles.map((f) => resolve(f)))
+const entryPoints = [
+  pkg.main,
+  ...Object.values(pkg.exports || {}).flatMap((v) => (typeof v === 'string' ? [v] : Object.values(v || {}))),
+  ...Object.values(pkg.bin || {}),
+].filter((p) => typeof p === 'string' && /\.(mjs|js|cjs)$/.test(p))
+const IMPORT_RE = /(?:^|[\s;])(?:import|export)\s[^'"`]*?\sfrom\s*['"](\.{1,2}\/[^'"]+)['"]|(?:^|[\s;])import\s*['"](\.{1,2}\/[^'"]+)['"]|import\(\s*['"](\.{1,2}\/[^'"]+)['"]\s*\)/g
+const unshipped = new Set()
+const seen = new Set()
+const stack = entryPoints.map((p) => resolve(root, p))
+while (stack.length > 0) {
+  const file = stack.pop()
+  if (seen.has(file)) continue
+  seen.add(file)
+  if (!shipped.has(file)) unshipped.add(relative(root, file))
+  let text
+  try {
+    text = readFileSync(file, 'utf8')
+  } catch {
+    // 入口或依赖文件不存在：同样算「不可发布」，上面已记入 unshipped
+    continue
+  }
+  for (const m of text.matchAll(IMPORT_RE)) stack.push(resolve(dirname(file), m[1] || m[2] || m[3]))
+}
+
 const syntaxErrors = []
 for (const file of jsFiles) {
   const res = spawnSync(process.execPath, ['--check', file], { encoding: 'utf8' })
@@ -71,13 +99,15 @@ const lockOk = (() => {
   }
 })()
 
-const failed = missing.length > 0 || syntaxErrors.length > 0 || !lockOk
+const failed = missing.length > 0 || unshipped.size > 0 || syntaxErrors.length > 0 || !lockOk
 console.log('build-check: files=' + (pkg.files || []).length + ' js=' + jsFiles.length
+  + ' reachable=' + seen.size + ' unshipped=' + unshipped.size
   + ' syntax-errors=' + syntaxErrors.length + ' lockfile-version-ok=' + lockOk)
 if (missing.length) console.log('  missing from files whitelist: ' + missing.join(', '))
+if (unshipped.size) console.log('  reachable from entry points but not in files: ' + [...unshipped].sort().join(', '))
 for (const err of syntaxErrors) console.log('  ' + err)
 if (failed) {
-  console.error('build-check: FAILED — 发布面不完整或 lockfile 与 package.json 版本不一致')
+  console.error('build-check: FAILED — 发布面不完整（白名单缺项 / 可达模块未发布）、语法错误或 lockfile 与 package.json 版本不一致')
   process.exit(1)
 }
 console.log('build-check: OK')

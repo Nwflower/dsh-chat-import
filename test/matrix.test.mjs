@@ -72,3 +72,14 @@ test('verifyCodexJsonl / verifyKimiWire: 空文件与坏布局报错', () => {
   assert.equal(verifyKimiWire('').ok, false)
   assert.equal(verifyKimiWire('{"type":"metadata"}\n{"bad":1}\n').ok, false)
 })
+
+test('verifyCodexJsonl / verifyKimiWire: 坏行的报错不携带行内容（解析错误经净化）', () => {
+  const bad = '{"a": [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12], "x": password=hunter2hunter2}\n'
+  for (const verify of [verifyCodexJsonl, verifyKimiWire]) {
+    const out = verify(bad)
+    assert.equal(out.ok, false)
+    const text = out.errors.map((e) => e.error).join('|')
+    assert.match(text, /JSON 解析失败/)
+    assert.ok(!text.includes('password'), text)
+  }
+})

@@ -8,6 +8,8 @@ import { tmpdir } from 'node:os'
 import { isAbsolute, join } from 'node:path'
 import { discoverSessions, createScanCache, clearScanCache } from '../lib/discovery.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { memoryHost } from './_support/discovery-host.mjs'
+import { makeCtx, toolDef } from './_support/fake-host.mjs'
 
 const j = (o) => JSON.stringify(o)
 
@@ -15,38 +17,6 @@ beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
   clearScanCache()
 })
-
-function mockHost(files) {
-  const host = {
-    async stat(path) {
-      const v = files.get(String(path))
-      if (!v) return null
-      return v.type === 'dir' ? { type: 'directory' } : { type: 'file', size: v.text.length, mtimeMs: v.mtimeMs }
-    },
-    async readText(path) {
-      const v = files.get(String(path))
-      return v && v.type === 'file' ? v.text : null
-    },
-    async readHead(path, maxBytes) {
-      const v = files.get(String(path))
-      return v && v.type === 'file' ? v.text.slice(0, maxBytes) : null
-    },
-    async readDir(path) {
-      const s = String(path).includes('\\') ? '\\' : '/'
-      const prefix = String(path).endsWith(s) ? String(path) : String(path) + s
-      const out = []
-      for (const [p, v] of files) {
-        if (!p.startsWith(prefix) || p === prefix) continue
-        const rest = p.slice(prefix.length)
-        if (rest.includes('\\') || rest.includes('/')) continue
-        out.push({ name: rest, type: v.type === 'dir' ? 'directory' : 'file', path: p })
-      }
-      return out.sort((a, b) => a.name.localeCompare(b.name))
-    },
-    async readSessions() { return null },
-  }
-  return host
-}
 
 test('REQ-45 发现：Reasonix 桌面版 projects/<slug>/sessions 布局，.titles.json 权威标题、sidecar 排除', async () => {
   const root = join('C:', 'Users', 'alice', 'AppData', 'Roaming', 'reasonix')
@@ -65,7 +35,7 @@ test('REQ-45 发现：Reasonix 桌面版 projects/<slug>/sessions 布局，.titl
   files.set(join(sessDir, 'abc123.conflicts.jsonl'), { type: 'file', mtimeMs: 1786000000000, text: '{}' })
   files.set(join(sessDir, '.titles.json'), { type: 'file', mtimeMs: 1786000000000, text: j({ 'abc123': '桌面版会话标题' }) })
 
-  const r = await discoverSessions({ path: root, format: 'reasonix', host: mockHost(files), imports: {}, cache: createScanCache() })
+  const r = await discoverSessions({ path: root, format: 'reasonix', host: memoryHost(files), imports: {}, cache: createScanCache() })
   assert.equal(r.total, 1)
   const s = r.sessions[0]
   assert.equal(s.sessionId, 'abc123')
@@ -120,7 +90,7 @@ test('REQ-45 发现：Claude-3p 元数据 → cliSessionId 反查 jsonl 合并�
     ].join('\n'),
   })
 
-  const r = await discoverSessions({ path: root, format: 'claude', host: mockHost(files), imports: {}, cache: createScanCache() })
+  const r = await discoverSessions({ path: root, format: 'claude', host: memoryHost(files), imports: {}, cache: createScanCache() })
   assert.equal(r.total, 2)
   const linked = r.sessions.find((s) => s.sessionId === '282095ab-1111-4222-8333-444455556666')
   assert.ok(linked)
@@ -141,7 +111,6 @@ test('REQ-45 发现：Claude-3p 元数据 → cliSessionId 反查 jsonl 合并�
 test('REQ-45 import_reasonix 桌面版：标题走 .titles.json、cwd 走 slug 贪心解码', async () => {
   // 导入管线 = deriveArgs（titles + slug 解码）→ convertReasonixJsonl → 落盘；
   // 只注册工具（registerTools），不跑完整 apply（避免 prompt-hint 等副作用）
-  const norm = (p) => String(p).replace(/\\/g, '/')
   const root = 'C:\\Users\\alice\\AppData\\Roaming\\reasonix'
   const slug = 'c--users--alice--work'
   const sessDir = root + '\\projects\\' + slug + '\\sessions'
@@ -158,29 +127,10 @@ test('REQ-45 import_reasonix 桌面版：标题走 .titles.json、cwd 走 slug �
     // slug 解码目标（真实存在性探测）
     'C:\\users\\alice\\work': 'dir',
   }
-  const registered = []
-  const attached = []
-  const persistence = { sessions: new Map(), async list() { return [...this.sessions.values()].map((s) => s.meta) }, async create(meta) { this.sessions.set(meta.id, { meta, events: [] }) }, async append(id, events) { const s = this.sessions.get(id); s.events.push(...events) } }
-  const ctx = {
-    fs: {
-      async resolve(p) { return { targetKey: p, displayPath: p } },
-      lookup(p) { const f = norm(p); return tree[p] ?? tree[f] ?? tree[f.replace(/\//g, '\\')] },
-      async stat(target) { const v = this.lookup(target.targetKey); return v === undefined ? undefined : { type: v === 'dir' ? 'directory' : 'file', size: v.length, version: 'v' + v.length } },
-      async readText(target) { const v = this.lookup(target.targetKey); if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND'); return v },
-      async listDir(target) { const entries = []; const prefix = target.targetKey.endsWith('\\') ? target.targetKey : target.targetKey + '\\'; for (const [path, v] of Object.entries(tree)) { if (path.startsWith(prefix) && path !== prefix) { const rest = path.slice(prefix.length); if (!rest.includes('\\')) entries.push({ name: rest, type: v === 'dir' ? 'directory' : 'file', target: { targetKey: path, displayPath: path } }) } } return entries.sort((a, b) => a.name.localeCompare(b.name)) },
-      processPath(target) { return target.targetKey },
-    },
-    get(name) {
-      if (name === 'workspaceRegistry') return { async resolveByPath() { return null }, async create(p) { const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }; return ws } }
-      if (name === 'sessionPersistence') return persistence
-      return undefined
-    },
-    sessionPersistence: persistence,
-    tools: { register: (d) => registered.push(d) },
-  }
+  const { ctx, persistence } = makeCtx(tree, { real: false })
   const { registerTools } = await import('../lib/tools.mjs')
   registerTools(ctx, process.env.DSH_HOME + '\\dsh-chat-import')
-  const def = registered.find((d) => d.name === 'import_chat')
+  const def = toolDef(ctx, 'import_chat')
   const value = await def.execute({ format: 'reasonix', path: sessDir + '\\abc123.jsonl' })
   assert.equal(value.status, 'imported')
   const saved = persistence.sessions.get(value.sessionId)

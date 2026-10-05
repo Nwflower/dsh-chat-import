@@ -4,6 +4,7 @@ import assert from 'node:assert/strict'
 import { convertKimiWire } from '../lib/convert/kimi.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
+import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 
 // 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
 // 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
@@ -55,21 +56,6 @@ function assertMessageOrderLegal(events) {
   }
   assert.equal(open.length, 0, `末尾残留未配对的 tool_calls（${open.join(',')}）`)
   return msgs
-}
-
-// 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
-// 事件 envelope 键收敛在宿主白名单内（type/seq/time/data/surfaceOp/sourceEventSeqs）。
-function assertEnvelopeHygiene(events) {
-  assert.ok(events.every((e) => e.type !== 'session/imported'), '日志不得含 session/imported 标记')
-  const ALLOWED = new Set(['type', 'seq', 'time', 'data', 'surfaceOp', 'sourceEventSeqs'])
-  for (const e of events) {
-    for (const key of Object.keys(e)) {
-      assert.ok(ALLOWED.has(key), '事件 envelope 出现白名单外键: ' + key)
-    }
-    assert.equal(typeof e.seq, 'number')
-    assert.equal(typeof e.time, 'number')
-    assert.notEqual(e.data, undefined)
-  }
 }
 
 // 合成 wire.jsonl：首行 metadata + 记录（timestamp 秒级递增）。
@@ -128,6 +114,19 @@ test('convertKimiWire: custom_title（state.json）钉 session/title 事件且�
   assert.equal(out.events.at(-1).type, 'session/title')
   assert.equal(out.events.at(-1).data.title, '自定义标题')
   assertEnvelopeHygiene(out.events)
+})
+
+test('convertKimiWire: 旧格式 ToolResult 里拿不到字节的图片也计入 imagesDegraded（不静默降级）', () => {
+  const out = convertKimiWire(wire([
+    ev('TurnBegin', { user_input: '截个图' }),
+    ev('StepBegin', { n: 1 }),
+    ev('ToolCall', { type: 'function', id: 'call_img', function: { name: 'Screenshot', arguments: '{}' } }),
+    ev('ToolResult', { tool_call_id: 'call_img', return_value: { is_error: false, output: [{ type: 'image_url', image_url: { url: 'blobref:image/png;deadbeef' } }] } }),
+    ev('TurnEnd'),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+  const result = out.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.data.message.content[0].content, [{ type: 'text', text: '[image]' }])
+  assert.equal(out.imagesDegraded, 1)
 })
 
 test('convertKimiWire: ToolCall → tool/call + ToolResult → tool/result（sourceEventSeqs 关联）', () => {
