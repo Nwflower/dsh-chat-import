@@ -357,3 +357,24 @@ test('多会话源：子会话在宿主里已不存在 → 当未导入重建，
   assert.ok(persistence.sessions.get('import-ses-gone'))
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, value), [])
 })
+
+test('bundle 未变的重复还原不读文件、不重算指纹（registry 短路径先行）', async () => {
+  const dir = mkdtempSync(join(tmpdir(), 'bundle-cheap-'))
+  const sid = 'sess-bundle-cheap'
+  const conv = convertClaudeJsonl([
+    { sessionId: sid, type: 'user', cwd: hostAbs('D:/demo/bundle'), message: { role: 'user', content: '问题' } },
+    { sessionId: sid, type: 'assistant', message: { role: 'assistant', content: [{ type: 'text', text: '回答' }] } },
+  ].map((r) => JSON.stringify(r)).join('\n'), {})
+  const path = join(dir, sid + '.dshbundle.json')
+  writeFileSync(path, JSON.stringify(serializeBundle({ meta: conv.meta, events: conv.events, sourceSessionId: sid })))
+  const { ctx } = makeCtx()
+  const readText = ctx.fs.readText
+  let reads = 0
+  ctx.fs.readText = (target) => { reads++; return readText(target) }
+  const registryDir = resolveRegistryDir()
+  assert.equal((await restoreBundle(ctx, { path }, { registryDir })).status, 'imported')
+  reads = 0
+  const again = await restoreBundle(ctx, { path }, { registryDir })
+  assert.equal(again.status, 'already-imported')
+  assert.equal(reads, 0, '未变的 bundle 不读')
+})
