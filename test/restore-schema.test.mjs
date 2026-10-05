@@ -7,7 +7,7 @@
 // 用工具自己的 schema 校验。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, statSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
@@ -15,6 +15,7 @@ import { convertClaudeJsonl } from '../lib/convert/claude.mjs'
 import { serializeBundle } from '../lib/export/index.mjs'
 import { makeExportTools } from '../lib/tools/export-tools.mjs'
 import { loadImports, rememberImport } from '../lib/imports.mjs'
+import { makeCtx } from './_support/fake-host.mjs'
 
 let registryDir
 
@@ -24,49 +25,11 @@ beforeEach(() => {
   mkdirSync(registryDir, { recursive: true })
 })
 
-// 真实磁盘 fs（bundle 文件）+ 内存会话库；attachments 可选（缺席 = 图片降级为占位）
-function makeHost({ attachments } = {}) {
-  const sessions = new Map()
-  const persistence = {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) { sessions.get(id).events.push(...events) },
-    async inspect(id) { return sessions.get(id) },
-    async readFrom(id, fromSeq = 0) { const s = sessions.get(id); return s ? { meta: s.meta, events: s.events.slice(fromSeq) } : null },
-  }
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    processPath(target) { return target.targetKey },
-    async stat(target) {
-      let s
-      try { s = statSync(target.targetKey) } catch { return undefined }
-      if (s.isDirectory()) return { type: 'directory' }
-      return { type: 'file', size: s.size, mtimeMs: s.mtimeMs, version: 'v-' + s.size + '-' + s.mtimeMs }
-    },
-    async readText(target) { return readFileSync(target.targetKey, 'utf8') },
-    async listDir() { return [] },
-  }
-  const workspaces = new Map()
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async () => {} }; workspaces.set(p, ws); return ws },
-  }
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'attachments') return attachments
-      return undefined
-    },
-  }
+// 共享假宿主：树为空，fs 全部回退真实磁盘（bundle 文件）；不给 attachments 服务（图片降级为占位）
+function makeHost() {
+  const { ctx } = makeCtx({}, { real: true })
   const restore = makeExportTools(ctx, registryDir).find((d) => d.name === 'restore_bundle')
-  return { persistence, restore }
+  return { restore }
 }
 
 const SID = 'sess-restore-schema'

@@ -8,12 +8,13 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdtempSync, mkdirSync, readdirSync, readFileSync, statSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerTools } from '../lib/tools.mjs'
 import { registerPanelRoutes } from '../lib/panel.mjs'
 import { IMPORT_SPECS } from '../lib/toolkit.mjs'
+import { makeCtx } from './_support/fake-host.mjs'
 
 function traeDb() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-trae-select-'))
@@ -32,66 +33,22 @@ function traeDb() {
   return join(dir, 'state.vscdb')
 }
 
-// 真实磁盘 fs + 内存会话库 + 工作区登记（只取导入路径用到的面）
+// 共享假宿主（树为空，fs 全部回退真实磁盘）上注册工具与面板路由；call 直调面板 handler
 function makeHost() {
-  const sessions = new Map()
-  const persistence = {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) { sessions.get(id).events.push(...events) },
-    async inspect(id) { return sessions.get(id) },
-    async readFrom(id, fromSeq = 0) { const s = sessions.get(id); return { meta: s.meta, events: s.events.slice(fromSeq) } },
-  }
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    processPath(target) { return target.targetKey },
-    async stat(target) {
-      let s
-      try { s = statSync(target.targetKey) } catch { return undefined }
-      if (s.isDirectory()) return { type: 'directory' }
-      return { type: 'file', size: s.size, mtimeMs: s.mtimeMs, version: 'v-' + s.size + '-' + s.mtimeMs }
-    },
-    async listDir(target) {
-      return readdirSync(target.targetKey, { withFileTypes: true }).map((e) => {
-        const path = join(target.targetKey, e.name)
-        return { name: e.name, type: e.isDirectory() ? 'directory' : 'file', target: { targetKey: path, displayPath: path } }
-      })
-    },
-  }
-  const workspaces = new Map()
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) { const ws = { path: p, attachSession: async () => {} }; workspaces.set(p, ws); return ws },
-  }
-  const tools = []
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    tools: { register(def) { tools.push(def); return () => {} } },
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      return undefined
-    },
-  }
+  const { ctx, persistence, registered } = makeCtx({}, { real: true })
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-select-'))
   const registryDir = join(process.env.DSH_HOME, 'dsh-chat-import')
   mkdirSync(registryDir, { recursive: true })
   registerTools(ctx, registryDir)
-  const routes = []
-  registerPanelRoutes(ctx, { register(def) { routes.push(def); return () => {} } }, registryDir)
+  registerPanelRoutes(ctx, ctx.webServer, registryDir)
   const call = async (path, body) => {
-    const route = routes.find((r) => r.path === path)
+    const route = ctx.webServer.defs.find((r) => r.path === path)
     const req = { async *[Symbol.asyncIterator]() { yield JSON.stringify(body) } }
     const res = { status: null, body: null, writeHead(s) { this.status = s }, end(b) { this.body = b } }
     await route.handler(req, res)
     return { status: res.status, data: JSON.parse(res.body) }
   }
-  return { persistence, tools, call }
+  return { persistence, tools: registered, call }
 }
 
 test('trae 是一库多会话源：spec 标 multiSession，import_chat 的 sessionIds 描述点名它', () => {

@@ -8,7 +8,7 @@
 // 异常」而不是「不是该来源的库」。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, mkdirSync, readFileSync, statSync } from 'node:fs'
+import { mkdtempSync, mkdirSync, readFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { setTimeout as sleep } from 'node:timers/promises'
@@ -17,6 +17,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { clearScanCache, clearInflightScans } from '../lib/discovery.mjs'
 import { makeScanTool } from '../lib/tools/scan-tool.mjs'
 import { registerPanelRoutes } from '../lib/panel.mjs'
+import { makeCtx } from './_support/fake-host.mjs'
 
 beforeEach(() => {
   clearScanCache()
@@ -35,24 +36,8 @@ function brokenZcodeDb() {
   return dbPath
 }
 
-// 只读 fs（真实磁盘）：发现层 host 只用 resolve / stat / readText / listDir
-function diskCtx() {
-  const fs = {
-    async resolve(p) { return { targetKey: p, displayPath: p } },
-    processPath(t) { return t.targetKey },
-    async stat(t) {
-      try {
-        const s = statSync(t.targetKey)
-        return { type: s.isDirectory() ? 'directory' : 'file', size: s.size, mtimeMs: s.mtimeMs }
-      } catch {
-        return null
-      }
-    },
-    async readText(t) { return readFileSync(t.targetKey, 'utf8') },
-    async listDir() { return [] },
-  }
-  return { fs, get() { return undefined } }
-}
+// 只读 fs（树为空，stat / readText / listDir 全部回退真实磁盘）
+const diskCtx = () => makeCtx({}, { real: true, fsOptions: { readOnly: true } }).ctx
 
 test('scan_discover：扫描失败的目标进结果的 warnings，结果仍符合输出 schema', async (t) => {
   t.mock.method(console, 'warn', () => {})
@@ -82,10 +67,9 @@ test('scan_discover：全部目标成功时 warnings 为空数组，渲染不提
 
 // 面板路由：与 test/panel-routes.test.mjs 同一调用方式（handler 直调，响应体按 JSON 解析）
 function panel(ctx) {
-  const routes = []
-  registerPanelRoutes(ctx, { register(def) { routes.push(def); return () => {} } }, mkdtempSync(join(tmpdir(), 'dsh-scan-warn-panel-')))
+  registerPanelRoutes(ctx, ctx.webServer, mkdtempSync(join(tmpdir(), 'dsh-scan-warn-panel-')))
   return async (path, body) => {
-    const route = routes.find((r) => r.path === path)
+    const route = ctx.webServer.defs.find((r) => r.path === path)
     const req = { async *[Symbol.asyncIterator]() { yield JSON.stringify(body) } }
     const res = { status: null, body: null, writeHead(s) { this.status = s }, end(b) { this.body = b } }
     await route.handler(req, res)
