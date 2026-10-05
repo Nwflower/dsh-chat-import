@@ -4764,7 +4764,7 @@ test('REQ-39 Claude 权威映射：转录无 cwd → ~/.claude.json projects 命
   const tree = {
     [root]: 'dir',
     [root + '\\sess-nocwd-001.jsonl']: jsonl,
-    [home + '\\.claude.json']: JSON.stringify({ projects: { 'D:\\work\\my-proj': { folderName: 'my-proj' } } }),
+    [join(home, '.claude.json')]: JSON.stringify({ projects: { 'D:\\work\\my-proj': { folderName: 'my-proj' } } }),
   }
   const { ctx, persistence } = makeCtx(tree)
   apply(ctx)
