@@ -221,3 +221,29 @@ test('忽略表损坏按空表处理，不抛错（损坏文件保持原样）',
   assert.deepEqual(ignores.sources, {})
   assert.match(readFileSync(join(dir, 'ignores.json'), 'utf8'), /not json/)
 })
+
+test('rememberIgnore：同内容重复登记不改写忽略表，返回是否有变化', async () => {
+  const key = 'D:\src\a.jsonl'
+  assert.equal(await rememberIgnore(dir, { key, reason: 'archived', dshId: 'import-a' }), true)
+  const written = readFileSync(join(dir, 'ignores.json'), 'utf8')
+  await delay(5)
+  assert.equal(await rememberIgnore(dir, { key, reason: 'archived', dshId: 'import-a' }), false)
+  assert.equal(readFileSync(join(dir, 'ignores.json'), 'utf8'), written, '无变化不写盘（登记时间保持首次）')
+  assert.equal(await rememberIgnore(dir, { key, reason: 'retracted', dshId: 'import-a' }), true)
+  assert.equal((await loadIgnores(dir)).sources[key].reason, 'retracted')
+})
+
+test('启动补墓碑幂等：已在归档态的会话重复启动不改写 ignores.json', async () => {
+  await rememberImport(dir, 'D:\src\a.jsonl', { kind: 'single', dshId: 'import-a', turns: 1, events: 2 })
+  await rememberImport(dir, 'D:\src\b.jsonl', { kind: 'single', dshId: 'import-b', turns: 1, events: 2 })
+  registerIgnoreWatch(watchHarness({ workspaces: [], archived: ['import-a', 'import-b'] }).ctx, dir)
+  const before = await waitFor(async () => {
+    const { sources } = await loadIgnores(dir)
+    return sources['D:\src\a.jsonl'] && sources['D:\src\b.jsonl'] ? readFileSync(join(dir, 'ignores.json'), 'utf8') : undefined
+  })
+  await delay(10)
+  // 插件重启：同一归档集再补一遍墓碑
+  registerIgnoreWatch(watchHarness({ workspaces: [], archived: ['import-a', 'import-b'] }).ctx, dir)
+  await delay(200)
+  assert.equal(readFileSync(join(dir, 'ignores.json'), 'utf8'), before)
+})
