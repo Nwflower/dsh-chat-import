@@ -69,6 +69,7 @@
       const runPurge = async (body) => {
         setBusy(true);
         setNote(null);
+        setError(null);
         try {
           const resp = await fetch("/api-import/purge", {
             method: "POST", headers: { "Content-Type": "application/json" },
