@@ -10,20 +10,7 @@ import { mkdtempSync, mkdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerContextBridge } from '../lib/context-bridge.mjs'
-
-function makeCtx() {
-  const listeners = new Map()
-  const ctx = {
-    get() { return undefined },
-    on(event, handler) {
-      const list = listeners.get(event) || []
-      list.push(handler)
-      listeners.set(event, list)
-      return () => {}
-    },
-  }
-  return { ctx, listeners }
-}
+import { makeCtx } from './_support/fake-host.mjs'
 
 async function fireSessionStart(env, cwd, sp, skills) {
   const agent = {

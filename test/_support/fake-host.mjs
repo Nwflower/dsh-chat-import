@@ -8,6 +8,8 @@
 //     strictSeq = true          append 校验 seq 从已存条数起连续（引擎契约）；false = 不校验、
 //                               未知 id 静默忽略（只关心「写了什么」的用例）
 //     omit = []                 去掉某些面，模拟缺该能力的宿主（如 ['remove'] / ['inspect']）
+//     unreadable = false        有读面但读不出事件（inspect / readFrom 回 undefined）：插件拿不到
+//                               DSH 侧日志长度，走「读不到日志」分支
 //     locate(meta)              提供 locate 面（同步，返回 { kind, path }）
 //     onCreate(meta)            create 成功后的钩子（如在磁盘上落会话工件）
 //     另有 ghost(id)（list 仍可见、inspect/readFrom 抛错——工件已删）与 hostReject(id)（list
@@ -56,7 +58,7 @@ import { join } from 'node:path'
 
 // ── sessionPersistence ──────────────────────────────────────────────
 
-export function makePersistence({ strictSeq = true, omit = [], locate, onCreate } = {}) {
+export function makePersistence({ strictSeq = true, omit = [], unreadable = false, locate, onCreate } = {}) {
   const sessions = new Map() // id -> { meta, events: [], ghosted?, readFromThrows? }
   const calls = []
   const rejectIds = new Set() // create 拒绝的幽灵 id（list 不暴露）
@@ -105,12 +107,14 @@ export function makePersistence({ strictSeq = true, omit = [], locate, onCreate 
     },
     async inspect(id) {
       calls.push('inspect')
+      if (unreadable) return undefined
       const s = known(id)
       if (s.ghosted) throw new Error('session artifact missing (ghost)')
       return { meta: s.meta, events: s.events }
     },
     async readFrom(id, fromSeq = 0) {
       calls.push('readFrom')
+      if (unreadable) return undefined
       const s = known(id)
       if (s.readFromThrows) throw new Error('readFrom failed (torn log)')
       return { meta: s.meta, events: s.events.slice(fromSeq) }

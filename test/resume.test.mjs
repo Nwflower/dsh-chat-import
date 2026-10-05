@@ -7,6 +7,7 @@ import { join } from 'node:path'
 import { summarizeClaudeJsonl, summarizeCodexJsonl } from '../lib/handoff.mjs'
 import { registerResumeCommands } from '../lib/resume-command.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
+import { makeCtx } from './_support/fake-host.mjs'
 
 beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
@@ -78,51 +79,9 @@ test('summarizeCodexJsonl: response_item 消息 + function_call 解析', () => {
 })
 
 // ── 命令面：mock commands + 临时 home（os.homedir 读 USERPROFILE/HOME） ──
+// 内存树 fs（不回退真实磁盘）+ commands 服务，命令注册收进调用方给的数组。
 function makeResumeCtx(tree, commands) {
-  const norm = (p) => String(p).replace(/\\/g, '/')
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    lookup(p) {
-      const f = norm(p)
-      return tree[p] ?? tree[f] ?? tree[f.replace(/\//g, '\\')]
-    },
-    async stat(target) {
-      const v = this.lookup(target.targetKey)
-      if (v !== undefined) return v === 'dir' ? { type: 'directory' } : { type: 'file', size: v.length, version: 'v' + v.length }
-      return undefined
-    },
-    async readText(target) {
-      const v = this.lookup(target.targetKey)
-      if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND ' + target.targetKey)
-      return v
-    },
-    async listDir(target) {
-      const entries = []
-      // 跨平台：tree 键可能用 join() 的正斜杠（Linux）或写死的反斜杠（Windows），统一归一为 / 做前缀匹配
-      const normPath = (p) => String(p).replace(/\\/g, '/')
-      const prefix = normPath(target.targetKey)
-      const base = prefix.endsWith('/') ? prefix : prefix + '/'
-      for (const [path, v] of Object.entries(tree)) {
-        const n = normPath(path)
-        if (n.startsWith(base) && n !== base) {
-          const rest = n.slice(base.length)
-          if (!rest.includes('/')) entries.push({ name: rest, type: v === 'dir' ? 'directory' : 'file', target: { targetKey: path, displayPath: path } })
-        }
-      }
-      return entries.sort((a, b) => a.name.localeCompare(b.name))
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const ctx = {
-    fs,
-    get() { return undefined },
-    inject(serviceList, cb) {
-      if (serviceList.every((s) => ctx[s] !== undefined)) cb(ctx)
-      return undefined
-    },
-    commands: { register: (def) => commands.push(def) },
-  }
-  return ctx
+  return makeCtx(tree, { real: false, services: { commands: { register: (def) => commands.push(def) } } }).ctx
 }
 
 function resumeFixtureTree(home) {
