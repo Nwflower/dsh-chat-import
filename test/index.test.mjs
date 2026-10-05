@@ -20,6 +20,7 @@ import { restampSession, sanitizeJsonValue, prepareHostMeta } from '../lib/impor
 import { SESSION_FORMAT_VERSION } from '../lib/convert/index.mjs'
 import { verifyOpencodeImportJson } from '../lib/export/index.mjs'
 import { hostAbs, hostAbsText } from './_support/host-path.mjs'
+import { makeCtx, makeHandlePersistence, toolDef, chatDef, exportDef } from './_support/fake-host.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 // 夹具文本里的盘符路径按宿主平台改写：这些转录/元数据夹具带的是 Windows cwd，而宿主落盘
@@ -32,13 +33,6 @@ beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
   clearScanCache()
 })
-
-// fs 版本指纹：内容派生，内容变则 version 变（mock stat 的 version 字段）。
-function contentVersion(text) {
-  let h = 0
-  for (let i = 0; i < text.length; i++) h = (h * 31 + text.charCodeAt(i)) | 0
-  return 'v' + h
-}
 
 // 合成 N 回合 Claude transcript（同一 sessionId，供增量续写测试）。
 function claudeTurns(n, sessionId = 'sess-incr-001') {
@@ -75,236 +69,6 @@ function chatgptConversation(id, title, turns) {
     }
   }
   return { id, title, create_time: 1710000000, mapping }
-}
-
-// 内存态会话库：create/append/list/inspect，模拟 sessionPersistence。
-// append 强制 seq 连续（引擎契约：首事件 seq 必须等于已存 next-seq）。
-function makePersistence() {
-  const sessions = new Map() // id -> { meta, events: [] }
-  return {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      for (let i = 0; i < events.length; i++) {
-        const ev = events[i]
-        if (typeof ev.seq !== 'number' || ev.seq !== s.events.length + i) {
-          throw new Error('append seq 不连续: 期望 ' + (s.events.length + i) + ' 实际 ' + String(ev && ev.seq))
-        }
-      }
-      s.events.push(...events)
-    },
-    async inspect(id) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events }
-    },
-    // REQ-16 导出只读面：readFrom(id, fromSeq) 返回 { meta, events }（不 load/prepare）
-    async readFrom(id, fromSeq = 0) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
-    async remove(id) {
-      sessions.delete(id)
-    },
-  }
-}
-
-// 新宿主（dsh >= 0.1.5）会话 API 形态：list() 返回 { header, revision, sizeBytes }
-// 元素，读走 open(id,'read') + handle.read()，写走 create(header) → handle.append /
-// flush / close（旧形态的 readFrom / inspect / append(id, events) 已移除）。与
-// makePersistence 共用同一 store，便于断言同一份数据在两种形态下行为一致。
-function makeHandlePersistence(store) {
-  const sess = (id) => store.sessions.get(id)
-  return {
-    sessions: store.sessions,
-    async list() {
-      return [...store.sessions.values()].map((s) => ({ header: s.meta, revision: 'rev', sizeBytes: 0 }))
-    },
-    async create(header) {
-      if (store.sessions.has(header.id)) throw new Error('session "' + header.id + '" already exists in this backend')
-      store.sessions.set(header.id, { meta: header, events: [] })
-      return {
-        header,
-        async append(events) {
-          const target = sess(header.id)
-          for (let i = 0; i < events.length; i++) {
-            if (events[i].seq !== target.events.length + i) throw new Error('append seq 不连续: ' + String(events[i] && events[i].seq))
-          }
-          target.events.push(...events)
-        },
-        async flush() {},
-        async close() {},
-      }
-    },
-    async open(id, access) {
-      if (!store.sessions.has(id)) throw new Error('unknown session ' + id)
-      if (access !== 'read') throw new Error('tests only expose a read lease: ' + access)
-      return {
-        header: sess(id).meta,
-        async read(offset = 0) { return { events: sess(id).events.slice(offset) } },
-        async close() {},
-      }
-    },
-  }
-}
-
-// 目录树：path -> 'dir' | content。opts.versions 可钉住某路径的 stat/writeText 版本
-// （测试用：模拟「内容变但 fs 版本不变」的外部修改，隔离 tail-mismatch/预检失败守卫）。
-// opts.services 可注入额外 ctx.get 服务（REQ-37 动态预算的 agentDefaultModel / llm）。
-function makeCtx(tree, opts = {}) {
-  const persistence = makePersistence()
-  // opts.hostApi: 'legacy'（默认，readFrom/inspect/append(id, events)）| 'handle'（新宿主句柄面）
-  const hostPersistence = opts.hostApi === 'handle' ? makeHandlePersistence(persistence) : persistence
-  const attached = []
-  const workspaces = new Map()
-  const registered = []
-  const webRoutes = [] // webServer.register 捕获（REQ-41 路由断言）
-  const entriesCache = new Map()
-  const reads = { count: 0 }
-  const writes = [] // export_claude 的写盘记录（{ path, content, options }）
-  const versions = opts.versions || {}
-  const services = opts.services || {}
-  const versionOf = (path, v) => (versions[path] !== undefined ? versions[path] : contentVersion(v))
-  // 分隔符归一（跨平台：代码 join() 在 Linux 产正斜杠、Windows 产反斜杠）
-  const norm = (p) => String(p).replace(/\\/g, '/')
-
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    // 跨平台分隔符兜底：代码里的 join() 在 Linux（posix）对反斜杠合成路径会产出
-    // 混合分隔符（如 'D:\\demo\\x/summary.json'），而测试树键是反斜杠——查树按
-    // 原键 + 正斜杠归一 + 反斜杠归一三种形式都试（Windows 下 join 产反斜杠直中）。
-    lookup(p) {
-      const f = norm(p)
-      return tree[p] ?? tree[f] ?? tree[f.replace(/\//g, '\\')]
-    },
-    // REQ-16 导出写面：createIfAbsent 对已存在（tree 已 seed 或已写过）路径抛 EEXIST，
-    // 模拟「新 uuid + createIfAbsent 不覆盖」双保险的第二道闸。
-    async writeText(target, content, options) {
-      const path = target.targetKey
-      if (options && options.kind === 'createIfAbsent' && tree[path] !== undefined) {
-        throw Object.assign(new Error('EEXIST ' + path), { code: 'EEXIST' })
-      }
-      tree[path] = content
-      writes.push({ path, content, options })
-      return { path }
-    },
-    async stat(target) {
-      const path = target.targetKey
-      const v = this.lookup(path)
-      if (v !== undefined) {
-        // 内容派生指纹：size + version（变则 version 变，REQ-24 短路径判定依据）
-        return v === 'dir' ? { type: 'directory' } : { type: 'file', size: v.length, version: versionOf(path, v) }
-      }
-      // 树外的真实文件（opencode 临时 SQLite 库）：回退 node:fs
-      try {
-        const s = statSync(path)
-        if (s.isDirectory()) return { type: 'directory' }
-        return { type: 'file', size: s.size, version: 'real-' + s.size + '-' + s.mtimeMs + '-' + s.ctimeMs }
-      } catch {
-        return undefined
-      }
-    },
-    async readText(target) {
-      reads.count++
-      const v = this.lookup(target.targetKey)
-      if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND ' + target.targetKey)
-      return v
-    },
-    async listDir(target) {
-      if (!entriesCache.has(target.targetKey)) {
-        const entries = []
-        const prefix = target.targetKey.endsWith('\\') ? target.targetKey : target.targetKey + '\\'
-        for (const [path, v] of Object.entries(tree)) {
-          if (path.startsWith(prefix) && path !== prefix) {
-            const rest = path.slice(prefix.length)
-            if (!rest.includes('\\')) {
-              entries.push({
-                name: rest,
-                type: v === 'dir' ? 'directory' : 'file',
-                target: { targetKey: path, displayPath: path },
-                version: 1,
-              })
-            }
-          }
-        }
-        entriesCache.set(target.targetKey, entries.sort((a, b) => a.name.localeCompare(b.name)))
-      }
-      return entriesCache.get(target.targetKey)
-    },
-    processPath(target) { return target.targetKey },
-  }
-
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) {
-      // 真实宿主 create 会校验「路径是已存在的目录」（realpath + isDirectory）；mock 默认
-      // 宽松（让 D:\demo\... 这类虚拟项目路径也能当工作区）。需要模拟宿主拒绝的场景
-      // （跨机器 cwd 不可达）用 opts.rejectWorkspaceCreate 打开该校验。
-      if (typeof opts.rejectWorkspaceCreate === 'function' && (await opts.rejectWorkspaceCreate(p))) {
-        throw new Error("cannot create a workspace at '" + p + "': path is not a directory")
-      }
-      const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }
-      workspaces.set(p, ws)
-      return ws
-    },
-    // REQ-55 归档感知：全局归档集（opts.archived 种子）；archive 辅助供测试把会话归档
-    get archivedSessionIds() { return archivedIds },
-    async archiveSession(id) { archivedIds.push(id) },
-  }
-  const archivedIds = Array.isArray(opts.archived) ? [...opts.archived] : []
-
-  // webServer 是可选且晚挂载的服务（REQ-41 路由经 ctx.inject(['webServer']) 延迟
-  // 注册）：opts.noWebServer 模拟 headless / 无 Web 的 profile——inject 回调永不
-  // 执行，插件不注册路由但照常 apply。
-  const webServerStub = {
-    register(def) { webRoutes.push(def); return () => {} },
-  }
-
-  const ctx = {
-    fs,
-    sessionPersistence: hostPersistence,
-    webServer: webServerStub,
-    // skills 同是可选服务：opts.services.skills 提供时 inject 回调才会执行（与 webServer 同口径）
-    skills: services.skills,
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return hostPersistence
-      if (service === 'webServer') return opts.noWebServer ? undefined : webServerStub
-      if (services[service] !== undefined) return services[service]
-      return undefined
-    },
-    // 模拟 Cordis ctx.inject：依赖可用（webServer 在场 / ctx.get 有服务）才同步执行
-    // 回调；缺依赖不执行。回调返回值按 Cordis effect 契约校验（函数/可空/thenable/
-    // 可迭代之外抛 TypeError: Invalid effect）——真实宿主据此拒绝非法 effect（曾令
-    // 桌面端启动崩溃：settings 就绪早、回调同步执行即命中），mock 对齐该校验可让
-    // 同类回归在单测里直接暴露。
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (!list.every((s) => (s === 'webServer' ? !opts.noWebServer : ctx.get(s) !== undefined))) return undefined
-      const effect = cb(ctx)
-      if (effect !== undefined && effect !== null && typeof effect !== 'function') {
-        const invalid = typeof effect !== 'object' ||
-          (!('then' in effect) && !(Symbol.iterator in effect) && !(Symbol.asyncIterator in effect))
-        if (invalid) throw new TypeError('Invalid effect')
-      }
-      return effect
-    },
-    tools: {
-      register(def) { registered.push(def); return () => {} },
-    },
-    on() { return () => {} }, // REQ-53：apply 监听 agent/session-start（本测试不模拟事件）
-    effect() { return () => {} },
-  }
-  // 测试辅助：按名字取出注册的工具定义
-  ctx.tools.registered = (toolName) => registered.find((d) => d.name === toolName)
-  return { ctx, persistence, attached, registered, reads, writes, webRoutes }
 }
 
 // 导入归属外置 registry（issue #34）：0.8.3 起日志不再写 session/imported 标记，
@@ -366,22 +130,22 @@ test('apply 把转换指南注册为运行时 skill（skills 服务在场时）'
 test('issue #20：doctor/import_agents/import_mcp/import_settings 的 output.render 可用', () => {
   const { ctx } = makeCtx({})
   apply(ctx)
-  const doctor = registeredDef(ctx, 'doctor')
+  const doctor = toolDef(ctx, 'doctor')
   assert.match(
     doctor.output.render({}, { ok: true, checks: [{ name: 'registry', ok: true, detail: '1 条' }], issues: [], totals: { records: 1, sessions: 0, missingSessions: 0, skills: 0 } }).map((b) => b.text).join('\n'),
     /doctor: ok=true/,
   )
-  const agents = registeredDef(ctx, 'import_agents')
+  const agents = toolDef(ctx, 'import_agents')
   assert.match(
     agents.output.render({ apply: false }, { total: 2, planned: 2, applied: 0, skipped: 0, results: [] }).map((b) => b.text).join('\n'),
     /预览（dry-run，未落盘）/,
   )
-  const mcp = registeredDef(ctx, 'import_mcp')
+  const mcp = toolDef(ctx, 'import_mcp')
   assert.match(
     mcp.output.render({}, { total: 0, servers: [], planText: '# No MCP servers found\n', writtenTo: null }).map((b) => b.text).join('\n'),
     /MCP 镜像计划/,
   )
-  const settings = registeredDef(ctx, 'import_settings')
+  const settings = toolDef(ctx, 'import_settings')
   assert.match(
     settings.output.render({}, { total: 0, suggestions: [], sources: [] }).map((b) => b.text).join('\n'),
     /配置建议：0 条/,
@@ -407,7 +171,7 @@ test('scan_discover：目录探测 claude、注入过滤、schema 稳定、零�
   }
   const { ctx, persistence, writes, reads } = makeCtx(tree)
   apply(ctx)
-  const def = registeredDef(ctx, 'scan_discover')
+  const def = toolDef(ctx, 'scan_discover')
 
   const first = await def.execute({ path: root })
   assert.equal(first.total, 2)
@@ -4400,7 +4164,7 @@ test('REQ-56 bundle 闭环：export_bundle 落盘 → restore_bundle 还原 0 sk
     mkEvent('turn/end', 3, 1786000000000, { turn: 1, reason: { kind: 'completed' } }),
   ])
   apply(ctx)
-  const exp = registeredDef(ctx, 'export_bundle')
+  const exp = toolDef(ctx, 'export_bundle')
   const bundlePath = join('C:', 'Users', 'test', 'exports', 'sess-bundle-001.dshbundle.json')
   const value = await exp.execute({ sessionId: 'sess-bundle-001', path: bundlePath })
   assert.equal(value.mode, 'single')
@@ -4415,7 +4179,7 @@ test('REQ-56 bundle 闭环：export_bundle 落盘 → restore_bundle 还原 0 sk
   const tree2 = { [bundlePath]: writes[0].content, [hostAbs('D:/demo/proj')]: 'dir' }
   const { ctx: ctx2, persistence: p2 } = makeCtx(tree2)
   apply(ctx2)
-  const rst = registeredDef(ctx2, 'restore_bundle')
+  const rst = toolDef(ctx2, 'restore_bundle')
   const restored = await rst.execute({ path: bundlePath })
   assert.equal(restored.mode, 'single')
   assert.equal(restored.status, 'imported')
@@ -4443,7 +4207,7 @@ test('REQ-62 跨机器还原：originalCwd 不可达 → cwdAvailable:false + �
     mkEvent('assistant/message', 1, 1786000000000, { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'dsh' } } }, { surfaceOp: 'append' }),
   ])
   apply(ctx)
-  const exp = registeredDef(ctx, 'export_bundle')
+  const exp = toolDef(ctx, 'export_bundle')
   const bundlePath = join('C:', 'Users', 'b', 'incoming', 'sess-machine-a.dshbundle.json')
   await exp.execute({ sessionId: 'sess-machine-a', path: bundlePath })
   const bundleContent = writes[0].content
@@ -4453,7 +4217,7 @@ test('REQ-62 跨机器还原：originalCwd 不可达 → cwdAvailable:false + �
   // 模拟宿主 create 的目录校验：A 机路径在 B 机不存在 → 建不出工作区
   const { ctx: ctxB, persistence: pB, attached } = makeCtx(treeB, { rejectWorkspaceCreate: (p) => p === A_CWD })
   apply(ctxB)
-  const rst = registeredDef(ctxB, 'restore_bundle')
+  const rst = toolDef(ctxB, 'restore_bundle')
   const restored = await rst.execute({ path: bundlePath })
   assert.equal(restored.status, 'imported')
   assert.equal(restored.skipped, 0)
@@ -4476,12 +4240,12 @@ test('REQ-56 损坏检测：bundle 被篡改（log 改动）→ restore_bundle �
     mkEvent('user/message', 0, 1786000000000, { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }),
   ])
   apply(ctx)
-  await registeredDef(ctx, 'export_bundle').execute({ sessionId: 'sess-tamper', path: 'C:\\tmp\\tamper.dshbundle.json' })
+  await toolDef(ctx, 'export_bundle').execute({ sessionId: 'sess-tamper', path: 'C:\\tmp\\tamper.dshbundle.json' })
   const doc = JSON.parse(writes[0].content)
   doc.log = doc.log.replace('hi', '被篡改') // 不重算指纹
   const { ctx: ctx2, persistence: p2 } = makeCtx({ 'C:\\tmp\\tamper.dshbundle.json': JSON.stringify(doc) })
   apply(ctx2)
-  const rst = registeredDef(ctx2, 'restore_bundle')
+  const rst = toolDef(ctx2, 'restore_bundle')
   await assert.rejects(() => rst.execute({ path: 'C:\\tmp\\tamper.dshbundle.json' }), /bundle 校验失败/)
   assert.equal(p2.sessions.size, 0)
   // 预览分支同样报跳过原因（不抛错）
@@ -4498,7 +4262,7 @@ test('REQ-56 restore_bundle 目录模式：递归收集 .dshbundle.json 逐文�
     mkEvent('assistant/message', 1, 1786000000000, { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'dsh' } } }, { surfaceOp: 'append' }),
   ])
   apply(ctx)
-  const exp = registeredDef(ctx, 'export_bundle')
+  const exp = toolDef(ctx, 'export_bundle')
   const dir = 'C:\\backups'
   await exp.execute({ sessionId: 'sess-dir-001', path: dir + '\\sess-dir-001.dshbundle.json' })
   await exp.execute({ sessionId: 'sess-dir-001', path: dir + '\\sub\\sess-dir-001-copy.dshbundle.json', cwd: hostAbs('D:/other') })
@@ -4511,7 +4275,7 @@ test('REQ-56 restore_bundle 目录模式：递归收集 .dshbundle.json 逐文�
     [dir + '\\notes.txt']: 'not a bundle',
   })
   apply(ctx2)
-  const rst = registeredDef(ctx2, 'restore_bundle')
+  const rst = toolDef(ctx2, 'restore_bundle')
   const value = await rst.execute({ path: dir })
   assert.equal(value.mode, 'batch')
   assert.equal(value.total, 2)
@@ -4581,7 +4345,7 @@ test('REQ-23 verify_session：平衡会话 ok、不平衡会话定位问题 + re
     mkEvent('tool/call', 3, 1786000000000, { turn: 1, step: 1, callId: 'c1', name: 'Bash', arguments: '{}' }), // 无 result
   ])
   apply(ctx)
-  const def = registeredDef(ctx, 'verify_session')
+  const def = toolDef(ctx, 'verify_session')
   const ok = await def.execute({ sessionId: 'sess-ok' })
   assert.equal(ok.ok, true)
   assert.equal(ok.problems.length, 0)
@@ -4904,25 +4668,6 @@ test('REQ-51 import_hermes lineage:tail：只导叶子链尾；父会话（含�
   assert.ok(!persistence.sessions.has('import-parent-1-1')) // 父会话不建副本
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, tail), [])
 })
-
-// 辅助：从 ctx.tools 按名字取回定义（apply 内部调用 register）
-function registeredDef(ctx, toolName) {
-  return ctx.tools.registered(toolName)
-}
-
-// 辅助：import_chat 分发器定义——execute 时注入 format（19 种来源收敛为单工具
-// 后的测试形态；等价于旧 import_<format> 工具的调用方式）
-function chatDef(ctx, format) {
-  const tool = registeredDef(ctx, 'import_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
-
-// 辅助：export_chat 三合一定义——execute 时注入 format（claude/codex/kimi 收敛为
-// 单工具后的测试形态；等价于旧 export_claude / export_codex / export_kimi 调用）
-function exportDef(ctx, format) {
-  const tool = registeredDef(ctx, 'export_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
 
 // ---- REQ-37 超长会话三层保护 + 预算自适应（mock 集成） ----
 
@@ -5700,7 +5445,7 @@ test('REQ-55 面板发现 + scan_discover：归档目标 importStatus=archived�
   assert.equal(panel.data.sessions[0].importStatus, 'archived')
 
   // scan_discover 同口径（schema 含 archived）
-  const scan = registeredDef(ctx, 'scan_discover')
+  const scan = toolDef(ctx, 'scan_discover')
   const found = await scan.execute({ path: root })
   assert.equal(found.sessions.find((s) => s.sessionId === 'sess-aaa').importStatus, 'archived')
   assert.deepEqual(validateJsonSchemaValue(scan.output.schema, found), [])
@@ -6426,13 +6171,13 @@ test('从文件导入：generic 文档经 local-jsonl 落盘，dry-run 预览带
   assert.equal(preview.detectedBy, 'marker')
   assert.equal(preview.turns, 1)
   assert.equal(preview.title, '长尾工具会话')
-  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, preview), [])
+  assert.deepEqual(validateJsonSchemaValue(toolDef(ctx, 'import_chat').output.schema, preview), [])
   assert.equal(persistence.sessions.size, 0) // 预览零副作用
 
   const out = await def.execute({ path: file })
   assert.equal(out.status, 'imported')
   assert.ok(persistence.sessions.has(out.sessionId))
-  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, out), [])
+  assert.deepEqual(validateJsonSchemaValue(toolDef(ctx, 'import_chat').output.schema, out), [])
 })
 
 test('从文件导入：未识别文件 dry-run 给出全量失败清单（符合 schema、不落盘）', async () => {
@@ -6445,11 +6190,11 @@ test('从文件导入：未识别文件 dry-run 给出全量失败清单（符�
   assert.equal(bad.turns, 0)
   assert.ok(Array.isArray(bad.failures) && bad.failures.length > 0)
   assert.ok(bad.failures.every((f) => typeof f.format === 'string' && typeof f.reason === 'string'))
-  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, bad), [])
+  assert.deepEqual(validateJsonSchemaValue(toolDef(ctx, 'import_chat').output.schema, bad), [])
   assert.equal(persistence.sessions.size, 0)
 
   // 强制指定错解析器：同样明确失败（不静默产出空会话）
   const forced = await def.execute({ path: file, dryRun: true, parseFormat: 'claude' })
   assert.equal(forced.turns, 0)
-  assert.deepEqual(validateJsonSchemaValue(registeredDef(ctx, 'import_chat').output.schema, forced), [])
+  assert.deepEqual(validateJsonSchemaValue(toolDef(ctx, 'import_chat').output.schema, forced), [])
 })

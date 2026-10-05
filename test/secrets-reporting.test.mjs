@@ -16,13 +16,7 @@ import {
   convertGrokbuildJson, convertOpenclawJson, convertHermesJson,
 } from '../lib/convert/index.mjs'
 import { detectSecretKinds, parseJsonlLines, SKIPPED_LINES_CAP } from '../lib/convert/core.mjs'
-
-// 辅助：import_chat 分发器定义——execute 时注入 format（收敛后单工具的测试形态，
-// 等价旧 import_claude 的调用方式）
-function chatDef(ctx, format = 'claude') {
-  const tool = ctx.tools.registered('import_chat')
-  return { ...tool, execute: (args) => tool.execute({ format, ...args }) }
-}
+import { makeCtx, chatDef } from './_support/fake-host.mjs'
 
 // index 层用例的 registry 隔离（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
@@ -239,96 +233,11 @@ test('整文件转换器（chatgpt/gemini/opencode/zcode）: 畸形 JSON 时 ski
 
 // ── index 层：schema 透传 + render 报告（正文不含 secret 内容）──────────────
 
-// 最小 mock ctx（仅覆盖 import_claude 单文件 / 目录批量所需的服务面）
-function makeMinCtx(tree) {
-  const sessions = new Map()
-  const persistence = {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      for (let i = 0; i < events.length; i++) {
-        if (events[i].seq !== s.events.length + i) throw new Error('append seq 不连续')
-      }
-      s.events.push(...events)
-    },
-  }
-  // 跨平台分隔符归一（与 index.test.mjs makeCtx 同款）：代码 join() 在 Linux 对
-  // 反斜杠合成路径产混合分隔符，树查找必须三态归一，否则 CI（ubuntu）红。
-  const norm = (p) => String(p).replace(/\\/g, '/')
-  const lookup = (p) => {
-    const f = norm(p)
-    return tree[p] ?? tree[f] ?? tree[f.replace(/\//g, '\\')]
-  }
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    async stat(target) {
-      const v = lookup(target.targetKey)
-      if (v === undefined) return undefined
-      if (v === 'dir') return { type: 'directory' }
-      let h = 0
-      for (let i = 0; i < v.length; i++) h = (h * 31 + v.charCodeAt(i)) | 0
-      return { type: 'file', size: v.length, version: 'v' + h }
-    },
-    async readText(target) {
-      const v = lookup(target.targetKey)
-      if (v === undefined || v === 'dir') throw new Error('FS_NOT_FOUND ' + target.targetKey)
-      return v
-    },
-    async listDir(target) {
-      const prefix = norm(target.targetKey).replace(/\/+$/, '') + '/'
-      const entries = []
-      for (const [path, v] of Object.entries(tree)) {
-        const np = norm(path)
-        if (!np.startsWith(prefix) || np === prefix) continue
-        const rest = np.slice(prefix.length)
-        if (rest.includes('/')) continue
-        entries.push({ name: rest, type: v === 'dir' ? 'directory' : 'file', target: { targetKey: path, displayPath: path }, version: 1 })
-      }
-      return entries.sort((a, b) => a.name.localeCompare(b.name))
-    },
-    processPath(target) { return target.targetKey },
-  }
-  const workspaceRegistry = {
-    async resolveByPath() { return null },
-    async create(p) { return { path: p, attachSession: async () => {} } },
-  }
-  const registered = []
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    webServer: { register() {} }, // REQ-41：apply 注册 /api-import/sessions 路由（REQ-26 测试不关心）
-    // 模拟 Cordis ctx.inject：依赖服务在 ctx 上存在才执行回调（webServer 在场 →
-    // 路由注册执行；commands 缺席 → /import 命令不注册，插件照常激活）。
-    inject(serviceList, cb) {
-      const list = Array.isArray(serviceList) ? serviceList : Object.keys(serviceList || {})
-      if (list.every((s) => ctx[s] !== undefined)) return cb(ctx)
-      return undefined
-    },
-    get(service) {
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      return undefined
-    },
-    tools: {
-      register(def) { registered.push(def); return () => {} },
-      registered: (name) => registered.find((d) => d.name === name),
-    },
-    on() { return () => {} }, // REQ-53：apply 监听 agent/session-start（本测试不模拟事件）
-  }
-  return { ctx, registered, persistence }
-}
-
 test('import_claude 单文件：skippedLines/secrets/permissionCount 透传 + schema + 报告正文不含 secret 内容', async () => {
   const tree = { 'D:\\demo\\sess-details.jsonl': claudeDetailsRaw() }
-  const { ctx } = makeMinCtx(tree)
+  const { ctx } = makeCtx(tree, { real: false })
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'claude')
   const value = await def.execute({ path: 'D:\\demo\\sess-details.jsonl' })
   assert.equal(value.mode, 'single')
   assert.equal(value.status, 'imported')
@@ -350,9 +259,9 @@ test('import_claude 单文件：skippedLines/secrets/permissionCount 透传 + sc
 
 test('import_claude 全畸形文件：skipped 路径也透传行号明细并渲染', async () => {
   const tree = { 'D:\\demo\\details-allbad.jsonl': 'bad line 1\nbad line 2\nbad line 3' }
-  const { ctx } = makeMinCtx(tree)
+  const { ctx } = makeCtx(tree, { real: false })
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'claude')
   const value = await def.execute({ path: 'D:\\demo\\details-allbad.jsonl' })
   assert.equal(value.status, 'skipped')
   assert.deepEqual(value.skippedLines.map((s) => s.line), [1, 2, 3])
@@ -368,9 +277,9 @@ test('import_claude 目录批量：batchItem 透传 skippedLines/secrets/permiss
     [dir + '\\a.jsonl']: claudeDetailsRaw('a'),
     [dir + '\\b.jsonl']: '{"sessionId":"b","type":"user","message":{"role":"user","content":"hi"}}\n{"sessionId":"b","type":"assistant","message":{"role":"assistant","content":"ok"}}',
   }
-  const { ctx } = makeMinCtx(tree)
+  const { ctx } = makeCtx(tree, { real: false })
   apply(ctx)
-  const def = chatDef(ctx)
+  const def = chatDef(ctx, 'claude')
   const value = await def.execute({ path: dir })
   assert.equal(value.mode, 'batch')
   const a = value.results.find((r) => r.path.endsWith('a.jsonl'))

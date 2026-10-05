@@ -12,143 +12,17 @@ import { join } from 'node:path'
 import { createHash } from 'node:crypto'
 import { registerPanelRoutes } from '../lib/panel.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { makeCtx } from './_support/fake-host.mjs'
 
-// 分隔符归一（跨平台：代码/夹具的 join() 在 posix 与 win 产不同分隔符）
-const norm = (p) => String(p).replace(/\\/g, '/')
-
-function makePersistence() {
-  const sessions = new Map()
-  return {
-    sessions,
-    async list() { return [...sessions.values()].map((s) => s.meta) },
-    async create(meta) {
-      if (sessions.has(meta.id)) throw new Error('duplicate session ' + meta.id)
-      sessions.set(meta.id, { meta, events: [] })
-    },
-    async append(id, events) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      for (let i = 0; i < events.length; i++) {
-        if (events[i].seq !== s.events.length + i) throw new Error('append seq 不连续: ' + String(events[i] && events[i].seq))
-      }
-      s.events.push(...events)
-    },
-    async inspect(id) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events }
-    },
-    async readFrom(id, fromSeq = 0) {
-      const s = sessions.get(id)
-      if (!s) throw new Error('unknown session ' + id)
-      return { meta: s.meta, events: s.events.slice(fromSeq) }
-    },
-    async remove(id) { sessions.delete(id) },
-  }
-}
-
+// 面板路由 harness：内存树（查找忽略大小写）+ 树外回退真实磁盘（上传暂存件），走真实
+// registerPanelRoutes；registryDir 独立临时目录，cleanup 收尾。
 function makeHarness(tree, opts = {}) {
-  const persistence = makePersistence()
-  const attached = []
-  const workspaces = new Map()
-  const webRoutes = []
-  const writes = []
   const registryDir = mkdtempSync(join(tmpdir(), 'dsh-fi-reg-'))
-  const entriesCache = new Map()
-  const normKey = (p) => norm(p).toLowerCase()
-
-  const fs = {
-    async resolve(path) { return { targetKey: path, displayPath: path } },
-    lookup(p) {
-      const f = normKey(p)
-      for (const [k, v] of Object.entries(tree)) if (normKey(k) === f) return v
-      return undefined
-    },
-    async stat(target) {
-      const v = this.lookup(target.targetKey)
-      if (v !== undefined) return v === 'dir' ? { type: 'directory' } : { type: 'file', size: v.length, version: 'v-' + v.length }
-      // 树外（上传暂存的真实文件）：回退 node:fs
-      try {
-        const st = (await import('node:fs')).statSync(target.targetKey)
-        if (st.isDirectory()) return { type: 'directory' }
-        return { type: 'file', size: st.size, version: 'real-' + st.size + '-' + st.mtimeMs }
-      } catch { return undefined }
-    },
-    async readText(target) {
-      const v = this.lookup(target.targetKey)
-      if (v !== undefined && v !== 'dir') return v
-      try { return (await import('node:fs')).readFileSync(target.targetKey, 'utf8') } catch { throw new Error('FS_NOT_FOUND ' + target.targetKey) }
-    },
-    async writeText(target, content, options) {
-      if (options && options.kind === 'createIfAbsent' && tree[target.targetKey] !== undefined) {
-        throw Object.assign(new Error('EEXIST ' + target.targetKey), { code: 'EEXIST' })
-      }
-      tree[target.targetKey] = content
-      writes.push({ path: target.targetKey, content, options })
-      return { path: target.targetKey }
-    },
-    async listDir(target) {
-      const key = target.targetKey
-      if (!entriesCache.has(key)) {
-        const dir = normKey(key).replace(/\/+$/, '')
-        const entries = []
-        for (const [path, v] of Object.entries(tree)) {
-          const p = normKey(path)
-          if (!p.startsWith(dir + '/')) continue
-          const rest = p.slice(dir.length + 1)
-          if (rest.includes('/')) continue
-          const real = path.slice(path.length - rest.length)
-          entries.push({ name: real, type: v === 'dir' ? 'directory' : 'file', target: { targetKey: path, displayPath: path }, version: 1 })
-        }
-        // 树外真实目录（上传暂存）：合并 node:fs 的子项
-        try {
-          const fsm = (await import('node:fs'))
-          for (const name of fsm.readdirSync(key)) {
-            if (entries.some((e) => e.name === name)) continue
-            const child = join(key, name)
-            const st = fsm.statSync(child)
-            entries.push({ name, type: st.isDirectory() ? 'directory' : 'file', target: { targetKey: child, displayPath: child }, version: 1 })
-          }
-        } catch { /* 树内目录不存在于磁盘：只列树内项 */ }
-        entriesCache.set(key, entries.sort((a, b) => a.name.localeCompare(b.name)))
-      }
-      return entriesCache.get(key)
-    },
-    processPath(target) { return target.targetKey },
-  }
-
-  const workspaceRegistry = {
-    async resolveByPath(p) { return workspaces.get(p) ?? null },
-    async create(p) {
-      const ws = { path: p, attachSession: async (id) => attached.push({ ws: p, id }) }
-      workspaces.set(p, ws)
-      return ws
-    },
-    get archivedSessionIds() { return [] },
-  }
-
-  const webServer = { register(def) { webRoutes.push(def); return () => {} } }
-  const services = opts.services || {}
-  const ctx = {
-    fs,
-    sessionPersistence: persistence,
-    tools: { register() { return () => {} } },
-    get(service) {
-      if (service === 'workspaceRegistry') return workspaceRegistry
-      if (service === 'sessionPersistence') return persistence
-      if (service === 'webServer') return webServer
-      if (services[service] !== undefined) return services[service]
-      return undefined
-    },
-    inject(list, cb) {
-      const names = Array.isArray(list) ? list : Object.keys(list || {})
-      if (!names.every((s) => ctx.get(s) !== undefined)) return undefined
-      return cb(ctx)
-    },
-  }
-  registerPanelRoutes(ctx, webServer, registryDir)
+  const host = makeCtx(tree, { real: true, services: opts.services, fsOptions: { caseInsensitive: true } })
+  registerPanelRoutes(host.ctx, host.ctx.webServer, registryDir)
   return {
-    ctx, webRoutes, persistence, writes, registryDir, attached,
+    ...host,
+    registryDir,
     cleanup() { rmSync(registryDir, { recursive: true, force: true }) },
   }
 }

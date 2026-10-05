@@ -330,9 +330,9 @@ const PROPERTY_SERVICES = ['skills', 'commands']
 
 export function makeCtx(tree = {}, opts = {}) {
   const services = opts.services || {}
-  const fs = 'fs' in opts
-    ? opts.fs
-    : makeFs(tree || {}, { real: opts.real, versions: opts.versions, ...opts.fsOptions })
+  // 外部给定的 fs 不读它的任何属性（forbiddenFs 把属性读取也记作一次调用）
+  const ownFs = 'fs' in opts ? null : makeFs(tree || {}, { real: opts.real, versions: opts.versions, ...opts.fsOptions })
+  const fs = ownFs || opts.fs
   const persistence = 'persistence' in opts ? opts.persistence : makePersistence(opts.persistenceOptions)
   const hostPersistence = opts.hostApi === 'handle' ? makeHandlePersistence(persistence) : persistence
   const workspaceRegistry = 'workspaceRegistry' in opts
@@ -384,8 +384,8 @@ export function makeCtx(tree = {}, opts = {}) {
     attached: workspaceRegistry && workspaceRegistry.attached,
     workspaces: workspaceRegistry && workspaceRegistry.workspaces,
     webRoutes: web.defs,
-    writes: fs && fs.writes,
-    reads: fs && fs.reads,
+    writes: ownFs ? ownFs.writes : undefined,
+    reads: ownFs ? ownFs.reads : undefined,
     listeners,
   }
 }
