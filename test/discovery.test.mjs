@@ -1791,6 +1791,32 @@ test('dsh / dsh4：按日志代次给格式（v3 → dsh，v4 → dsh4）', asyn
   }
 })
 
+test('dsh / dsh4：默认数据根（不给 path）两个代次都能发现，单选 dsh4 也有目标', async () => {
+  const dshHome = join(HOME, 'dsh-home-roots')
+  const saved = process.env.DSH_HOME
+  process.env.DSH_HOME = dshHome
+  try {
+    const body = (id) => [
+      j({ type: 'session', id, cwd: '/demo/proj', createdAt: 1700000000000 }),
+      j({ type: 'user/message', seq: 1, data: { content: [{ type: 'text', text: '默认根' }] } }),
+    ].join('\n')
+    const dir = (...p) => [join(dshHome, 'sessions', ...p), { type: 'dir' }]
+    const files = new Map([
+      dir(), dir('--D-Build--'), dir('--D-Build--', 'session-a'), dir('--D-Build--', 'session-b'),
+      [join(dshHome, 'sessions', '--D-Build--', 'session-a', 'session.v3.jsonl'), { type: 'file', mtimeMs: 1786000002000, text: body('session-a') }],
+      [join(dshHome, 'sessions', '--D-Build--', 'session-b', 'session.v4.jsonl'), { type: 'file', mtimeMs: 1786000002000, text: body('session-b') }],
+    ])
+    const all = await discoverSessions({ home: HOME, host: mockHost(files), imports: {}, cache: new Map() })
+    const byId = Object.fromEntries(all.sessions.filter((e) => e.format === 'dsh' || e.format === 'dsh4').map((e) => [e.sessionId, e.format]))
+    assert.deepEqual(byId, { 'session-a': 'dsh', 'session-b': 'dsh4' })
+    const v4 = await discoverSessions({ format: 'dsh4', home: HOME, host: mockHost(files), imports: {}, cache: new Map() })
+    assert.deepEqual(v4.sessions.map((e) => e.sessionId), ['session-b'])
+  } finally {
+    if (saved === undefined) delete process.env.DSH_HOME
+    else process.env.DSH_HOME = saved
+  }
+})
+
 test('layoutProject(dsh)：~XXXX 转义按 code unit 还原，不再解成控制字符', () => {
   assert.equal(
     layoutProject('/h/sessions/--Users-u-Documents-Github-DSH~0020Repo--/sid/session.jsonl', 'dsh'),
