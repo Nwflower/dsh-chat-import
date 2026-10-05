@@ -503,6 +503,10 @@
         const bundle = entry.bundle === true;
         const turns = typeof entry.turns === "number" ? entry.turns : 0;
         const blocked = singleBlocked(entry);
+        // host 面读取/派生/解析抛错（status==='failed'，如二进制文件被 fs 拒读）：
+        // 必须亮出真实错误——否则落入「没有可导入的轮次」，失败被静默吞掉（与批处理
+        // 卡片的 status==='failed' 渲染同口径）。
+        const failed = entry.status === "failed";
         // 未识别（有失败清单、也没识别出格式）时的卡片只留必要信息：计数恒为 0、
         // skipReason 与「全部解析失败」是同一句话，留着只会把重点淹掉。
         const hasFailures = Array.isArray(entry.failures) && entry.failures.length > 0;
@@ -519,15 +523,16 @@
             badge(entry.detectedFormat, detectedByText(entry.detectedBy)),
             React.createElement("span", { style: style.title, title: entry.path },
               bundle ? t("fileImport.bundle") : entryName(entry)),
-            unrecognized ? null : React.createElement("span", { style: style.meta }, counts.join(" · "))),
+            (unrecognized || failed) ? null : React.createElement("span", { style: style.meta }, counts.join(" · "))),
           entry.path ? React.createElement("div", { style: style.metaPath }, entry.path) : null,
           bundle ? React.createElement("div", { style: style.note }, t("fileImport.bundle")) : null,
           entry.cwd ? React.createElement("div", { style: style.metaPath }, t("fileImport.cwd") + "：" + entry.cwd) : null,
           entry.createdAt ? React.createElement("div", { style: style.metaPath }, t("fileImport.createdAt") + "：" + fmtTime(entry.createdAt)) : null,
           entry.note ? React.createElement("div", { style: style.note }, t("fileImport.note", { note: entry.note })) : null,
           degrade ? React.createElement("div", { style: style.note }, degrade) : null,
+          failed ? React.createElement("div", { style: style.warn }, entry.error || t("fileImport.batch.failed")) : null,
           entry.skipReason && !unrecognized ? React.createElement("div", { style: style.warn }, t("fileImport.skipReason", { reason: entry.skipReason })) : null,
-          !bundle && turns === 0 && !entry.skipReason && !hasFailures ? React.createElement("div", { style: style.warn }, t("fileImport.noTurns")) : null,
+          !bundle && !failed && turns === 0 && !entry.skipReason && !hasFailures ? React.createElement("div", { style: style.warn }, t("fileImport.noTurns")) : null,
           renderFailures(entry),
           React.createElement("div", { style: style.actions },
             React.createElement("button", {
