@@ -13,6 +13,7 @@ import { tmpdir } from 'node:os'
 import { dirname, join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { apply } from '../lib/index.mjs'
+import { loadImports, unwrapRecord, resolveRegistryDir } from '../lib/imports.mjs'
 import { convertMimocodeJson } from '../lib/convert/index.mjs'
 import { readMimocodeDb, isMimocodeBackgroundSession } from '../lib/sources/mimocode.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
@@ -330,4 +331,30 @@ test('import_mimocode 目录模式：自动定位 mimocode.db', async () => {
   assert.equal(value.mode, 'batch')
   assert.equal(value.imported, 2)
   assert.equal(persistence.sessions.size, 2)
+})
+
+test('import_mimocode 目录模式与单库模式同口径：转换器 / 来源标签 / 导入格式一致', async () => {
+  const dbPath = makeMimocodeDb(mimocodeTestSessions())
+  const runIsolated = async (path) => {
+    process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+    const { ctx, persistence } = makeCtx()
+    apply(ctx)
+    await chatDef(ctx).execute({ path })
+    const { imports } = await loadImports(resolveRegistryDir())
+    const formats = Object.values(imports).flatMap((r) => Object.values(unwrapRecord(r).sessions || {}).map((s) => s.format))
+    return { persistence, formats }
+  }
+  const viaFile = await runIsolated(dbPath)
+  const viaDir = await runIsolated(dirname(dbPath))
+
+  const strip = (s) => JSON.stringify(s.events.map(({ time, ...e }) => e))
+  for (const id of ['import-mim-a', 'import-mim-b']) {
+    const a = viaFile.persistence.sessions.get(id)
+    const b = viaDir.persistence.sessions.get(id)
+    assert.ok(a && b, '两种入口都落盘了 ' + id)
+    assert.equal(strip(b), strip(a), '目录模式不得退回 opencode 转换器 / 标签')
+  }
+  for (const formats of [viaFile.formats, viaDir.formats]) {
+    assert.deepEqual(formats, ['mimocode', 'mimocode'], 'registry 记录的来源格式是 mimocode')
+  }
 })
