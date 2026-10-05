@@ -29,6 +29,7 @@
     "lib/convert",
     "lib/export",
     "lib/sources",
+    "lib/tools",
     "bin",
     "cordis.patch.yml",
     "README.md",
