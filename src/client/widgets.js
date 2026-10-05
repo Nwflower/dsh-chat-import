@@ -6,28 +6,28 @@
         xmlns: "http://www.w3.org/2000/svg", "aria-hidden": true, style: { flex: "none", display: "block" },
       };
       const shapes = {
-        checkSquare: React.createElement(React.Fragment, null,
-          React.createElement("rect", { x: 3, y: 3, width: 18, height: 18, rx: 3 }),
-          React.createElement("path", { d: "m9 12 2 2 4-4" })),
-        x: React.createElement(React.Fragment, null,
-          React.createElement("path", { d: "M18 6 6 18M6 6l12 12" })),
-        refresh: React.createElement(React.Fragment, null,
-          React.createElement("path", { d: "M21 12a9 9 0 1 1-2.64-6.36" }),
-          React.createElement("path", { d: "M21 3v6h-6" })),
-        circle: React.createElement("circle", { cx: 12, cy: 12, r: 9 }),
-        checkCircle: React.createElement(React.Fragment, null,
-          React.createElement("circle", { cx: 12, cy: 12, r: 9 }),
-          React.createElement("path", { d: "m9 12 2 2 4-4" })),
-        chevronLeft: React.createElement("path", { d: "m15 18-6-6 6-6" }),
-        chevronRight: React.createElement("path", { d: "m9 18 6-6-6-6" }),
-        search: React.createElement(React.Fragment, null,
-          React.createElement("circle", { cx: 11, cy: 11, r: 7 }),
-          React.createElement("path", { d: "m21 21-4.3-4.3" })),
-        check: React.createElement("path", { d: "m4.5 12.5 5 5 10.5-11" }),
+        checkSquare: h(React.Fragment, null,
+          h("rect", { x: 3, y: 3, width: 18, height: 18, rx: 3 }),
+          h("path", { d: "m9 12 2 2 4-4" })),
+        x: h(React.Fragment, null,
+          h("path", { d: "M18 6 6 18M6 6l12 12" })),
+        refresh: h(React.Fragment, null,
+          h("path", { d: "M21 12a9 9 0 1 1-2.64-6.36" }),
+          h("path", { d: "M21 3v6h-6" })),
+        circle: h("circle", { cx: 12, cy: 12, r: 9 }),
+        checkCircle: h(React.Fragment, null,
+          h("circle", { cx: 12, cy: 12, r: 9 }),
+          h("path", { d: "m9 12 2 2 4-4" })),
+        chevronLeft: h("path", { d: "m15 18-6-6 6-6" }),
+        chevronRight: h("path", { d: "m9 18 6-6-6-6" }),
+        search: h(React.Fragment, null,
+          h("circle", { cx: 11, cy: 11, r: 7 }),
+          h("path", { d: "m21 21-4.3-4.3" })),
+        check: h("path", { d: "m4.5 12.5 5 5 10.5-11" }),
         // 折叠箭头（分组头，悬停才出现；收起时整体 rotate(-90deg)）
-        chevronDown: React.createElement("path", { d: "m6 9 6 6 6-6" }),
+        chevronDown: h("path", { d: "m6 9 6 6 6-6" }),
       };
-      return React.createElement("svg", common, shapes[name]);
+      return h("svg", common, shapes[name]);
     }
 
     // 选中态遮罩：强调色亮（HSV V > 40）用固定黑遮罩，暗用固定白遮罩，保证勾选图标的
@@ -68,24 +68,24 @@
       const box = { width: size, height: size, flex: "none", display: "block", ...(style || {}) };
       const logo = sourceLogo(key);
       if (logo) {
-        return React.createElement("span", {
+        return h("span", {
           style: { ...box, fontSize: size + "px", lineHeight: 0 },
           "aria-hidden": true, dangerouslySetInnerHTML: { __html: logo.mark },
         });
       }
       const badge = SOURCE_BADGES[key] || { color: "#64748B", text: String(key || "?").slice(0, 2).toUpperCase() };
       if (badge.svg) {
-        return React.createElement("span", {
+        return h("span", {
           style: box, "aria-hidden": true, dangerouslySetInnerHTML: { __html: badge.svg },
         });
       }
       if (badge.path) {
-        return React.createElement("svg", {
+        return h("svg", {
           viewBox: "-4 -4 32 32", width: size, height: size, "aria-hidden": true, style: box,
-        }, React.createElement("rect", { x: -4, y: -4, width: 32, height: 32, rx: 6, fill: "#fff" }),
-          React.createElement("path", { d: badge.path, fill: badge.color }));
+        }, h("rect", { x: -4, y: -4, width: 32, height: 32, rx: 6, fill: "#fff" }),
+          h("path", { d: badge.path, fill: badge.color }));
       }
-      return React.createElement("span", {
+      return h("span", {
         style: {
           ...box, borderRadius: "4px", background: "#ffffff", color: badge.color, fontWeight: 700,
           lineHeight: size + "px", textAlign: "center", letterSpacing: "-0.02em",
@@ -116,21 +116,21 @@
     function SourceLockup({ id, label, size = LOCKUP_SLOT }) {
       const logo = sourceLogo(id);
       if (!logo) return null;
-      const mark = React.createElement("span", {
+      const mark = h("span", {
         style: { width: size + "px", height: size + "px", fontSize: size + "px", lineHeight: 0, flex: "none", display: "block" },
         "aria-hidden": true, dangerouslySetInnerHTML: { __html: logo.mark },
       });
-      return React.createElement("span", {
+      return h("span", {
         style: { display: "inline-flex", alignItems: "center", gap: LOCKUP_GAP + "px", flex: "0 0 auto", minWidth: 0 },
       },
         mark,
         logo.word
-          ? React.createElement("span", {
+          ? h("span", {
             style: { height: LOCKUP_WORD_H + "px", fontSize: LOCKUP_WORD_H + "px", lineHeight: 0, flex: "none", display: "block" },
             "aria-hidden": true, dangerouslySetInnerHTML: { __html: logo.word },
           })
-          : React.createElement("span", { style: { fontSize: "13px", lineHeight: "20px", whiteSpace: "nowrap" } }, label),
-        logo.word ? React.createElement("span", { style: srOnly }, label) : null);
+          : h("span", { style: { fontSize: "13px", lineHeight: "20px", whiteSpace: "nowrap" } }, label),
+        logo.word ? h("span", { style: srOnly }, label) : null);
     }
 
     // 来源徽标：白色圆角卡 + 品牌标/缩写。它是**纯指示器**——身份是「来源标识 + 选中态
@@ -145,18 +145,18 @@
         position: "relative", overflow: "hidden",
         padding: 0, opacity: disabled ? 0.5 : 1,
       };
-      const logo = React.createElement(BrandMark, { format, size });
+      const logo = h(BrandMark, { format, size });
       const overlay = checked
-        ? React.createElement("div", { style: { position: "absolute", inset: 0, background: palette.overlay || overlayColorForAccent(palette.accent), opacity: 0.6 } })
+        ? h("div", { style: { position: "absolute", inset: 0, background: palette.overlay || overlayColorForAccent(palette.accent), opacity: 0.6 } })
         : null;
       const check = checked
-        ? React.createElement("svg", {
+        ? h("svg", {
           viewBox: "0 0 24 24", width: size, height: size, fill: "none",
           stroke: palette.accent, strokeWidth: 2, strokeLinecap: "round", strokeLinejoin: "round",
           style: { position: "absolute", inset: 0 }, "aria-hidden": true,
-        }, React.createElement("circle", { cx: 12, cy: 12, r: 10 }), React.createElement("path", { d: "M7.5 12.5l3 3 6-7" }))
+        }, h("circle", { cx: 12, cy: 12, r: 10 }), h("path", { d: "M7.5 12.5l3 3 6-7" }))
         : null;
-      return React.createElement("div", {
+      return h("div", {
         style: card, title, "aria-hidden": true, // 只作视觉指示；勾选控件在消息体上（有 aria-label / aria-checked）
       }, logo, overlay, check);
     }

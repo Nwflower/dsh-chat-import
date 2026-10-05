@@ -47,7 +47,7 @@
       }));
       const holdMs = actions.length > 0 ? TOAST_ACTION_HOLD_MS : TOAST_HOLD_MS;
       if (HostToast) {
-        return React.createElement(HostToast, {
+        return h(HostToast, {
           key: toast.seq,
           text: toast.text,
           holdMs,
@@ -55,7 +55,7 @@
           onDone: () => setToast(null),
         });
       }
-      return React.createElement(FallbackToast, { key: toast.seq, text: toast.text, actions, holdMs });
+      return h(FallbackToast, { key: toast.seq, text: toast.text, actions, holdMs });
     }
 
     // 无 primitives 时的自绘横幅：顶部居中、holdMs 后自动消失（位置与官方 Toast 一致）；
@@ -69,7 +69,7 @@
         return () => clearTimeout(timer);
       }, []);
       if (!shown) return null;
-      return React.createElement("div", {
+      return h("div", {
         role: "status",
         style: {
           position: "fixed",
@@ -92,8 +92,8 @@
           alignItems: "center",
         },
       },
-        React.createElement("span", { style: { flex: "1", minWidth: 0 } }, props.text),
-        actions.map((a, i) => React.createElement("button", {
+        h("span", { style: { flex: "1", minWidth: 0 } }, props.text),
+        actions.map((a, i) => h("button", {
           key: i,
           type: "button",
           style: {

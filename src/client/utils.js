@@ -212,14 +212,14 @@
     };
 
     function Toggle({ on, onChange, colors }) {
-      return React.createElement("button", {
+      return h("button", {
         type: "button",
         onClick: () => onChange(!on),
         style: {
           width: "40px", height: "22px", borderRadius: "999px", border: "none", cursor: "pointer",
           background: on ? colors.accent : colors.border, position: "relative", flex: "none",
         },
-      }, React.createElement("span", {
+      }, h("span", {
         style: {
           position: "absolute", top: "2px", left: on ? "20px" : "2px", width: "18px", height: "18px",
           borderRadius: "50%", background: colors.accentForeground, transition: "left .12s ease",

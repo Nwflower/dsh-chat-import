@@ -456,7 +456,7 @@
       // ── 渲染 ────────────────────────────────────────────────────────────
       const detectedByText = (by) => (by && FILE_DETECTED_BY[by] ? t("fileImport.detectedBy." + by) : (by ? String(by) : ""));
 
-      const badge = (detected, by) => React.createElement("span", {
+      const badge = (detected, by) => h("span", {
         style: { ...style.badge, ...(detected ? null : style.badgeOff) },
       }, detected ? t("fileImport.detected", { format: detected }) : t("fileImport.notDetected"),
         detected && by ? " · " + by : null);
@@ -474,26 +474,26 @@
       const renderFailures = (entry) => {
         const list = Array.isArray(entry.failures) ? entry.failures : [];
         if (list.length === 0) return null;
-        return React.createElement("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
-          React.createElement("div", { style: style.warn }, t("fileImport.failures.allFailed", { n: list.length })),
-          React.createElement("div", { style: style.actions },
-            React.createElement("button", {
+        return h("div", { style: { display: "flex", flexDirection: "column", gap: "6px" } },
+          h("div", { style: style.warn }, t("fileImport.failures.allFailed", { n: list.length })),
+          h("div", { style: style.actions },
+            h("button", {
               type: "button", style: style.btn, "aria-expanded": showFailures,
               "aria-controls": FILE_FAILURES_ID,
               onClick: () => setShowFailures((v) => !v),
             }, showFailures ? t("fileImport.failures.collapseCount") : t("fileImport.failures.expandCount", { n: list.length })),
-            React.createElement("button", {
+            h("button", {
               type: "button", style: style.btn, onClick: copyFailures,
             }, copied ? t("fileImport.failures.copied") : t("fileImport.failures.copy"))),
-          showFailures && React.createElement("div", { id: FILE_FAILURES_ID, role: "list", style: style.failureList },
-            list.map((f, i) => React.createElement("div", {
+          showFailures && h("div", { id: FILE_FAILURES_ID, role: "list", style: style.failureList },
+            list.map((f, i) => h("div", {
               key: i, role: "listitem", style: style.failureRow,
             },
-              React.createElement("span", { style: style.failureFormat }, (f && f.format) || "?"),
-              React.createElement("span", { style: style.failureReason }, (f && f.reason) || "")))),
-          React.createElement("div", { style: style.note },
+              h("span", { style: style.failureFormat }, (f && f.format) || "?"),
+              h("span", { style: style.failureReason }, (f && f.reason) || "")))),
+          h("div", { style: style.note },
             t("fileImport.failures.hint"),
-            React.createElement("a", {
+            h("a", {
               href: t("fileImport.failures.guideUrl"), target: "_blank", rel: "noreferrer", style: style.link,
             }, t("fileImport.failures.hintLink")),
             t("fileImport.failures.hintSuffix")));
@@ -518,24 +518,24 @@
         ];
         if (entry.skipped) counts.push(t("fileImport.skipped", { n: entry.skipped }));
         const degrade = degradeText(entry);
-        return React.createElement("div", { style: style.card },
-          React.createElement("div", { style: style.cardHead },
+        return h("div", { style: style.card },
+          h("div", { style: style.cardHead },
             badge(entry.detectedFormat, detectedByText(entry.detectedBy)),
-            React.createElement("span", { style: style.title, title: entry.path },
+            h("span", { style: style.title, title: entry.path },
               bundle ? t("fileImport.bundle") : entryName(entry)),
-            (unrecognized || failed) ? null : React.createElement("span", { style: style.meta }, counts.join(" · "))),
-          entry.path ? React.createElement("div", { style: style.metaPath }, entry.path) : null,
-          bundle ? React.createElement("div", { style: style.note }, t("fileImport.bundle")) : null,
-          entry.cwd ? React.createElement("div", { style: style.metaPath }, t("fileImport.cwd") + "：" + entry.cwd) : null,
-          entry.createdAt ? React.createElement("div", { style: style.metaPath }, t("fileImport.createdAt") + "：" + fmtTime(entry.createdAt)) : null,
-          entry.note ? React.createElement("div", { style: style.note }, t("fileImport.note", { note: entry.note })) : null,
-          degrade ? React.createElement("div", { style: style.note }, degrade) : null,
-          failed ? React.createElement("div", { style: style.warn }, entry.error || t("fileImport.batch.failed")) : null,
-          entry.skipReason && !unrecognized ? React.createElement("div", { style: style.warn }, t("fileImport.skipReason", { reason: entry.skipReason })) : null,
-          !bundle && !failed && turns === 0 && !entry.skipReason && !hasFailures ? React.createElement("div", { style: style.warn }, t("fileImport.noTurns")) : null,
+            (unrecognized || failed) ? null : h("span", { style: style.meta }, counts.join(" · "))),
+          entry.path ? h("div", { style: style.metaPath }, entry.path) : null,
+          bundle ? h("div", { style: style.note }, t("fileImport.bundle")) : null,
+          entry.cwd ? h("div", { style: style.metaPath }, t("fileImport.cwd") + "：" + entry.cwd) : null,
+          entry.createdAt ? h("div", { style: style.metaPath }, t("fileImport.createdAt") + "：" + fmtTime(entry.createdAt)) : null,
+          entry.note ? h("div", { style: style.note }, t("fileImport.note", { note: entry.note })) : null,
+          degrade ? h("div", { style: style.note }, degrade) : null,
+          failed ? h("div", { style: style.warn }, entry.error || t("fileImport.batch.failed")) : null,
+          entry.skipReason && !unrecognized ? h("div", { style: style.warn }, t("fileImport.skipReason", { reason: entry.skipReason })) : null,
+          !bundle && !failed && turns === 0 && !entry.skipReason && !hasFailures ? h("div", { style: style.warn }, t("fileImport.noTurns")) : null,
           renderFailures(entry),
-          React.createElement("div", { style: style.actions },
-            React.createElement("button", {
+          h("div", { style: style.actions },
+            h("button", {
               type: "button", style: style.primary, disabled: busy || blocked,
               title: blocked ? t("fileImport.import.disabled") : (bundle ? t("fileImport.restore") : t("fileImport.import")),
               onClick: importSingle,
@@ -556,22 +556,22 @@
         const remaining = entries.length - shown.length;
         const importable = entries.filter(isImportableEntry);
         const selectedCount = importable.filter((e) => batchSel && batchSel.has(e.path)).length;
-        return React.createElement("div", { style: style.card },
-          React.createElement("div", { style: style.cardHead },
-            React.createElement("span", { style: style.title, title: preview.data.path || pathInput }, preview.data.path || pathInput),
-            React.createElement("span", { style: style.meta },
+        return h("div", { style: style.card },
+          h("div", { style: style.cardHead },
+            h("span", { style: style.title, title: preview.data.path || pathInput }, preview.data.path || pathInput),
+            h("span", { style: style.meta },
               t("fileImport.batch.total", { total: entries.length }) + " · " + t("fileImport.batch.selected", { n: selectedCount }))),
-          entries.length === 0 ? React.createElement("div", { style: style.note }, t("fileImport.batch.empty")) : null,
-          React.createElement("div", { style: style.actions },
-            React.createElement("button", {
+          entries.length === 0 ? h("div", { style: style.note }, t("fileImport.batch.empty")) : null,
+          h("div", { style: style.actions },
+            h("button", {
               type: "button", style: style.btn, disabled: busy || importable.length === 0,
               onClick: () => setBatchSel(new Set(importable.map((e) => e.path))),
             }, t("fileImport.batch.selectAll")),
-            React.createElement("button", {
+            h("button", {
               type: "button", style: style.btn, disabled: busy || selectedCount === 0,
               onClick: () => setBatchSel(new Set()),
             }, t("fileImport.batch.none"))),
-          React.createElement("div", { style: style.batchList },
+          h("div", { style: style.batchList },
             shown.map((entry) => {
               const ok = isImportableEntry(entry);
               const checked = !!(batchSel && batchSel.has(entry.path));
@@ -579,7 +579,7 @@
                 ? t("fileImport.bundle")
                 : [t("fileImport.turns", { n: typeof entry.turns === "number" ? entry.turns : 0 }),
                   entry.toolCalls ? t("fileImport.toolCalls", { n: entry.toolCalls }) : null].filter(Boolean).join(" · ");
-              return React.createElement("div", {
+              return h("div", {
                 key: entry.path, role: "checkbox", "aria-checked": checked,
                 "aria-disabled": ok ? undefined : true,
                 "aria-label": entryName(entry) + " · " + counts,
@@ -591,22 +591,22 @@
                   if (e.key === "Enter" || e.key === " ") { e.preventDefault(); toggleBatch(entry.path); }
                 } : undefined,
               },
-                React.createElement("span", {
+                h("span", {
                   style: { flex: "none", display: "inline-flex", color: checked ? colors.accent : colors.dimmer },
                   "aria-hidden": true,
-                }, React.createElement(Icon, { name: checked ? "checkCircle" : "circle", size: 14 })),
-                React.createElement("span", { style: style.batchName }, entryName(entry)),
-                React.createElement("span", { style: style.batchMeta },
+                }, h(Icon, { name: checked ? "checkCircle" : "circle", size: 14 })),
+                h("span", { style: style.batchName }, entryName(entry)),
+                h("span", { style: style.batchMeta },
                   entry.status === "failed" ? t("fileImport.batch.failed")
                     : entry.skipReason ? t("fileImport.notDetected") : counts));
             })),
-          remaining > 0 ? React.createElement("div", { style: style.actions },
-            React.createElement("button", {
+          remaining > 0 ? h("div", { style: style.actions },
+            h("button", {
               type: "button", style: style.btn, disabled: busy,
               onClick: () => setBatchLimit((n) => n + FILE_BATCH_PAGE),
             }, t("fileImport.batch.showMore", { n: remaining }))) : null,
-          React.createElement("div", { style: style.actions },
-            React.createElement("button", {
+          h("div", { style: style.actions },
+            h("button", {
               type: "button", style: style.primary, disabled: busy || selectedCount === 0, onClick: importBatch,
             }, progress ? t("fileImport.batch.progress", { i: progress.i, n: progress.n })
               : busy ? t("fileImport.importing") : t("fileImport.batch.import", { n: selectedCount }))));
@@ -615,7 +615,7 @@
       // 文件选择（「选择…」按钮触发）：浏览器只有 File 对象，走上传通道。
       // 不做拖放区——把会话文件拖进 DSH 窗口会被宿主当成「给对话加附件」抢走控制权；
       // 这里不跟宿主抢，选择入口交给系统文件框（面板不注册任何 drop 监听）。
-      const filePicker = React.createElement("input", {
+      const filePicker = h("input", {
         ref: inputRef, type: "file", multiple: true, tabIndex: -1, "aria-hidden": true,
         style: { display: "none" },
         onChange: (e) => {
@@ -632,24 +632,24 @@
         const ask = t("fileImport.subfolder.ask", { n: subfolderAsk.total });
         const close = () => setSubfolderAsk(null);
         if (HostModal && HostButton) {
-          return React.createElement(HostModal, {
+          return h(HostModal, {
             open: true,
             onClose: close,
             title: t("fileImport.subfolder.title"),
             closeLabel: t("fileImport.subfolder.cancel"),
-            children: React.createElement("div", null, ask),
-            footer: React.createElement(React.Fragment, null,
-              React.createElement(HostButton, {
+            children: h("div", null, ask),
+            footer: h(React.Fragment, null,
+              h(HostButton, {
                 variant: "outline",
                 disabled: busy,
                 onClick: () => answerSubfolder(null),
               }, t("fileImport.subfolder.cancel")),
-              React.createElement(HostButton, {
+              h(HostButton, {
                 variant: "outline",
                 disabled: busy,
                 onClick: () => answerSubfolder(false),
               }, t("fileImport.subfolder.current")),
-              React.createElement(HostButton, {
+              h(HostButton, {
                 variant: "primary",
                 autoFocus: true,
                 disabled: busy,
@@ -657,56 +657,56 @@
               }, t("fileImport.subfolder.recursive"))),
           });
         }
-        return React.createElement("div", {
+        return h("div", {
           role: "dialog", "aria-modal": true, "aria-label": t("fileImport.subfolder.title"), style: style.dialogMask,
         },
-          React.createElement("div", { style: style.dialog },
-            React.createElement("div", { style: style.dialogTitle }, t("fileImport.subfolder.title")),
-            React.createElement("div", { style: style.dialogBody }, ask),
-            React.createElement("div", { style: style.actions },
-              React.createElement("button", {
+          h("div", { style: style.dialog },
+            h("div", { style: style.dialogTitle }, t("fileImport.subfolder.title")),
+            h("div", { style: style.dialogBody }, ask),
+            h("div", { style: style.actions },
+              h("button", {
                 type: "button", style: style.btn, disabled: busy, onClick: close,
               }, t("fileImport.subfolder.cancel")),
-              React.createElement("button", {
+              h("button", {
                 type: "button", style: style.btn, disabled: busy, onClick: () => answerSubfolder(false),
               }, t("fileImport.subfolder.current")),
-              React.createElement("button", {
+              h("button", {
                 type: "button", style: style.primary, disabled: busy, autoFocus: true,
                 onClick: () => answerSubfolder(true),
               }, t("fileImport.subfolder.recursive")))));
       };
 
-      const pathRow = React.createElement("div", { style: style.row },
-        React.createElement("input", {
+      const pathRow = h("div", { style: style.row },
+        h("input", {
           style: style.input, value: pathInput, spellCheck: false,
           placeholder: t("fileImport.path.placeholder"), "aria-label": t("fileImport.path.aria"),
           onChange: (e) => setPathInput(e.target.value),
           onKeyDown: (e) => { if (e.key === "Enter") searchPath(pathInput); },
         }),
-        React.createElement("button", {
+        h("button", {
           type: "button", style: style.btn, disabled: busy,
           title: t("fileImport.choose"), onClick: () => { if (!busy && inputRef.current) inputRef.current.click(); },
         }, t("fileImport.choose")),
-        React.createElement("button", {
+        h("button", {
           type: "button", style: style.primary, disabled: busy,
           onClick: () => searchPath(pathInput),
         }, previewing ? t("fileImport.previewing") : t("fileImport.preview")),
         filePicker);
 
-      const previewArea = React.createElement("div", {
+      const previewArea = h("div", {
         "aria-live": "polite", style: { display: "flex", flexDirection: "column", gap: "6px" },
       },
-        upload ? React.createElement("div", { style: style.status },
+        upload ? h("div", { style: style.status },
           t("fileImport.upload.progress", { name: upload.name, pct: upload.pct, i: upload.i, n: upload.n })) : null,
-        previewing ? React.createElement("div", { style: style.status }, t("fileImport.previewing")) : null,
-        error ? React.createElement("div", { role: "alert", style: style.err }, error) : null,
+        previewing ? h("div", { style: style.status }, t("fileImport.previewing")) : null,
+        error ? h("div", { role: "alert", style: style.err }, error) : null,
         preview && preview.kind === "batch" ? renderBatchCard()
           : preview && preview.kind === "single" ? renderSingleCard(preview.data) : null,
-        !preview && !previewing && !error ? React.createElement("div", { style: style.note }, t("fileImport.preview.none")) : null,
-        result ? React.createElement("div", { style: style.result }, t("fileImport.result", { msg: result })) : null);
+        !preview && !previewing && !error ? h("div", { style: style.note }, t("fileImport.preview.none")) : null,
+        result ? h("div", { style: style.result }, t("fileImport.result", { msg: result })) : null);
 
-      return React.createElement("div", { style: style.root },
-        React.createElement("button", {
+      return h("div", { style: style.root },
+        h("button", {
           type: "button", style: style.head,
           "aria-expanded": !collapsed, "aria-controls": FILE_AREA_ID,
           "aria-label": t(collapsed ? "fileImport.expand" : "fileImport.collapse"),
@@ -716,12 +716,12 @@
             writeFileAreaCollapsed(next);
           },
         },
-          React.createElement("span", { style: style.headTitle }, t("fileImport.title")),
-          React.createElement("span", {
+          h("span", { style: style.headTitle }, t("fileImport.title")),
+          h("span", {
             style: { ...style.headChevron, transform: collapsed ? "rotate(-90deg)" : "none" },
             "aria-hidden": true,
-          }, React.createElement(Icon, { name: "chevronDown", size: 13, strokeWidth: 1.5 }))),
-        !collapsed && React.createElement("div", { id: FILE_AREA_ID, style: style.body },
+          }, h(Icon, { name: "chevronDown", size: 13, strokeWidth: 1.5 }))),
+        !collapsed && h("div", { id: FILE_AREA_ID, style: style.body },
           pathRow,
           previewArea,
           renderSubfolderDialog()));

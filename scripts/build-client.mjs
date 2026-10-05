@@ -58,6 +58,8 @@ window.__ModuleLoader__.load({
     Object.defineProperty(exports, Symbol.toStringTag, { value: "Module" });
     const React = require("react");
     const { useState, useEffect, useLayoutEffect, useMemo, useCallback, useRef } = React;
+    // 元素工厂简写（片段里的 UI 树一律写 h(type, props, ...children)）
+    const h = React.createElement;
 `
 
 const FOOTER = `    module.exports = { name, inject, apply };

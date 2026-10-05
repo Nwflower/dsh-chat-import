@@ -4,7 +4,7 @@
 // 行内不画分隔线），工作区筛选并入筛选层与搜索框同排，工具栏只留选择类动作
 //（已选条数由底部主按钮的「导入所选 (N)」承担，不再单独占一个 label）。
 //
-// 为什么读源码断言：面板是 client.js 里的 React.createElement 内联树，零构建、
+// 为什么读源码断言：面板是 client.js 里的 h()（= React.createElement）内联树，零构建、
 // 无 DOM 测试环境（devDependencies 只有 eslint）。这些约定在真实 UI 上肉眼可见、
 // 但没有任何模块边界能兜住——顺序或分隔线一旦被改回去，只有这里会响。
 import { test } from 'node:test'
@@ -13,13 +13,13 @@ import { readFileSync } from 'node:fs'
 
 const source = readFileSync(new URL('../lib/client.js', import.meta.url), 'utf8')
 
-/** DiscoveryPanel 的 body 表达式：从函数内 `const body = React.createElement` 到收尾 `return`。 */
+/** DiscoveryPanel 的 body 表达式：从函数内 `const body = h(` 到收尾 `return`。 */
 function panelBody() {
   const start = source.indexOf('function DiscoveryPanel()')
   assert.notEqual(start, -1, 'lib/client.js 缺少 DiscoveryPanel')
-  const bodyAt = source.indexOf('const body = React.createElement', start)
+  const bodyAt = source.indexOf('const body = h(', start)
   assert.notEqual(bodyAt, -1, 'DiscoveryPanel 缺少 body 树')
-  const end = source.indexOf('\n      return React.createElement("div", { ref: rootRef', bodyAt)
+  const end = source.indexOf('\n      return h("div", { ref: rootRef', bodyAt)
   assert.notEqual(end, -1, 'DiscoveryPanel body 树没有可识别的收尾')
   return source.slice(bodyAt, end)
 }
@@ -122,9 +122,9 @@ test('会话行：多选入口是整行（role=checkbox + 键盘切换），工�
   const row = source.slice(rowAt, source.indexOf('function DiscoveryPanel()', rowAt))
 
   // 整行：勾选语义 + 键盘可达（挂在行容器上，而不是消息体内部的某个子节点）
-  const rowOpenAt = row.indexOf('return React.createElement("div", {')
+  const rowOpenAt = row.indexOf('return h("div", {')
   assert.notEqual(rowOpenAt, -1, 'SessionRow 应渲染行容器')
-  const rowOpen = row.slice(rowOpenAt, row.indexOf('React.createElement(SourceBadge'))
+  const rowOpen = row.slice(rowOpenAt, row.indexOf('h(SourceBadge'))
   assert.match(rowOpen, /role: "checkbox"/, '行容器应带 checkbox 角色')
   assert.match(rowOpen, /"aria-checked": checked/, '行容器应暴露 aria-checked')
   assert.match(rowOpen, /"aria-label": (s.title || props.noTitle)/, '行容器应带可读的 aria-label')
@@ -138,7 +138,7 @@ test('会话行：多选入口是整行（role=checkbox + 键盘切换），工�
   assert.ok(!row.slice(mainAt, mainAt + 80).includes('toggleProps'), '消息体不应再挂 toggleProps')
 
   // 工具标：只作指示器
-  const badgeAt = row.indexOf('React.createElement(SourceBadge, {')
+  const badgeAt = row.indexOf('h(SourceBadge, {')
   assert.notEqual(badgeAt, -1, '行内应仍渲染来源工具标')
   const badge = row.slice(badgeAt, row.indexOf('}),', badgeAt))
   assert.ok(!/onClick/.test(badge), '工具标不应再接收点击（勾选入口已移到消息体）')

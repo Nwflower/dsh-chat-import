@@ -171,29 +171,29 @@
           })
           .catch(() => { setState((s) => ({ ...s, saving: false, error: t("error.route") })); });
       };
-      const toggleCard = (title, description, on, patchKey) => React.createElement("div", {
+      const toggleCard = (title, description, on, patchKey) => h("div", {
         style: {
           display: "flex", alignItems: "flex-start", gap: "12px",
           padding: "12px 14px", border: "1px solid " + colors.border, borderRadius: "12px",
         },
       },
-        React.createElement("div", { style: { flex: "1", minWidth: "0" } },
-          React.createElement("div", { style: { fontSize: "13px", color: colors.text, lineHeight: "1.5", fontWeight: 600 } }, title),
-          React.createElement("div", { style: { fontSize: "12px", color: colors.dimmer, marginTop: "4px", lineHeight: "1.5" } }, description)),
-        React.createElement(Toggle, { on, colors, onChange: (next) => { if (!state.saving) applyPref({ [patchKey]: next }); } }));
+        h("div", { style: { flex: "1", minWidth: "0" } },
+          h("div", { style: { fontSize: "13px", color: colors.text, lineHeight: "1.5", fontWeight: 600 } }, title),
+          h("div", { style: { fontSize: "12px", color: colors.dimmer, marginTop: "4px", lineHeight: "1.5" } }, description)),
+        h(Toggle, { on, colors, onChange: (next) => { if (!state.saving) applyPref({ [patchKey]: next }); } }));
       // 三档选择卡片（injectTools）：横向 segmented 按钮，选中项 accent 底色；
       // 点击即应用（与 toggleCard 同一保存通路），saving 期间禁点。
-      const choiceCard = (title, description, value, options, patchKey) => React.createElement("div", {
+      const choiceCard = (title, description, value, options, patchKey) => h("div", {
         style: {
           display: "flex", alignItems: "flex-start", gap: "12px",
           padding: "12px 14px", border: "1px solid " + colors.border, borderRadius: "12px",
         },
       },
-        React.createElement("div", { style: { flex: "1", minWidth: "0" } },
-          React.createElement("div", { style: { fontSize: "13px", color: colors.text, lineHeight: "1.5", fontWeight: 600 } }, title),
-          React.createElement("div", { style: { fontSize: "12px", color: colors.dimmer, marginTop: "4px", lineHeight: "1.5" } }, description)),
-        React.createElement("div", { style: { display: "flex", flex: "none", gap: "0", borderRadius: "10px", border: "1px solid " + colors.border, overflow: "hidden" } },
-          options.map((opt) => React.createElement("button", {
+        h("div", { style: { flex: "1", minWidth: "0" } },
+          h("div", { style: { fontSize: "13px", color: colors.text, lineHeight: "1.5", fontWeight: 600 } }, title),
+          h("div", { style: { fontSize: "12px", color: colors.dimmer, marginTop: "4px", lineHeight: "1.5" } }, description)),
+        h("div", { style: { display: "flex", flex: "none", gap: "0", borderRadius: "10px", border: "1px solid " + colors.border, overflow: "hidden" } },
+          options.map((opt) => h("button", {
             key: opt.value, type: "button", disabled: !!state.saving,
             onClick: () => { if (!state.saving && opt.value !== value) applyPref({ [patchKey]: opt.value }); },
             style: {
@@ -203,12 +203,12 @@
               color: opt.value === value ? colors.accentForeground : colors.dimmer,
             },
           }, opt.label))));
-      return React.createElement("div", { style: { padding: "20px 24px", display: "flex", flexDirection: "column", gap: "16px", maxWidth: "640px" } },
-        React.createElement("div", { style: { fontSize: "15px", fontWeight: 600, color: colors.text } }, t("settings.tab")),
+      return h("div", { style: { padding: "20px 24px", display: "flex", flexDirection: "column", gap: "16px", maxWidth: "640px" } },
+        h("div", { style: { fontSize: "15px", fontWeight: 600, color: colors.text } }, t("settings.tab")),
         toggleCard(t("settings.sidebarButton.title"), t("settings.sidebarButton.description"), state.sidebarButton, "sidebarButton"),
         toggleCard(t("settings.systemPrompt.title"), t("settings.systemPrompt.description"), state.importSystemPrompt, "importSystemPrompt"),
         choiceCard(t("settings.injectTools.title"), t("settings.injectTools.description"), state.injectTools,
           [{ value: "off", label: t("settings.injectTools.off") }, { value: "minimal", label: t("settings.injectTools.minimal") }, { value: "full", label: t("settings.injectTools.full") }],
           "injectTools"),
-        state.error && React.createElement("div", { style: { fontSize: "12px", color: colors.error } }, state.error));
+        state.error && h("div", { style: { fontSize: "12px", color: colors.error } }, state.error));
     }

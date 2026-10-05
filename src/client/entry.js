@@ -129,7 +129,7 @@
       };
       const hoverBg = "var(--dsw-alias-interactive-bg-hover)";
       if (!visible) return null;
-      return React.createElement("button", {
+      return h("button", {
         ref: buttonRef,
         style: triggerStyle, title: t("trigger.title"),
         "aria-label": t("trigger.label"),
@@ -143,13 +143,13 @@
         onMouseEnter: (e) => { e.currentTarget.style.background = hoverBg; },
         onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; },
       },
-        React.createElement(LogoIcon, { size: iconOnly ? 18 : 16 }),
+        h(LogoIcon, { size: iconOnly ? 18 : 16 }),
         !iconOnly && label,
         // 完整形态宽度镜像：绝对定位 + hidden，但仍参与布局计算——判定用的 needed
         // 取自它，因此与按钮当前形态无关（缩成图标后仍能算出「文字形态需要多宽」）。
-        React.createElement("span", { ref: probeRef, "aria-hidden": true, style: FOOTER_PROBE_STYLE },
-          React.createElement(LogoIcon, { size: 16 }),
-          React.createElement("span", null, label)));
+        h("span", { ref: probeRef, "aria-hidden": true, style: FOOTER_PROBE_STYLE },
+          h(LogoIcon, { size: 16 }),
+          h("span", null, label)));
     }
 
     const name = "import-claude";

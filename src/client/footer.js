@@ -1,15 +1,15 @@
     /** 插件 logo（assets/import.svg 内联，跟随 currentColor 适配明暗主题） */
     function LogoIcon({ size }) {
       const s = size || 16;
-      return React.createElement("svg", {
+      return h("svg", {
         width: s, height: s, viewBox: "0 0 1024 1024", fill: "none",
         xmlns: "http://www.w3.org/2000/svg", style: { flex: "none" },
         "aria-hidden": true,
       },
-        React.createElement("path", {
+        h("path", {
           d: "M905.309091 628.363636c-27.927273 0-46.545455 18.618182-46.545455 46.545455v223.418182H165.236364V125.672727h200.145454c27.927273 0 46.545455-18.618182 46.545455-46.545454s-18.618182-46.545455-46.545455-46.545455H118.690909c-27.927273 0-46.545455 18.618182-46.545454 46.545455v865.745454c0 27.927273 18.618182 46.545455 46.545454 46.545455h786.618182c27.927273 0 46.545455-18.618182 46.545454-46.545455v-269.963636c0-27.927273-18.618182-46.545455-46.545454-46.545455z",
           fill: "currentColor" }),
-        React.createElement("path", {
+        h("path", {
           d: "M556.218182 558.545455h349.090909v-93.09091h-269.963636l293.236363-269.963636-65.163636-65.163636-307.2 283.927272V116.363636h-93.090909V558.545455h4.654545z",
           fill: "currentColor" }));
     }
@@ -18,7 +18,7 @@
      *  缩放；胶囊内以 currentColor 呈现，随主题与选中态自动适配）。 */
     function ImportGlyph(props) {
       const size = typeof props.size === "number" && props.size > 0 ? props.size : 16;
-      return React.createElement(LogoIcon, { size });
+      return h(LogoIcon, { size });
     }
 
     const SETTINGS_NAV_MARKER = "data-dsh-chat-import-settings-nav";

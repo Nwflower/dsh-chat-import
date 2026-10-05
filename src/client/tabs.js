@@ -4,7 +4,7 @@
       const t = useTranslate();
       const colors = themeColors();
       const [tab, setTab] = useState("import");
-      const tabBtn = (id, label) => React.createElement("button", {
+      const tabBtn = (id, label) => h("button", {
         type: "button",
         onClick: () => setTab(id),
         style: {
@@ -14,15 +14,15 @@
           borderBottom: tab === id ? "2px solid " + colors.accent : "2px solid transparent",
         },
       }, label);
-      return React.createElement(React.Fragment, null,
-        React.createElement("div", { style: { display: "flex", flexShrink: 0, borderBottom: "1px solid " + colors.border } },
+      return h(React.Fragment, null,
+        h("div", { style: { display: "flex", flexShrink: 0, borderBottom: "1px solid " + colors.border } },
           tabBtn("import", t("tab.import")),
           tabBtn("history", t("tab.history"))),
         tab === "import"
-          ? React.createElement(React.Fragment, null,
-            React.createElement(FileImportPanel, null),
-            React.createElement(DiscoveryPanel, null))
-          : React.createElement(HistoryPanel, null));
+          ? h(React.Fragment, null,
+            h(FileImportPanel, null),
+            h(DiscoveryPanel, null))
+          : h(HistoryPanel, null));
     }
 
     /** 原生右侧栏「导入会话」tab 面板主体（sidebar.right.pane.tab 槽，session 作用域、
@@ -30,10 +30,10 @@
      *  面板的标题与关闭由右侧栏 tab 条自己呈现（注册表 title 文本 + strip ✕），组件
      *  不需要再画一个头。 */
     function SidebarImportTab() {
-      return React.createElement("div", {
+      return h("div", {
         style: { display: "flex", flexDirection: "column", height: "100%", boxSizing: "border-box" },
       },
-        React.createElement(ImportTabContent, null));
+        h(ImportTabContent, null));
     }
 
     /** 导入历史面板：读取 imports.json 展平列表，支持单条/全部删除 */
@@ -132,31 +132,31 @@
         }
       };
 
-      const confirmDialog = confirm && React.createElement("div", {
+      const confirmDialog = confirm && h("div", {
         style: {
           position: "absolute", inset: 0, background: "rgba(0,0,0,.5)", zIndex: 2,
           display: "flex", alignItems: "center", justifyContent: "center", padding: "16px",
         },
       },
-        React.createElement("div", {
+        h("div", {
           style: {
             background: colors.surface, border: "1px solid " + colors.border, borderRadius: "12px",
             padding: "16px", maxWidth: "360px", width: "100%",
           },
         },
-          React.createElement("div", { style: { fontWeight: 600, marginBottom: "8px" } }, t("history.confirm.title")),
-          React.createElement("div", { style: { fontSize: "13px", color: colors.dim, marginBottom: "14px", lineHeight: 1.5 } },
+          h("div", { style: { fontWeight: 600, marginBottom: "8px" } }, t("history.confirm.title")),
+          h("div", { style: { fontSize: "13px", color: colors.dim, marginBottom: "14px", lineHeight: 1.5 } },
             confirm.kind === "staging"
               ? t("history.confirm.staging")
               : confirm.kind === "all"
                 ? t("history.confirm.all", { n: confirm.count || 0 })
                 : t("history.confirm.one", { id: confirm.sessionId || "" })),
-          React.createElement("div", { style: { display: "flex", gap: "8px", justifyContent: "flex-end" } },
-            React.createElement("button", {
+          h("div", { style: { display: "flex", gap: "8px", justifyContent: "flex-end" } },
+            h("button", {
               style: style.toolBtn, disabled: busy,
               onClick: () => setConfirm(null),
             }, t("history.confirm.cancel")),
-            React.createElement("button", {
+            h("button", {
               style: { ...style.primaryBtn, flex: "none", width: "auto", padding: "6px 14px" },
               disabled: busy,
               onClick: () => (confirm.kind === "staging"
@@ -164,53 +164,53 @@
                 : runPurge(confirm.kind === "all" ? { all: true } : { sessionId: confirm.sessionId })),
             }, t("history.confirm.ok")))));
 
-      const body = React.createElement(React.Fragment, null,
-        React.createElement("div", { style: { ...style.toolbar, justifyContent: "space-between" } },
-          React.createElement("span", { style: { fontWeight: 600, color: colors.text } }, t("history.title")),
-          React.createElement("div", { style: { display: "flex", gap: "6px" } },
-            React.createElement("button", { style: style.toolBtn, onClick: load, disabled: busy || loading }, t("refresh")),
-            React.createElement("button", {
+      const body = h(React.Fragment, null,
+        h("div", { style: { ...style.toolbar, justifyContent: "space-between" } },
+          h("span", { style: { fontWeight: 600, color: colors.text } }, t("history.title")),
+          h("div", { style: { display: "flex", gap: "6px" } },
+            h("button", { style: style.toolBtn, onClick: load, disabled: busy || loading }, t("refresh")),
+            h("button", {
               style: style.toolBtn,
               disabled: busy || loading,
               title: t("history.cleanup.title"),
               onClick: runCleanup,
             }, t("history.cleanup")),
-            React.createElement("button", {
+            h("button", {
               style: style.toolBtn,
               disabled: busy || loading,
               title: t("history.staging.title"),
               onClick: () => setConfirm({ kind: "staging" }),
             }, t("history.staging")),
-            React.createElement("button", {
+            h("button", {
               style: { ...style.toolBtn, color: colors.error, borderColor: colors.error },
               disabled: busy || loading || entries.length === 0,
               title: t("history.purgeAll.title"),
               onClick: () => setConfirm({ kind: "all", count: entries.length }),
             }, t("history.purgeAll")))),
-        note && React.createElement("div", { style: style.result }, note),
-        error && React.createElement("div", { style: style.error }, error),
-        loading && React.createElement("div", { style: style.status }, t("history.loading")),
-        !loading && !error && entries.length === 0 && React.createElement("div", { style: style.status }, t("history.empty")),
-        !loading && entries.length > 0 && React.createElement("div", { style: { ...style.list, paddingTop: "8px" } },
-          entries.map((e) => React.createElement("div", {
+        note && h("div", { style: style.result }, note),
+        error && h("div", { style: style.error }, error),
+        loading && h("div", { style: style.status }, t("history.loading")),
+        !loading && !error && entries.length === 0 && h("div", { style: style.status }, t("history.empty")),
+        !loading && entries.length > 0 && h("div", { style: { ...style.list, paddingTop: "8px" } },
+          entries.map((e) => h("div", {
             key: e.sessionId + "\u0000" + e.sourcePath,
             style: { ...style.historyItem, flexDirection: "column", alignItems: "stretch", gap: "4px" },
           },
-            React.createElement("div", { style: { fontSize: "13px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
+            h("div", { style: { fontSize: "13px", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" } },
               e.title || t("noTitle")),
-            React.createElement("div", { style: { fontSize: "11px", color: colors.dimmer, wordBreak: "break-all" } }, e.sourcePath),
-            React.createElement("div", { style: style.itemMeta },
-              React.createElement("span", null, e.sessionId),
-              React.createElement("span", { title: fmtTime(e.importedAt) }, relTime(e.importedAt, t) || t("timeUnknown")),
-              React.createElement("span", null, (typeof e.turns === "number" ? e.turns : "—") + " / " + (typeof e.events === "number" ? e.events : "—"))),
-            React.createElement("button", {
+            h("div", { style: { fontSize: "11px", color: colors.dimmer, wordBreak: "break-all" } }, e.sourcePath),
+            h("div", { style: style.itemMeta },
+              h("span", null, e.sessionId),
+              h("span", { title: fmtTime(e.importedAt) }, relTime(e.importedAt, t) || t("timeUnknown")),
+              h("span", null, (typeof e.turns === "number" ? e.turns : "—") + " / " + (typeof e.events === "number" ? e.events : "—"))),
+            h("button", {
               style: { ...style.toolBtn, alignSelf: "flex-end", color: colors.error, borderColor: colors.error, marginTop: "4px" },
               disabled: busy,
               title: t("history.purgeOne.title"),
               onClick: () => setConfirm({ kind: "one", sessionId: e.sessionId }),
             }, t("history.purgeOne"))))));
 
-      return React.createElement("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, flex: 1, position: "relative" } },
+      return h("div", { style: { display: "flex", flexDirection: "column", minHeight: 0, flex: 1, position: "relative" } },
         body, confirmDialog);
     }
 
@@ -269,8 +269,8 @@
         || String(o.sub || "").toLowerCase().includes(needle));
       const pick = (v) => { onChange(v); setOpen(false); setFilter(""); };
       const lit = open || (hot && !disabled); // 背景矩形：hover 或展开时出现
-      return React.createElement("div", { ref: rootRef, style: style.selectRoot, title },
-        React.createElement("button", {
+      return h("div", { ref: rootRef, style: style.selectRoot, title },
+        h("button", {
           type: "button", disabled,
           "aria-haspopup": "listbox", "aria-expanded": open,
           style: {
@@ -283,12 +283,12 @@
           onMouseLeave: () => setHot(false),
           onClick: () => { setOpen(!open); setFilter(""); setHover(null); },
         },
-          React.createElement("span", { style: style.selectValue },
+          h("span", { style: style.selectValue },
             triggerLabel !== undefined ? triggerLabel : (current ? current.label : ""))),
-        open && React.createElement("div", { ref: popRef, style: style.selectPopover },
-          searchable ? React.createElement("div", { style: style.selectSearchRow },
-            React.createElement("span", { style: style.selectSearchIcon }, React.createElement(Icon, { name: "search", size: 13 })),
-            React.createElement("input", {
+        open && h("div", { ref: popRef, style: style.selectPopover },
+          searchable ? h("div", { style: style.selectSearchRow },
+            h("span", { style: style.selectSearchIcon }, h(Icon, { name: "search", size: 13 })),
+            h("input", {
               ref: inputRef, value: filter, placeholder: searchPlaceholder,
               onChange: (e) => { setFilter(e.target.value); setHover(null); },
               onKeyDown: (e) => {
@@ -308,18 +308,18 @@
               },
               style: style.selectSearchInput,
             })) : null,
-          searchable ? React.createElement("div", { style: style.selectDivider }) : null,
-          React.createElement("div", { style: { ...style.selectList, maxHeight: listMax + "px" }, role: "listbox" },
-            shown.length === 0 && React.createElement("div", { style: style.selectEmpty }, noMatchLabel),
+          searchable ? h("div", { style: style.selectDivider }) : null,
+          h("div", { style: { ...style.selectList, maxHeight: listMax + "px" }, role: "listbox" },
+            shown.length === 0 && h("div", { style: style.selectEmpty }, noMatchLabel),
             shown.map((o) => {
               // 来源行画品牌锁标（mark + 字标，整块替换名称文本）；没有官方品牌标、或该下拉
               // 没开锁标（导入目标 / 工作区）的行保持「槽位 + 文本」
               const lockup = o.lockup === true && o.mark ? sourceLogo(o.mark) : null;
-              return React.createElement("button", {
+              return h("button", {
                 key: o.value, type: "button", role: "option", "aria-selected": o.value === value,
                 onClick: () => pick(o.value),
                 onMouseEnter: () => setHover(o.value),
-                onMouseLeave: () => setHover((h) => (h === o.value ? null : h)),
+                onMouseLeave: () => setHover((cur) => (cur === o.value ? null : cur)),
                 style: {
                   ...style.selectRow,
                   fontWeight: o.value === value ? 500 : 400,
@@ -327,15 +327,15 @@
                 },
               },
                 lockup
-                  ? React.createElement(SourceLockup, { id: o.mark, label: o.label })
-                  : React.createElement(React.Fragment, null,
+                  ? h(SourceLockup, { id: o.mark, label: o.label })
+                  : h(React.Fragment, null,
                     hasMarks
-                      ? React.createElement("span", { style: style.selectMarkSlot },
-                        o.mark ? React.createElement(BrandMark, { id: o.mark, size: 16 }) : null)
+                      ? h("span", { style: style.selectMarkSlot },
+                        o.mark ? h(BrandMark, { id: o.mark, size: 16 }) : null)
                       : null,
-                    React.createElement("span", { style: style.selectRowText }, o.label)),
-              o.sub ? React.createElement("span", { style: style.selectRowSub, title: o.sub }, o.sub) : null,
-              React.createElement("span", { style: style.selectCheck },
-                o.value === value ? React.createElement(Icon, { name: "check", size: 13 }) : null));
+                    h("span", { style: style.selectRowText }, o.label)),
+              o.sub ? h("span", { style: style.selectRowSub, title: o.sub }, o.sub) : null,
+              h("span", { style: style.selectCheck },
+                o.value === value ? h(Icon, { name: "check", size: 13 }) : null));
             }))));
     }
