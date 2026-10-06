@@ -21,7 +21,6 @@ const MAX_TEST_LINES = 1200
 // 拆分进行中的记账：拆完一个删一个；条目若已达标会被下面第 3 条判为陈旧。
 const OVERSIZE_ALLOWED = new Set([
   'index.test.mjs', // 5282 行：按 28 条 // ---- 横幅拆（来源族 + 导出/面板/文件导入各自成文件）
-  'convert.test.mjs', // 2825 行：共享层（events/trim/validate/shape/ir/util/generic）与来源用例分家
 ])
 
 const testDir = 'test'
