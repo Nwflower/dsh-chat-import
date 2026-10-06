@@ -116,7 +116,7 @@ export interface ImportChatOptions extends ImportOptions {
   branch?: 'main' | 'all'
   /** 仅一库多会话来源（opencode / mimocode / kilocode / teleagent / trae / zcode / goose / zed / crush）：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
-  /** 仅压缩感知来源（claude / codex / pi / kimi / zed / crush / continue / zcode / cline / opencode 及其 fork）：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。该开关进参数指纹，换值须重导。 */
+  /** 仅压缩感知来源（claude / cline / codex / continue / crush / grokbuild / kimi / mimocode / kilocode / opencode / pi / teleagent / zcode / zed）：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。该开关进参数指纹，换值须重导。名单与 `import_chat` 的描述串同源（由 spec.fullHistory 派生）。 */
   fullHistory?: boolean
   /** 仅 claude：true 时把结构化 toolUseResult sidecar（编辑 diff、问答、退出码等）以文本并入工具结果。进参数指纹，换值须 force。 */
   includeToolUseResult?: boolean
