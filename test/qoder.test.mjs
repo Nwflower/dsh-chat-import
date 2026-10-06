@@ -3,22 +3,8 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertQoderJsonl } from '../lib/convert/qoder.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertToolPairing } from './_support/session-invariants.mjs'
 
-// 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
-// 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
-function assertToolPairing(events) {
-  const calls = events.filter((e) => e.type === 'tool/call')
-  const results = events.filter((e) => e.type === 'tool/result')
-  assert.equal(results.length, calls.length, `tool/call(${calls.length}) 与 tool/result(${results.length}) 数量一致`)
-  const resultByCall = new Map(results.map((r) => [r.data.message.content[0].toolCallId, r]))
-  for (const c of calls) {
-    const r = resultByCall.get(c.data.callId)
-    assert.ok(r, `tool/result 存在 for call ${c.data.callId}`)
-    assert.deepEqual(r.sourceEventSeqs, [c.seq], `call ${c.data.callId} 的 result 指向其 seq`)
-  }
-}
-
-// 合成 Qoder CLI transcript：逐行 JSON（与 Claude 同构的 type + message.content）。
 function qoder(recs) {
   return recs.map((r) => JSON.stringify(r)).join('\n')
 }

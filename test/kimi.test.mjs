@@ -5,60 +5,8 @@ import { convertKimiWire } from '../lib/convert/kimi.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
 
-// 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
-// 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 core.mjs）。
-function assertToolPairing(events) {
-  const calls = events.filter((e) => e.type === 'tool/call')
-  const results = events.filter((e) => e.type === 'tool/result')
-  assert.equal(results.length, calls.length, `tool/call(${calls.length}) 与 tool/result(${results.length}) 数量一致`)
-  const resultByCall = new Map(results.map((r) => [r.data.message.content[0].toolCallId, r]))
-  for (const c of calls) {
-    const r = resultByCall.get(c.data.callId)
-    assert.ok(r, `tool/result 存在 for call ${c.data.callId}`)
-    assert.deepEqual(r.sourceEventSeqs, [c.seq], `call ${c.data.callId} 的 result 指向其 seq`)
-  }
-}
-
-// 投影 LLM 消息序列：DSH 的 deriveMessages 按事件顺序扁平投影 surface 事件
-//（user/message / assistant/message / tool/result），事件顺序即 wire 消息顺序。
-function projectSurfaceMessages(events) {
-  return events
-    .filter((e) => e.type === 'user/message' || e.type === 'assistant/message' || e.type === 'tool/result')
-    .map((e) => {
-      if (e.type === 'user/message') return { role: 'user' }
-      if (e.type === 'assistant/message') {
-        return {
-          role: 'assistant',
-          toolCallIds: e.data.message.content.filter((c) => c.type === 'tool-call').map((c) => c.id),
-        }
-      }
-      return { role: 'tool', toolCallId: e.data.message.content[0].toolCallId }
-    })
-}
-
-// 消息投影顺序合法（wire 规则）：带 tool-call 块的 assistant 之后、到下一个
-// assistant / user 消息之前，其全部 toolCallId 必须已有对应 tool 消息。
-function assertMessageOrderLegal(events) {
-  const msgs = projectSurfaceMessages(events)
-  let open = []
-  for (const m of msgs) {
-    if (m.role === 'assistant') {
-      assert.equal(open.length, 0, `assistant 前有未配对的 tool_calls（残留 ${open.join(',')}）`)
-      open = [...m.toolCallIds]
-    } else if (m.role === 'tool') {
-      const i = open.indexOf(m.toolCallId)
-      assert.ok(i !== -1, `tool 消息 ${m.toolCallId} 前没有对应的 tool-call`)
-      open.splice(i, 1)
-    } else {
-      assert.equal(open.length, 0, `user 消息前有未配对的 tool_calls（残留 ${open.join(',')}）`)
-    }
-  }
-  assert.equal(open.length, 0, `末尾残留未配对的 tool_calls（${open.join(',')}）`)
-  return msgs
-}
-
-// 合成 wire.jsonl：首行 metadata + 记录（timestamp 秒级递增）。
 function wire(recs, tsBase = 1776162400) {
   const lines = ['{"type":"metadata","protocol_version":"1"}']
   recs.forEach((r, i) => lines.push(JSON.stringify({ timestamp: tsBase + i, message: r })))

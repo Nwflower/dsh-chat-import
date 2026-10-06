@@ -11,6 +11,7 @@ import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { mkdtempSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { clearScanCache } from '../lib/discovery.mjs'
+import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
 
 // 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
 // 进程内共享的扫描缓存每用例清空。
@@ -18,41 +19,6 @@ beforeEach(() => {
   process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
   clearScanCache()
 })
-
-// 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
-// 指向其 tool/call 的 seq（synthesizeSession 兜底保证）。
-function assertToolPairing(events) {
-  const calls = events.filter((e) => e.type === 'tool/call')
-  const results = events.filter((e) => e.type === 'tool/result')
-  assert.equal(results.length, calls.length, 'tool/call 与 tool/result 数量一致')
-  const byCall = new Map(results.map((r) => [r.data.message.content[0].toolCallId, r]))
-  for (const c of calls) {
-    const r = byCall.get(c.data.callId)
-    assert.ok(r, 'tool/result 存在 for ' + c.data.callId)
-    assert.deepEqual(r.sourceEventSeqs, [c.seq], 'call ' + c.data.callId + ' 的 result 指向其 seq')
-  }
-}
-
-// 消息投影顺序合法（wire 规则）：带 tool-call 块的 assistant 消息之后、到下一个
-// assistant / user 消息之前，其全部 toolCallId 必须已有对应 tool 消息。
-function assertMessageOrderLegal(events) {
-  let open = []
-  for (const e of events) {
-    if (e.type !== 'user/message' && e.type !== 'assistant/message' && e.type !== 'tool/result') continue
-    if (e.type === 'assistant/message') {
-      assert.equal(open.length, 0, 'assistant 前有未配对的 tool_calls')
-      open = e.data.message.content.filter((c) => c.type === 'tool-call').map((c) => c.id)
-    } else if (e.type === 'tool/result') {
-      const id = e.data.message.content[0].toolCallId
-      const i = open.indexOf(id)
-      assert.ok(i !== -1, 'tool 消息 ' + id + ' 前没有对应的 tool-call')
-      open.splice(i, 1)
-    } else {
-      assert.equal(open.length, 0, 'user 消息前有未配对的 tool_calls')
-    }
-  }
-  assert.equal(open.length, 0, '末尾残留未配对的 tool_calls')
-}
 
 test('convertOpenclawJson: session 事件 + 简单问答合成平衡回合（标题取首条 user 文本）', () => {
   const raw = [

@@ -9,6 +9,7 @@ import {
   unwrapUserRequest,
 } from '../lib/convert/antigravity.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
+import { assertToolPairing } from './_support/session-invariants.mjs'
 
 // 转录行：Antigravity 每步一行，键随 type 变化（见 lib/convert/antigravity.mjs 头注）。
 const userInput = (stepIndex, content, createdAt = '2026-01-02T03:04:05Z') =>
@@ -25,19 +26,6 @@ const systemMessage = (stepIndex, content) =>
   JSON.stringify({ step_index: stepIndex, source: 'SYSTEM', type: 'SYSTEM_MESSAGE', status: 'DONE', created_at: '2026-01-02T03:04:07Z', content })
 
 const jsonl = (...lines) => lines.join('\n') + '\n'
-
-// 配对不变量：每个 tool/call 都有对应 tool/result，且 result 指向其 tool/call 的 seq。
-function assertToolPairing(events) {
-  const calls = events.filter((e) => e.type === 'tool/call')
-  const results = events.filter((e) => e.type === 'tool/result')
-  assert.equal(results.length, calls.length, `tool/call(${calls.length}) 与 tool/result(${results.length}) 数量一致`)
-  const resultByCall = new Map(results.map((r) => [r.data.message.content[0].toolCallId, r]))
-  for (const c of calls) {
-    const r = resultByCall.get(c.data.callId)
-    assert.ok(r, `tool/result 存在 for call ${c.data.callId}`)
-    assert.deepEqual(r.sourceEventSeqs, [c.seq], `call ${c.data.callId} 的 result 指向其 seq`)
-  }
-}
 
 test('convertAntigravityJsonl: <USER_REQUEST> 剥壳、<ADDITIONAL_METADATA> 丢弃', () => {
   const raw = jsonl(

@@ -11,65 +11,10 @@ import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 import { synthesizeSession } from '../lib/convert/core.mjs'
 import { contentText } from '../lib/convert/util.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 const load = (name) => readFileSync(join(fixtures, name), 'utf8')
-
-// 配对不变量：每个 tool/call 都有对应 tool/result，且 result 的 sourceEventSeqs
-// 指向其 tool/call 的 seq（synthesizeSession 兜底保证，见 convert.mjs）。
-function assertToolPairing(events) {
-  const calls = events.filter((e) => e.type === 'tool/call')
-  const results = events.filter((e) => e.type === 'tool/result')
-  assert.equal(results.length, calls.length, `tool/call(${calls.length}) 与 tool/result(${results.length}) 数量一致`)
-  const resultByCall = new Map(results.map((r) => [r.data.message.content[0].toolCallId, r]))
-  for (const c of calls) {
-    const r = resultByCall.get(c.data.callId)
-    assert.ok(r, `tool/result 存在 for call ${c.data.callId}`)
-    assert.deepEqual(r.sourceEventSeqs, [c.seq], `call ${c.data.callId} 的 result 指向其 seq`)
-  }
-}
-
-// 投影 LLM 消息序列：DSH 的 deriveMessages 按事件顺序扁平投影 surface 事件
-// （user/message / assistant/message / tool/result），不做重排——事件顺序即
-// wire 消息顺序。返回 [{role:'user'} | {role:'assistant', toolCallIds} |
-// {role:'tool', toolCallId}] 序列。
-function projectSurfaceMessages(events) {
-  return events
-    .filter((e) => e.type === 'user/message' || e.type === 'assistant/message' || e.type === 'tool/result')
-    .map((e) => {
-      if (e.type === 'user/message') return { role: 'user' }
-      if (e.type === 'assistant/message') {
-        return {
-          role: 'assistant',
-          toolCallIds: e.data.message.content.filter((c) => c.type === 'tool-call').map((c) => c.id),
-        }
-      }
-      return { role: 'tool', toolCallId: e.data.message.content[0].toolCallId }
-    })
-}
-
-// 消息投影顺序合法（wire 规则）：带 tool-call 块的 assistant 消息之后、到下一个
-// assistant / user 消息之前，其全部 toolCallId 必须已有对应 tool 消息——不允许
-// 「带 tool_calls 的 assistant 后紧跟另一条 assistant 而中间无 tool 消息」，
-// 也不允许无对应 tool-call 的孤儿 tool 消息。返回投影序列供精确断言。
-function assertMessageOrderLegal(events) {
-  const msgs = projectSurfaceMessages(events)
-  let open = []
-  for (const m of msgs) {
-    if (m.role === 'assistant') {
-      assert.equal(open.length, 0, `assistant 前有未配对的 tool_calls（残留 ${open.join(',')}）`)
-      open = [...m.toolCallIds]
-    } else if (m.role === 'tool') {
-      const i = open.indexOf(m.toolCallId)
-      assert.ok(i !== -1, `tool 消息 ${m.toolCallId} 前没有对应的 tool-call`)
-      open.splice(i, 1)
-    } else {
-      assert.equal(open.length, 0, `user 消息前有未配对的 tool_calls（残留 ${open.join(',')}）`)
-    }
-  }
-  assert.equal(open.length, 0, `末尾残留未配对的 tool_calls（${open.join(',')}）`)
-  return msgs
-}
 
 test('convertClaudeJsonl: 简单问答合成平衡回合', () => {
   const out = convertClaudeJsonl(load('sess-simple-001.jsonl'), { sourcePath: 'D:\\demo\\proj\\sess-simple-001.jsonl' })
