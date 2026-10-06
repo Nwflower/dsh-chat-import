@@ -6,6 +6,7 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
+import { hostAbsText } from './host-path.mjs'
 
 export const FIXTURES_DIR = join(dirname(fileURLToPath(import.meta.url)), '..', 'fixtures')
 
@@ -22,4 +23,12 @@ export function loadFixture(name) {
 /** 读一个夹具为 Buffer（二进制夹具，如 session.jsonl.zstd）。 */
 export function loadFixtureBytes(name) {
   return readFileSync(fixturePath(name))
+}
+
+/**
+ * 读一个夹具并按宿主平台改写其中的盘符路径（转录 / 元数据夹具带的是 Windows cwd，
+ * 宿主落盘前按本平台 isAbsolute 剔除）。Windows 上恒等。集成用例统一用这个。
+ */
+export function loadHostFixture(name) {
+  return hostAbsText(loadFixture(name))
 }
