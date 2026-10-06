@@ -77,7 +77,9 @@ test('issue #20：doctor/import_agents/import_mcp/import_settings 的 output.ren
   )
 })
 
-test('scan_discover：目录探测 claude、注入过滤、schema 稳定、零副作用、缓存命中不重读', async () => {
+// scan_discover 的共用夹具：一次目录探测（两个会话，一个带注入首行、一个无 cwd），
+// 返回工具定义与首次扫描结果，供下面各条契约各自断言（此前它们挤在同一个用例里）。
+function scanClaudeFixture() {
   const root = 'D:\\demo\\claude\\projects'
   const tree = {
     [root]: 'dir',
@@ -94,10 +96,13 @@ test('scan_discover：目录探测 claude、注入过滤、schema 稳定、零�
       '{"sessionId":"sess-bbb","type":"user","message":{"role":"user","content":"真实问题"}}',
     ].join('\n'),
   }
-  const { ctx, persistence, writes, reads } = makeCtx(tree)
-  apply(ctx)
-  const def = toolDef(ctx, 'scan_discover')
+  const host = makeCtx(tree)
+  apply(host.ctx)
+  return { root, def: toolDef(host.ctx, 'scan_discover'), ...host }
+}
 
+test('scan_discover：目录探测 claude，条目字段与 schema', async () => {
+  const { root, def } = scanClaudeFixture()
   const first = await def.execute({ path: root })
   assert.equal(first.total, 2)
   assert.deepEqual(validateJsonSchemaValue(def.output.schema, first), [])
@@ -111,23 +116,34 @@ test('scan_discover：目录探测 claude、注入过滤、schema 稳定、零�
   assert.equal(aaa.sourcePath, root + '\\proj-a\\sess-aaa.jsonl')
   // 面板不再展示消息条数 → 发现条目不带 messageCount（schema 同步剔除）
   assert.ok(!('messageCount' in aaa))
+})
 
+test('scan_discover：注入首行被过滤、无 cwd 记录回退布局 slug', async () => {
+  const { root, def } = scanClaudeFixture()
+  const first = await def.execute({ path: root })
   const bbb = first.sessions.find((s) => s.sessionId === 'sess-bbb')
   assert.equal(bbb.title, '真实问题') // 注入首行被过滤（REQ-40 标题提取）
   assert.equal(bbb.project, 'proj-a') // 无 cwd 记录 → 布局 slug 回退
+})
 
-  // 零副作用：不写库、不 create/append、不写任何文件
+test('scan_discover：零副作用（不写库、不落盘）', async () => {
+  const { root, def, persistence, writes } = scanClaudeFixture()
+  await def.execute({ path: root })
   assert.equal(persistence.sessions.size, 0)
   assert.equal(writes.length, 0)
+})
 
-  // 30s TTL 缓存：同 key 第二次扫描命中，不重读源文件
+test('scan_discover：TTL 缓存命中不重读、query 过滤忽略大小写', async () => {
+  const { root, def, reads } = scanClaudeFixture()
+  const first = await def.execute({ path: root })
+  assert.equal(first.total, 2)
   const readsAfterFirst = reads.count
   assert.ok(readsAfterFirst > 0)
+
   const second = await def.execute({ path: root })
   assert.equal(second.total, 2)
   assert.equal(reads.count, readsAfterFirst)
 
-  // query 过滤（标题/项目/路径子串，忽略大小写）
   const q = await def.execute({ path: root, query: '重构' })
   assert.equal(q.total, 1)
   assert.equal(q.sessions[0].sessionId, 'sess-aaa')

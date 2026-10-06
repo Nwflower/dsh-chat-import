@@ -318,36 +318,49 @@ test('目录探测：claude 根不被其他 JSONL 格式误扫（自拒）', asy
   assert.equal(sessions[0].format, 'claude')
 })
 
-test('isInjectedTitle / normalizeTitle / layoutProject 纯函数', () => {
-  assert.equal(isInjectedTitle('<environment_context>'), true)
-  assert.equal(isInjectedTitle('<system-reminder>'), true)
-  assert.equal(isInjectedTitle('<user_instructions>'), true)
-  assert.equal(isInjectedTitle('# Files mentioned by the user:'), true)
-  assert.equal(isInjectedTitle('The user is asking about x'), true)
-  assert.equal(isInjectedTitle('<local-command-caveat>'), true)
-  assert.equal(isInjectedTitle('真实提问'), false)
-  assert.equal(isInjectedTitle(''), true)
+test('isInjectedTitle：注入类前缀识别（含空串）', () => {
+  const cases = [
+    ['<environment_context>', true],
+    ['<system-reminder>', true],
+    ['<user_instructions>', true],
+    ['# Files mentioned by the user:', true],
+    ['The user is asking about x', true],
+    ['<local-command-caveat>', true],
+    ['真实提问', false],
+    ['', true],
+  ]
+  for (const [input, expected] of cases) {
+    assert.equal(isInjectedTitle(input), expected, JSON.stringify(input))
+  }
+})
 
+test('normalizeTitle：折叠空白 + 80 字符截断（含省略号）', () => {
   assert.equal(normalizeTitle('  多个   空格  '), '多个 空格')
-  const long = 'a'.repeat(100)
-  const t = normalizeTitle(long)
+  const t = normalizeTitle('a'.repeat(100))
   assert.equal(t.length, TITLE_MAX_LEN) // 80 字符截断（含省略号）
   assert.ok(t.endsWith('…'))
+})
 
-  assert.equal(layoutProject('/home/u/.claude/projects/slug-a/sess.jsonl', 'claude'), 'slug-a')
-  assert.equal(layoutProject('/home/u/.codex/sessions/2026/03/10/rollout-x.jsonl', 'codex'), '2026/03')
-  assert.equal(layoutProject('/home/u/.reasonix/projects/demo/s/desktop-1.jsonl', 'reasonix'), 'demo')
-  assert.equal(layoutProject('/home/u/.grok/sessions/proj-x/grok-s1', 'grokbuild'), 'proj-x')
-  // 编码目录名 = cwd 整路径 encodeURIComponent：解码后取末段
-  assert.equal(layoutProject('/home/u/.grok/sessions/D%3A%5C%E5%B7%A5%E4%BD%9C%E5%8C%BA%5Cproj/grok-s1', 'grokbuild'), 'proj')
-  assert.equal(layoutProject('/home/u/.openclaw/agents/main/sessions/s.jsonl', 'openclaw'), 'main')
-  assert.equal(layoutProject('/home/u/.gemini/history/slot-a/chats/session-1.json', 'gemini'), 'slot-a')
-  assert.equal(layoutProject('/home/u/.cursor/projects/slug-c/agent-transcripts/abc/abc.jsonl', 'cursor'), 'slug-c')
-  assert.equal(layoutProject('/home/u/.workbuddy/projects/project-hash-1/wb-sess-0001.jsonl', 'workbuddy'), 'project-hash-1')
-  // antigravity：三套根（2.0 / 旧 CLI / IDE）同内层布局 → 恒定位 antigravity 源标签
-  assert.equal(layoutProject('/home/u/.gemini/antigravity/brain/c1/.system_generated/logs/transcript.jsonl', 'antigravity'), 'antigravity')
-  assert.equal(layoutProject('/home/u/.gemini/antigravity-cli/brain/c1/.system_generated/logs/transcript.jsonl', 'antigravity'), 'antigravity')
-  assert.equal(layoutProject('/home/u/.gemini/antigravity-ide/brain/c1/.system_generated/logs/transcript.jsonl', 'antigravity'), 'antigravity')
+test('layoutProject：各源目录布局 → 项目名', () => {
+  const cases = [
+    ['/home/u/.claude/projects/slug-a/sess.jsonl', 'claude', 'slug-a'],
+    ['/home/u/.codex/sessions/2026/03/10/rollout-x.jsonl', 'codex', '2026/03'],
+    ['/home/u/.reasonix/projects/demo/s/desktop-1.jsonl', 'reasonix', 'demo'],
+    ['/home/u/.grok/sessions/proj-x/grok-s1', 'grokbuild', 'proj-x'],
+    // 编码目录名 = cwd 整路径 encodeURIComponent：解码后取末段
+    ['/home/u/.grok/sessions/D%3A%5C%E5%B7%A5%E4%BD%9C%E5%8C%BA%5Cproj/grok-s1', 'grokbuild', 'proj'],
+    ['/home/u/.openclaw/agents/main/sessions/s.jsonl', 'openclaw', 'main'],
+    ['/home/u/.gemini/history/slot-a/chats/session-1.json', 'gemini', 'slot-a'],
+    ['/home/u/.cursor/projects/slug-c/agent-transcripts/abc/abc.jsonl', 'cursor', 'slug-c'],
+    ['/home/u/.workbuddy/projects/project-hash-1/wb-sess-0001.jsonl', 'workbuddy', 'project-hash-1'],
+    // antigravity：三套根（2.0 / 旧 CLI / IDE）同内层布局 → 恒定位 antigravity 源标签
+    ['/home/u/.gemini/antigravity/brain/c1/.system_generated/logs/transcript.jsonl', 'antigravity', 'antigravity'],
+    ['/home/u/.gemini/antigravity-cli/brain/c1/.system_generated/logs/transcript.jsonl', 'antigravity', 'antigravity'],
+    ['/home/u/.gemini/antigravity-ide/brain/c1/.system_generated/logs/transcript.jsonl', 'antigravity', 'antigravity'],
+  ]
+  for (const [path, format, expected] of cases) {
+    assert.equal(layoutProject(path, format), expected, path)
+  }
 })
 
 test('FORMATS 与工具 schema enum 一致（29 种）', () => {
