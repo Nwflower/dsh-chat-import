@@ -14,6 +14,13 @@ import { open, readFile, readdir, stat } from 'node:fs/promises'
 import { Buffer } from 'node:buffer'
 import { join } from 'node:path'
 
+// 发现层用例的合成 home（不存在 → 不传 path 的默认根扫描确定性为空）。此前各文件各写一份
+// `join('C:', 'Users', 'tester')`。
+export const FAKE_HOME = join('C:', 'Users', 'tester')
+
+/** 夹具行都是单行 JSON：JSON.stringify 的简写（各文件此前各写一份）。 */
+export const j = (o) => JSON.stringify(o)
+
 export function memoryHost(files) {
   const counters = { reads: 0, stats: 0, dirs: 0, db: 0, tails: 0 }
   const dirsByPath = new Map()
