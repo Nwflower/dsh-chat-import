@@ -45,6 +45,10 @@ jobs:
       # 存在的路径——docs/ 下的文件把同目录目标写成 docs/… 会解析成 docs/docs/…（GitHub
       # 404 且本地打不开），而单测 / lint / 标题同步护栏都看不见这类失效（issue #56）
       - run: npm run check:links
+      # 测试面纪律护栏（check-test-discipline）：每个来源格式至少有一个测试引用到它的实现
+      #（新增来源只登记不写测试的漏网），且单测文件不超过停止线（lib/ 有线、测试此前没有，
+      # 于是 index.test.mjs 长到 5000+ 行）
+      - run: npm run check:tests
       # 锁文件漂移护栏：package.json 改了版本/依赖而未同步 lockfile 时，
       # npm 重算出的 lockfile 与仓库版本不一致 → git diff 非空 → 该步红
       - run: npm install --package-lock-only --ignore-scripts --no-audit --no-fund

@@ -111,6 +111,7 @@
     "check:linux": "node .github/scripts/check-linux-compat.mjs",
     "check:leaks": "node .github/scripts/check-leaks.mjs",
     "check:links": "node .github/scripts/check-doc-links.mjs",
+    "check:tests": "node .github/scripts/check-test-discipline.mjs",
     "build:client": "node scripts/build-client.mjs",
     "build": "node scripts/build-client.mjs --check && node .github/scripts/build-check.mjs",
     "prepack": "npm run build",

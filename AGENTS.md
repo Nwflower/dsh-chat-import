@@ -16,7 +16,8 @@
 
 - `lib/` 下任一手维护源文件超过 1000 行（convert/export 纯函数层放宽到 800 行）：停止往里加新功能，先输出拆分提案等用户确认；提案未批准前该文件只做 bugfix。拆分方向见 `docs/architecture.md` D6。`lib/client.js` 是生成产物不受此限，同一条线改作用在 `src/client/` 各片段上。
 - 同一来源的解析/发现逻辑出现第 3 处副本时：同样停下来提案，不写第 4 处。
-- 这两条是给执行模型的硬停止线，触发即停，不需要先判断「是否值得」。
+- `test/*.test.mjs` 单文件超过 1200 行：同第一条（先拆再往里加用例）；`test/_support/` 与 `test/fixtures/` 不受此限。测试面另有「每个来源格式至少有一个测试锚点」的机械检查（`npm run check:tests`）。
+- 这几条是给执行模型的硬停止线，触发即停，不需要先判断「是否值得」。
 
 ## 命令
 
@@ -27,6 +28,7 @@ npm run coverage       # 覆盖率护栏：line >= 75%
 npm run check:linux    # 跨平台路径纪律静态检查
 npm run check:leaks    # 敏感信息泄漏扫描
 npm run check:links    # 文档相对链接检查
+npm run check:tests    # 测试面纪律：每个来源有测试锚点 + 单测文件停止线
 npm run build:client   # 由 src/client/ 分片组装 lib/client.js（改面板后必跑）
 npm run build          # 发布面自检：client bundle 新鲜度 + files 完整性 + 入口可达模块全部在 files 内 + 语法 + lockfile
 ```
