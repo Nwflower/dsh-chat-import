@@ -24,8 +24,6 @@ export default [
         Buffer: 'readonly', // node 全局（zstd 解码 / 图片 base64 编解码）
         URL: 'readonly', // 脚本（.github/scripts/*）用 new URL(..., import.meta.url) 定位路径
         setTimeout: 'readonly', // node 计时器（index.test.mjs 轮询让出事件循环）
-        clearTimeout: 'readonly', // node 计时器撤销（/api-import/browse 的原生目录对话框超时）
-        AbortController: 'readonly', // node 全局（同上：对话框与请求的连接生命周期）
       },
     },
     rules: {
