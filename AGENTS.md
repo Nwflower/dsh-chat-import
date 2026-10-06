@@ -49,7 +49,7 @@ npm run build          # 发布面自检：client bundle 新鲜度 + files 完�
 
 ## 核心约定
 
-- 只消费 host 公开服务（`sessionPersistence` / `fs` / `tools` / `workspaceRegistry`，可选 `webServer` / `commands` / `skills`）。
+- 只消费 host 公开服务（`sessionPersistence` / `fs` / `tools` / `workspaceRegistry`，可选 `webServer` / `commands` / `skills` / `sessionProjectionCache`）。可选服务一律 `ctx.get(name)` 机会式读取、不进 `inject`：缺席时照常工作（列表标题提示即此形态，见 docs/architecture.md D23）。
 - 会话日志 append-only：只 `create` + `append`，不改写历史；`seq` 从 0 连续；surface 事件带 `surfaceOp: 'append'`。
 - 失败要大声：畸形行、疑似 secrets、降级项都要计数/上报，不静默吞掉。
 - 重导语义（docs/architecture.md D13）：源未变即跳过（不重读）；源增长且 DSH 侧会话未被续聊 → 增量续写；已被续聊 → 另铸副本（旧会话收进 record.copies，绝不追加进用户的对话）。`force: true` 恒另建副本。

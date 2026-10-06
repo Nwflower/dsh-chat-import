@@ -231,3 +231,15 @@
   3. 契约由 `test/panel-style-ownership.test.mjs` 守住：把宿主那两条记账照抄成测试替身，断言「标记 = 包名 = entry 名」「不被 `style:not([data-plugin])` 命中」「宿主按包名删除后重建的那张仍带标记」「外来无标记样式表不被认领、本插件重载后仍在文档里」。
 - **代价**：被挪走的样式表此后不再被任何包的记账收走——一个指望宿主替它收走自己那张的插件会因此留下一份旧副本（本插件只动无标记的那些，宿主的官方包自建时就带标记，不受影响）。局限：在本插件第一次查看文档之前就已经被别人收走的那几张，这条修法够不到。`src/client/` 里再出现第二个自己建的 `<style>` 时，必须照第 1 条写标记。
 - **重审条件**：宿主给客户端插件提供样式注入出口（`ctx.styles` 之类）时，删掉自建标签与挪走逻辑；宿主改为按元素引用（而非属性）记账时，本条整体作废。
+
+---
+
+## D23. 列表标题提示：大 DSH 日志的标题取自宿主持久投影缓存（2026-10 定）
+
+- **背景**：发现层为不整读几十 MB 的 `.zstd` 日志，压缩后超过 `DSH_ZSTD_SCAN_MAX_BYTES`（256KB）的 DSH 会话按布局目录名兜底构造条目——标题恒空，`project` 落到布局名（`--D-Build-x--`），同一工作区在面板里被劈成「x」与「--D-Build-x--」两组，按标题搜索也搜不到。本机实测（2026-10-06）：`dsh4` 来源 265 条里 214 条无标题，其中 127 条正是这批大日志（另 81 条是宿主建了却没聊过的空会话、6 条是子代理会话）。而宿主 GUI 侧栏对这些会话照常显示标题——宿主早把标题折叠成 `session_projcache` 域的检查点行，自己的会话列表读的就是它（`cachedSnapshot(header) ?? cachedPredecessorTitle(header)`）。
+- **决定**：
+  1. **多消费一个可选 host 服务**：`ctx.sessionProjectionCache`（宿主运行期 API catalog 收录、能力图记为核心服务，与已在消费的 `ctx.tools` / `ctx.workspaceRegistry` 同层；官方 `session-reference` 用 `ctx.get` 机会式读同一服务）。一律 `ctx.get(name)`、不进 `inject`：服务缺席 / 读失败 → 退化为「没有提示」，发现层照旧工作，失败只留一行警告（AGENTS.md 的服务清单同步）。
+  2. **提示只补空，来源标题永远优先**：`lib/discovery/discover.mjs` 的 `withHints` 只对「来源自己没取到标题」的条目叠加 `title / cwd→project / createdAt`，且叠加在 query 过滤之前（面板按标题搜索因此能命中），流式与全量两条产出路径同口径。提供器在 host 面（`lib/session-hints.mjs`），纯层不认识提示的来源；身份凭证是 `sessionPersistence.list()` 的 header，读法与宿主自己的列表逐字同序（`cachedSnapshot(header, ['title']) ?? cachedPredecessorTitle(header)`），header 不在列表里就不查缓存。
+  3. **提示不写进扫描书签**：在书签命中之后叠加，缓存行更新即时可见，不需要 bump `SCAN_CACHE_VERSION`；三处 host 面调用点（面板路由 / `scan_discover` / 会话启动提示）与 `persistedIds` 共用同一趟 `list()`，零额外 I/O。
+- **代价**：依赖一个可选挂载的服务——部署不挂 `session-projection-cache` 时标题仍空（接受的降级，不是错误）；缓存行可能落后于日志（节流写回），由「只补不覆盖」承担，来源已读到的标题（含改名）一律优先；提示补出的 `cwd` 让 git 分支探针多跑几个目录（一次扫描内记忆化）。本机实测：`dsh4` 无标题 214 → 87 条，`dsh-claude-style` 由 63 + 43 两组并回 106 一组。
+- **重审条件**：宿主把标题并入 `sessionPersistence.list()` 的 header（或提供列表级标题面）时，本层整体删除；宿主移除 / 改名 `sessionProjectionCache` 时退回「大 `.zstd` 无标题」，届时再评估按头部窗口流式解压（只解前 256KB 压缩字节：本机实测 127 个日志全部取到会话头、125 个取到标题，代价约 70ms/文件）。

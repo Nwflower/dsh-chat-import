@@ -86,6 +86,8 @@ Scope note: `import_agents` is a lightweight asset mover only - it does not cove
 
 `scan_discover` scans the known data roots of every supported format (including Cline's modern sessions and legacy VS Code globalStorage tasks, the Reasonix desktop app and Claude-3p roots on Windows) and returns a structured session index (title, project, cwd, path, import status, and git branch/dirty when the source directory is a git repo) so you can preview before a batch import. Targets that fail to scan (permission denied, corrupt database, reader error) never take the list down: the result carries `warnings: [{ format, target, error }]` naming each failed target (empty array = everything scanned), and the panel surfaces the same names above the session list. Set `CLINE_LEGACY_GLOBAL_STORAGE_DIR` when VS Code uses a non-standard globalStorage location, and `GROK_HOME` to override Grok Build's default `~/.grok` root. Zero side effects:
 
+DSH sessions (`dsh` / `dsh4`) whose log exceeds 256KB compressed are never decompressed in full: their title, workspace and creation time come from the host's session header plus its persisted projection cache — the same title the host sidebar shows. A title the source log itself yields (including a rename) always wins; when the host does not mount the projection cache, or the session has no cache row, the entry is still listed with an empty title.
+
 ```
 scan_discover()
 scan_discover({ path: "~/.codex/sessions", format: "codex", query: "import" })

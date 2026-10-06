@@ -86,6 +86,8 @@ import_agents({ codexRoot: "~/.codex", apply: true })  // 显式包含 Codex 资
 
 `scan_discover` 扫描全部已支持格式的已知数据根（包括 Cline 新版 sessions 与 VS Code globalStorage 旧版任务，以及 Windows 上的 Reasonix 桌面版与 Claude-3p 根），返回结构化会话索引（标题、项目、cwd、路径、导入状态，源目录为 git 仓库时附分支/dirty），供批导入前预览。扫描失败的目标（无权限 / 库损坏 / 读取器异常）不再让整份列表落空：结果带 `warnings: [{ format, target, error }]` 逐个点名失败目标（空数组 = 全部扫描成功），面板在会话列表上方同样点名。VS Code 使用非标准 globalStorage 路径时可设置 `CLINE_LEGACY_GLOBAL_STORAGE_DIR`；Grok Build 的默认根 `~/.grok` 可用 `GROK_HOME` 覆盖。零副作用：
 
+DSH 来源（`dsh` / `dsh4`）里压缩后超过 256KB 的会话日志不做整份解压：这类条目的标题、工作区与创建时间改由宿主的会话 header 与持久投影缓存补齐（与宿主侧栏显示的是同一个标题）。来源日志里已经读到的标题（含改名）优先；宿主未挂投影缓存或该会话没有缓存行时，条目照常列出、标题留空。
+
 ```
 scan_discover()
 scan_discover({ path: "~/.codex/sessions", format: "codex", query: "import" })
