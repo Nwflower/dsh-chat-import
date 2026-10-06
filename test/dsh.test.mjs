@@ -1,7 +1,6 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtemp, mkdir, writeFile, readFile, rm } from 'node:fs/promises'
-import { fileURLToPath } from 'node:url'
 import { Buffer } from 'node:buffer'
 import { randomBytes } from 'node:crypto'
 import { zstdCompressSync } from 'node:zlib'
@@ -14,6 +13,7 @@ import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 import { defaultRoots, discoverSessions } from '../lib/discovery.mjs'
 import { dshSessionLogVersion, isDshSessionFile, readDshText, decodeZstdText } from '../lib/sources/dsh.mjs'
 import { diskHost } from './_support/discovery-host.mjs'
+import { fixturePath } from './_support/fixtures.mjs'
 
 const SESSION_LINES = [
   { type: 'session', id: 'session-dsh-test', cwd: '/tmp/proj', createdAt: 1700000000000 },
@@ -273,7 +273,7 @@ test('discoverSessions format=dsh：超过阈值的 .zstd 不解压，按目录�
 })
 
 test('decodeZstdText：单帧夹具解出全部记录（session/turn/user/title）', async () => {
-  const fixture = fileURLToPath(new URL('./fixtures/session.jsonl.zstd', import.meta.url))
+  const fixture = fixturePath('session.jsonl.zstd')
   const buf = await readFile(fixture)
   const text = await decodeZstdText(buf)
   assert.match(text, /"id": "session-zstd-test"/)
@@ -349,8 +349,8 @@ test('readDshText 解压 session.jsonl.zstd 并转换出会话', async () => {
   const root = await mkdtemp(join(tmpdir(), 'dsh-zstd-test-'))
   try {
     const file = join(root, 'session.jsonl.zstd')
-    const fixturePath = fileURLToPath(new URL('./fixtures/session.jsonl.zstd', import.meta.url))
-    await writeFile(file, await readFile(fixturePath))
+    const fixture = fixturePath('session.jsonl.zstd')
+    await writeFile(file, await readFile(fixture))
     const text = await readDshText({}, file)
     assert.ok(text.includes('session-zstd-test'))
     assert.ok(text.includes('Zstd 导入测试'))

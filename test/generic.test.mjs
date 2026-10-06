@@ -4,10 +4,10 @@
 // 夹具全部合成。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFile } from 'node:fs/promises'
 import { convertGenericJson, sniffInterchangeMarker } from '../lib/convert/generic.mjs'
 import { validateSessionEvents } from '../lib/convert/core.mjs'
 import { convertLocalJsonl } from '../lib/convert/local-jsonl.mjs'
+import { loadFixture } from './_support/fixtures.mjs'
 
 const PNG_1PX = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
@@ -265,7 +265,7 @@ test('三级探测：便携包标记原样透出（调用方转交 restore_bundl
 })
 
 test('三级探测：内容试跑命中既有来源（claude 夹具）并报 detectedBy=content', async () => {
-  const raw = await readFile(new URL('./fixtures/codex-simple.jsonl', import.meta.url), 'utf8')
+  const raw = loadFixture('codex-simple.jsonl')
   const out = convertLocalJsonl(raw, { sourcePath: '/tmp/downloads/any-name.jsonl' })
   assert.equal(out.detectedFormat, 'codex')
   assert.ok(out.detectedBy === 'content' || out.detectedBy === 'path-hint')

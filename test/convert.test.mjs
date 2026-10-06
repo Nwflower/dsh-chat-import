@@ -12,9 +12,9 @@ import { synthesizeSession } from '../lib/convert/core.mjs'
 import { contentText } from '../lib/convert/util.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
+import { loadFixture } from './_support/fixtures.mjs'
 
-const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
-const load = (name) => readFileSync(join(fixtures, name), 'utf8')
+const load = loadFixture
 
 test('convertClaudeJsonl: 简单问答合成平衡回合', () => {
   const out = convertClaudeJsonl(load('sess-simple-001.jsonl'), { sourcePath: 'D:\\demo\\proj\\sess-simple-001.jsonl' })

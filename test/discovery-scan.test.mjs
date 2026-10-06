@@ -6,11 +6,11 @@ import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { fileURLToPath } from 'node:url'
 import { tmpdir } from 'node:os'
 import { discoverSessions, createScanCache, clearScanCache, clearInflightScans, SCAN_CACHE_FILE } from '../lib/discovery.mjs'
 import { memoryHost, withDirs } from './_support/discovery-host.mjs'
 import { hostAbs } from './_support/host-path.mjs'
+import { loadFixtureBytes } from './_support/fixtures.mjs'
 
 beforeEach(() => {
   clearScanCache()
@@ -200,7 +200,7 @@ test('dsh：大明文日志只读头尾两段——会话头取自头部、最�
 })
 
 test('dsh：小 .zstd 经 host.readBytes 读字节解压取元数据；host 读不到字节时按目录名兜底列出', async () => {
-  const fixture = readFileSync(fileURLToPath(new URL('./fixtures/session.jsonl.zstd', import.meta.url)))
+  const fixture = loadFixtureBytes('session.jsonl.zstd')
   const root = join(HOME, 'dsh-home-zstd', 'sessions')
   const file = join(root, '--w--', 'session-zstd-dir', 'session.jsonl.zstd')
   const files = withDirs(root, new Map([[file, { type: 'file', mtimeMs: 1786000002000, text: 'z'.repeat(fixture.length) }]]))

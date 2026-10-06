@@ -6,10 +6,10 @@
 // 必填字段、类型、part 的 messageID 外键、以及「同一输入 → 同一组 id」的确定性。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { readFileSync } from 'node:fs'
 import { serializeOpencodeJson, buildOpencodeImportDoc, verifyOpencodeImportJson } from '../lib/export/index.mjs'
 import { convertClaudeJsonl, convertOpencodeJson, exportDegradations } from '../lib/convert/index.mjs'
 import { mapOpencodeToolName, unmapOpencodeToolName } from '../lib/convert/opencode.mjs'
+import { loadFixture } from './_support/fixtures.mjs'
 
 const T = 1785000000000
 
@@ -234,7 +234,7 @@ test('verifyOpencodeImportJson：抓出前缀 / 必填 / 外键类缺陷（护�
 })
 
 test('buildOpencodeImportDoc：从真实夹具（claude tool 会话）导出后结构校验通过', () => {
-  const raw = readFileSync(new URL('./fixtures/sess-tool-001.jsonl', import.meta.url), 'utf8')
+  const raw = loadFixture('sess-tool-001.jsonl')
   const conv = convertClaudeJsonl(raw, { sourcePath: 'D:\\demo\\sess-tool-001.jsonl' })
   const titleEvent = conv.events.find((e) => e.type === 'session/title')
   const { doc, stats } = buildOpencodeImportDoc({
