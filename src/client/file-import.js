@@ -1,12 +1,11 @@
-    // 「从文件导入」折叠区（ImportTabContent 导入子视图顶部，默认展开）：三条给文件的路径——
-    // 拖放 / 选择文件走上传通道（浏览器拿不到本地路径）、路径输入 + 「浏览…」面板内浏览器、
-    // 粘贴路径回车预览——外加格式覆盖、预览卡片与目录批处理。
+    // 「从文件导入」折叠区（ImportTabContent 导入子视图顶部，默认展开）：两种给文件的方式——
+    // 「选择…」走上传通道（浏览器拿不到本地路径）、路径输入回车预览（路径是目录时弹窗问是否
+    // 搜索子文件夹）——外加预览卡片与目录批处理。**不注册拖放**：把文件拖到 DSH 窗口会被宿主
+    // 当成「给当前对话加附件」，不跟宿主抢手势（见 architecture D20）。
     //
     // 后端契约（lib/panel.mjs）：
-    //   POST /api-import/file   { path? | uploadId?, preview }：preview=true 零
+    //   POST /api-import/file   { path? | uploadId?, preview, recursive? }：preview=true 零
     //                          副作用（识别 + 规模 + 降级计数），false 走导入编排；目录 → batch。
-    //   POST /api-import/browse { mode: info | pick | list }：native 后端弹宿主系统框，
-    //                          browse / fs 后端给一层目录清单（crumbs + entries）。
     //   POST /api-import/upload/{init,chunk,complete}：同 (sha256,size) 幂等；分片只追加、
     //                          offset 必须对齐（细节见 lib/upload.mjs 文件头）。
     //
