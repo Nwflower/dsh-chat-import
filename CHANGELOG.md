@@ -2,6 +2,18 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">体验优化</h3>
+
+- **面板不再把大 DSH 会话列成「(无标题)」**：DSH 来源里压缩后超过 256KB 的会话日志原本整份不解压、按布局目录名兜底，标题恒空且工作区落到 `--D-Build-…--` 这类布局名——同一工作区在面板里被劈成两组，按标题搜索也搜不到。现在这类条目的标题、工作区与创建时间由宿主的会话 header 与持久投影缓存补齐（与宿主侧栏显示的是同一个标题）：本机实测 `dsh4` 来源无标题由 214 条降到 87 条（剩下的只有从未发过消息的空会话与子代理会话），`dsh-claude-style` 由 63 + 43 两组并回 106 一组。来源日志自己读到的标题（含改名）永远优先；宿主未挂投影缓存或该会话没有缓存行时退回原行为，只记一行警告。
+
+<h3 id="en-unreleased">Improvements</h3>
+
+- **The panel no longer lists large DSH sessions as "(untitled)"**: a DSH session log above 256KB compressed used to be left undecoded and fall back to its layout directory name — no title, and the workspace name became a layout key like `--D-Build-…--`, splitting one workspace into two panel groups and hiding those sessions from title search. Such entries now take their title, workspace and creation time from the host's session header plus its persisted projection cache (the same title the host sidebar shows): measured on this machine, untitled `dsh4` entries dropped from 214 to 87 (what remains is only never-used empty sessions and subagent sessions), and `dsh-claude-style` merged from 63 + 43 back into a single group of 106. A title the source log itself yields (including a rename) always wins; when the host does not mount the projection cache, or the session has no cache row, the previous behaviour returns with a single warning line.
+
 ## [0.25.1] - 2026-10-05
 
 [中文](#cn-0.25.1) | [English](#en-0.25.1)
