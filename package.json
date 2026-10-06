@@ -107,6 +107,7 @@
   "scripts": {
     "test": "node --test \"test/*.test.mjs\"",
     "coverage": "node --test --experimental-test-coverage --test-coverage-lines=75 \"test/*.test.mjs\"",
+    "check:coverage": "npm run coverage | node .github/scripts/check-coverage.mjs",
     "lint": "eslint .",
     "check:linux": "node .github/scripts/check-linux-compat.mjs",
     "check:leaks": "node .github/scripts/check-leaks.mjs",

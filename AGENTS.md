@@ -25,6 +25,7 @@
 npm test               # node --test 跑 test/*.test.mjs
 npm run lint           # eslint
 npm run coverage       # 覆盖率护栏：line >= 75%
+npm run check:coverage # 覆盖率结构：逐文件下限 + 逐目录均值下限（全局数字会盖住单文件空洞）
 npm run check:linux    # 跨平台路径纪律静态检查
 npm run check:leaks    # 敏感信息泄漏扫描
 npm run check:links    # 文档相对链接检查

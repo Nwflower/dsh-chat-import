@@ -23,7 +23,9 @@ jobs:
       #（node --test --experimental-test-coverage），任何用例失败照常红；另加 line ≥ 75%
       # 下限（基线 95.46%，宽松下限防显著回归）。不再先 npm test 再整套重跑一遍。
       # --test-coverage-lines 阈值 flag 需 node >= 22.7（CI 用 latest 22.x）。
-      - run: npm run coverage
+      # check:coverage 在同一次运行上再加结构护栏：逐文件行覆盖下限 + 逐目录均值下限
+      #（全局 95% 会盖住单文件空洞：ignore-command 实测只有 18.6%），并显式检查失败用例数。
+      - run: npm run check:coverage
       # eslint flat config（无插件），与 test 同机跑，违规即红
       - run: npm run lint
       # 浏览器 bundle 新鲜度：lib/client.js 必须与 src/client/ 片段（及内联的 lib 纯模块）
