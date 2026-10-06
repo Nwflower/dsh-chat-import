@@ -5,50 +5,50 @@
 ## 🛠 使用
 
 > **首次迁移分步流程**（与 [dsh-movein 首次迁移指南](https://github.com/sjh9714/dsh-movein/blob/main/docs/first-migration.zh.md) 的叙事对齐；其管配置，本插件管会话历史，可按需只用其一）：
-> ① **预览** - `scan_discover()` 或侧边栏面板查看可导入会话与导入状态徽标；或任一 `import_*` 传 `preview: true` 零副作用试跑。
+> ① **预览** - `scan_discover()` 或侧边栏面板查看可导入会话与导入状态徽标；或 `import_chat` 传 `preview: true` 零副作用试跑。
 > ② **导入** - 去掉 `preview` 正式导入，按来源 / 工作区核对逐会话 `status`（重复导入行为见下文「重导同一源」）。
 > ③ **体检与撤回** - `doctor()` 只读体检；`retract_import` 撤回 registry 记录，或面板「历史」页删除本插件创建的会话（需确认）。
 
 > **注意**：导入会即时落盘。当目标代次等于宿主原生代次（面板「导入到」的默认项）时，新会话会即时出现在会话列表，无需刷新；只有显式选择非原生代次（如在 V4 宿主上产出 V3 日志）时，该代次不是宿主当前的内存形状，需刷新页面后才可见。
 
-**导入——单个文件或目录。** 每个 `import_*` 工具都接受 `path`；目录递归扫描，每个文件 / 每段对话成为独立会话：
+**导入——单个文件或目录。** 全部来源收敛为一个工具：`import_chat` 接受 `format` 与 `path`；目录递归扫描，每个文件 / 每段对话成为独立会话：
 
 ```
-import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
-import_codex({ path: "C:\Users\<you>\.codex\sessions\2026\05\18\rollout-2026-05-18T21-14-16-xxxx.jsonl" })
-import_chatgpt({ path: "C:\Users\<you>\Downloads\chatgpt-export\conversations.json" })
-import_opencode({ path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
-import_kilocode({ path: "C:\Users\<you>\.local\share\kilo\kilo.db" })
-import_teleagent({ path: "C:\Users\<you>\.local\share\TeleAgent\users\<account>\teleagent.db" })
-import_trae({ path: "C:\Users\<you>\AppData\Roaming\Trae\User\workspaceStorage" })
-import_vibe({ path: "C:\Users\<you>\.vibe\logs\session" })
-import_local_jsonl({ path: "D:\downloads\session.jsonl" })
+import_chat({ format: "claude", path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
+import_chat({ format: "codex", path: "C:\Users\<you>\.codex\sessions\2026\05\18\rollout-2026-05-18T21-14-16-xxxx.jsonl" })
+import_chat({ format: "chatgpt", path: "C:\Users\<you>\Downloads\chatgpt-export\conversations.json" })
+import_chat({ format: "opencode", path: "C:\Users\<you>\.local\share\opencode\opencode.db" })
+import_chat({ format: "kilocode", path: "C:\Users\<you>\.local\share\kilo\kilo.db" })
+import_chat({ format: "teleagent", path: "C:\Users\<you>\.local\share\TeleAgent\users\<account>\teleagent.db" })
+import_chat({ format: "trae", path: "C:\Users\<you>\AppData\Roaming\Trae\User\workspaceStorage" })
+import_chat({ format: "vibe", path: "C:\Users\<you>\.vibe\logs\session" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
-`import_local_jsonl({ path })` 接受任意本地 `.jsonl` 会话文件（或目录）：自动识别 `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `vibe`，识别不准时可用 `format` 参数强制指定：
+`format: "local-jsonl"` 接受任意本地 `.jsonl` 会话文件（或目录）：自动识别 `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `generic`，识别不准时可用 `parseFormat` 参数强制指定：
 
 ```
-import_local_jsonl({ path: "D:\downloads\session.jsonl" })
-import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
+import_chat({ format: "local-jsonl", path: "D:\downloads\unknown.jsonl", parseFormat: "claude" })
 ```
 
-`import_chatgpt` / `import_opencode` / `import_kilocode` / `import_teleagent` / `import_trae` / `import_zcode` / `import_hermes` 恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。`import_opencode` 认 opencode 的**两个存储世代**并自动分派：V1（`session`/`message`/`part`）与 V2（opencode 2.x 的 `session_v2`/`session_message`）——两者共用同一个 `opencode.db`，V1 三表只是 V1→V2 迁移的来源、迁移后旧行仍在库里。只读命中的那一代，同一会话不会被导入两次；两代都没有的库直接报错，而不是显示成「没有会话」。`import_teleagent` 也接受 `users/` 多账户目录（逐账户枚举 `<账户>/teleagent.db`）或 `TeleAgent/` 数据根。`import_trae` 接受 Trae 的 `User` 根、`workspaceStorage`、`globalStorage` 或直接的 `state.vscdb` 路径。
+`format: "chatgpt"` / `"opencode"` / `"kilocode"` / `"teleagent"` / `"trae"` / `"zcode"` / `"hermes"`（以及其余一库多会话来源）恒返回批量结果——一个文件 / 数据库包含全部会话，一次调用即可让每段对话成为独立会话。`format: "opencode"` 认 opencode 的**两个存储世代**并自动分派：V1（`session`/`message`/`part`）与 V2（opencode 2.x 的 `session_v2`/`session_message`）——两者共用同一个 `opencode.db`，V1 三表只是 V1→V2 迁移的来源、迁移后旧行仍在库里。只读命中的那一代，同一会话不会被导入两次；两代都没有的库直接报错，而不是显示成「没有会话」。`format: "teleagent"` 也接受 `users/` 多账户目录（逐账户枚举 `<账户>/teleagent.db`）或 `TeleAgent/` 数据根。`format: "trae"` 接受 Trae 的 `User` 根、`workspaceStorage`、`globalStorage` 或直接的 `state.vscdb` 路径。
 
 <details>
 <summary><b>导入参数与行为</b></summary>
 
 - `preview: true`（别名 `dryRun: true`）— **只读**运行：照常解析 / 读取 / 转换，但**零副作用**、不落盘。去掉该参数再调一次即正式导入。
-- **图片落成宿主附件** — 源转录里的图片不再只留 `[image]` 文本占位：转换层把图片字节放进中间结构，落盘前经宿主附件服务（`ctx.attachments`）存成不可变对象，会话日志里只留 `attachmentId` 引用（**base64 永不进日志**）。结果里 `images: <N>` 是落成附件的张数；`imagesDegraded: <M>` 是拿不到字节、仍以 `[image]` 占位导入的张数（宿主没有附件服务 / 类型不收（只收 PNG/JPEG/WebP/GIF）/ 单会话超过 500 张 / 源只给了引用如 Kimi 的 `blobref:` / **落点是 V3 代次**）。导出方向对称：`export_claude` / `export_codex` 会把引用读回 base64 写进目标格式，读不回时计入 `degradations` 的 `attachment-skipped`。`storeImages: false`（或环境变量 `DSH_IMPORT_STORE_IMAGES=0`）可只留占位、不写附件存储——图片是唯一会明显增大宿主持久存储的导入面。**注意：删除或撤回导入的会话不会回收这些图片字节**（宿主附件服务第一版没有删除/回收 API，图片对象会留在附件存储里）。
+- **图片落成宿主附件** — 源转录里的图片不再只留 `[image]` 文本占位：转换层把图片字节放进中间结构，落盘前经宿主附件服务（`ctx.attachments`）存成不可变对象，会话日志里只留 `attachmentId` 引用（**base64 永不进日志**）。结果里 `images: <N>` 是落成附件的张数；`imagesDegraded: <M>` 是拿不到字节、仍以 `[image]` 占位导入的张数（宿主没有附件服务 / 类型不收（只收 PNG/JPEG/WebP/GIF）/ 单会话超过 500 张 / 源只给了引用如 Kimi 的 `blobref:` / **落点是 V3 代次**）。导出方向对称：`export_chat({ format: "claude" })` / `export_chat({ format: "codex" })` 会把引用读回 base64 写进目标格式，读不回时计入 `degradations` 的 `attachment-skipped`。`storeImages: false`（或环境变量 `DSH_IMPORT_STORE_IMAGES=0`）可只留占位、不写附件存储——图片是唯一会明显增大宿主持久存储的导入面。**注意：删除或撤回导入的会话不会回收这些图片字节**（宿主附件服务第一版没有删除/回收 API，图片对象会留在附件存储里）。
 - **耗时与 token 用量如实导入** — 源转录里的逐记录时间戳透传为会话事件时间：宿主统计据此折出真实的逐步模型耗时与工具耗时（模型耗时 = 步骤开始→助手消息，工具耗时 = 调用→结果；源没有逐记录时间的会话这些耗时为 0，不伪造）。provider 回报的 token 用量（Claude Code 的 `message.usage`、opencode / kilocode / mimocode 的 `message.data.tokens`、Reasonix v2 的行级 `usage`）写入 `assistant/message.data.usage`，宿主 token 统计可见；input/output 不是非负整数时整份丢弃，不污染统计。逐源支持情况见 [INTERCHANGE.md](INTERCHANGE.md) 能力矩阵的 `timestamps` / `usage` 两列。**首 token 延迟与输出速度任何源都导不了**：外部转录只记录完成态消息、没有流块时间戳（`stream` 恒为 `[]`）。导出 opencode 方向对称：事件带 usage 时 `tokens` 如实回填，没有才写 0 并计入 `usage-unknown`。
 - `force: true` — 即使已导入，也以新 id（`import-<sessionId>-<n>`）另存一份**完整副本**；旧会话绝不修改（重导语义的完整说明见下文「重导同一源」）。
 - `sessionId`（可选）— 覆盖目标 DSH 会话 id（默认 `import-<源sessionId>`）。
-- `import_chatgpt({ branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
+- `import_chat({ format: 'chatgpt', branch: 'all' })` — 把对话 DAG 的**每条 root→leaf 分支**还原为独立会话（主线程仍是最后 child 链；分支会话带后缀源 id 与分支标记标题）。导出里的工具消息还原为真正的 `tool/call` + `tool/result`（结构化 JSON 参数、FIFO 配对），不再是纯文本。
 - **上下文压缩 → DSH 原生压缩事件** — 源码工具的上下文压缩（Claude Code 的 `compact_boundary` / `isCompactSummary` user 记录与旧格式 `summary` 记录、Codex 的 `compacted` 信封、Pi 的 `compaction` 条目、opencode 的 `compaction` part + 摘要消息（V2 为 `compaction` 行，检查点正文取 `summary` + `recent`）、Kimi 的 `context.apply_compaction`、Zed 的 `Compaction` 消息、Crush 的 `is_summary_message`、Continue 的 `conversationSummary`、zcode 的 `compaction` part + `compactBoundary`、Cline 的 `<id>.compaction.json` 压缩侧车、Grok Build 的 `compaction_meta` 交接摘要、Mistral Vibe 的 `context_boundary = "compaction"`）导入为 **DSH 原生压缩检查点**：日志照常保留**全量历史**（可回溯、可导出），同时在压缩边界发射一次原生 `compaction/start → compaction/summary → 检查点 user/message → compaction/end` 事务。模型的投影因此是「摘要检查点 + 压缩点之后的对话」，与源工具压缩后的真实上下文一致，压缩前的对话不再进模型上下文、也不会被预算裁剪吃掉（受遮蔽轮不计预算、不裁剪、不丢弃）。一次会话压缩多次就发多个检查点（链式遮蔽）。导入结果带 `compacted: true` 与 `compactions: <N>`（检查点数）。**重导 DSH 会话时也原样保留**源日志里的压缩事务（`import_chat({ format: 'dsh' | 'dsh4' })` 往返不丢检查点，V3/V4 的 `plugin:compact` 生产者标记双向归一）。压缩点之前没有可遮蔽内容（或源只有边界、没有摘要正文：Kimi 旧格式 wire）时发不出检查点——摘要退回既有形态（reasoning 块／可见文本）或按切窗口处理，并显式上报 `compactionSummaryMissing: true`，绝不虚构摘要。`fullHistory: true` 时不发检查点（模型看到全量历史）——该开关进参数指纹，换值须重导。
-- `import_claude({ compacted: true })` — 历史参数（兼容别名）：Claude 的压缩导入自本版本起**默认即为原生压缩检查点**，无需该参数。
-- `import_claude({ includeToolUseResult: true })` — 额外并入 Claude 的**富结果 sidecar**（`toolUseResult`）：编辑补丁（`structuredPatch` / `bashEditDiff`）渲染成 diff 文本、交互问答渲染成问答对、其余标量（退出码、耗时、持久化输出路径等）渲染成一行紧凑 JSON，统一追加在该条工具结果之后。默认关（全量并入会明显增大日志）；该开关进参数指纹，换值须 `force` 重导。结果里 `toolUseResultsMerged` 是实际并入的条数。整份文件快照（`originalFile`）与可见正文里已有的内容不重复搬。
-- `import_codex({ fullHistory: true })` — Codex rollout 的上下文压缩默认导入为原生压缩检查点（`compacted` 信封的交接摘要进检查点，跨压缩点那一轮一分为二：边界前 log-only、边界后可见）；`fullHistory: true` 导全量、不发检查点。Codex 子代理 rollout 不是独立会话，始终跳过并给出原因。
+- `import_chat({ format: 'claude', compacted: true })` — 历史参数（兼容别名）：Claude 的压缩导入自本版本起**默认即为原生压缩检查点**，无需该参数。
+- `import_chat({ format: 'claude', includeToolUseResult: true })` — 额外并入 Claude 的**富结果 sidecar**（`toolUseResult`）：编辑补丁（`structuredPatch` / `bashEditDiff`）渲染成 diff 文本、交互问答渲染成问答对、其余标量（退出码、耗时、持久化输出路径等）渲染成一行紧凑 JSON，统一追加在该条工具结果之后。默认关（全量并入会明显增大日志）；该开关进参数指纹，换值须 `force` 重导。结果里 `toolUseResultsMerged` 是实际并入的条数。整份文件快照（`originalFile`）与可见正文里已有的内容不重复搬。
+- `import_chat({ format: 'codex', fullHistory: true })` — Codex rollout 的上下文压缩默认导入为原生压缩检查点（`compacted` 信封的交接摘要进检查点，跨压缩点那一轮一分为二：边界前 log-only、边界后可见）；`fullHistory: true` 导全量、不发检查点。Codex 子代理 rollout 不是独立会话，始终跳过并给出原因。
 - **Codex Desktop「导入外部 agent 会话」的 rollout：展平的工具调用还原为真正的工具消息** — Codex Desktop 的会话导入把外部 agent（实测为 Claude Code）的 transcript 写成 rollout 时，工具调用**没有** `function_call` 记录，而是展平成 assistant 正文里的文本信封（`[external_agent_tool_call: Bash]…[/external_agent_tool_call]`、`[external_agent_tool_result]…[/external_agent_tool_result]`，信封可与正文混排在同一个文本块里）。此前这类 rollout 导入后，工具调用全变成散文（python 命令里的 `# 注释` 行被 markdown 渲染成巨型标题、Edit 看不出是编辑）。现在转换层按段切分并还原成 `tool/call` + `tool/result`（结果按出现顺序 FIFO 配对；`: error` 标记还原为 `isError`）。**还原不虚构**：载荷键名与内容照抄信封——Codex 自己把 `file_path` 写成 `file`，并**丢掉** Edit / Write 的正文（只有文件路径），这部分已不在 rollout 里，插件不补。结果里 `externalAgent: { calls, results, orphanResults, malformed }` 上报还原数；`orphanResults`（找不到调用的结果，保留原文作正文）与 `malformed`（未闭合信封 / 认不出的载荷）是降级项。想要 Edit 的 `old_string` / `new_string`，要导**原始 Claude Code transcript**而不是这份派生 rollout。
-- `import_hermes({ lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
+- `import_chat({ format: 'hermes', lineage: 'tail' })` — 只导**叶子链尾**（不是任何其它会话父会话的会话）；压缩分叉父会话跳过并标注。
 - `import_chat({ format: 'reasonix', path: '<sessions 目录>' })` — 目录导入默认使用 `lineageMode: 'canonical'`。只有现代 sidecar 把两个文件归入同一逻辑话题、无歧义的 `parent_id` 链明确证明祖先关系，而且祖先的完整语义消息序列是更长后代的真前缀时，才折叠恢复祖先。畸形输入、带 WAL 的检查点、完全相同副本、谱系链缺失及真实分叉叶全部保留。此模式不会替 Reasonix catalog 选择唯一活动叶；真实分支继续独立存在。`lineageMode: 'physical'` 可恢复每个 JSONL 一条会话。
 - **归档 / 删除 / 删工作区 → 自动忽略（不再重导）** — 归档会话写入忽略墓碑，取消归档自动解除。撤回 / 删除（retract / 清理）写入**永久**墓碑，重扫与 `/import-all` 一律跳过它。DSH 的归档仍保留会话与 id，但被忽略的源不再被当作「可重导」。删工作区会忽略**删除时**其名下已导入的会话，并登记工作区忽略——该工作区出现**新会话**或其中会话**取消归档**时自动恢复工作区（更早的墓碑保留）。查看与解除：`/ignores`、`/unignore <sessionId|sourcePath|all>`；`force: true` 可显式越权导入一次（不解除墓碑）。被墓碑拦下的导入单列为 `ignored` 结果：面板与 `import_chat` 点名墓碑原因（`archived` / `retracted` / `workspace-deleted`），不再并进「跳过」计数，面板另给「仍然导入」（一次性 `force`）的动作出口。
 - **重导同一源** — 绝不改写已导入历史，按「DSH 侧这条会话还是不是导入时写下的样子」分三种情形：
@@ -57,7 +57,7 @@ import_local_jsonl({ path: "D:\downloads\unknown.jsonl", format: "claude" })
   - 源文件增长，但你**已经**在 DSH 里聊过它 → 另建一份**新副本**（`reimported.reason: 'continued-in-dsh'`），不往你自己的对话里追加；两条会话都保留。截断的文件检测并上报后跳过（`sourceShrunk` / `storedShrunk`）；基线字段出现之前的旧记录保守另建一次副本（`reason: 'baseline-missing'`）。`force: true` 恒以新 id 另存完整副本。
 
 ```
-import_claude({ path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
+import_chat({ format: "claude", path: "C:\Users\<you>\.claude\projects\<slug>\<sessionId>.jsonl" })
 // 未变化 → "already-imported" · 增长且未续聊 → "appended"（只追加新轮次）
 // 增长且你已在 DSH 续聊 → 新建副本，原会话一字不改
 ```
@@ -225,7 +225,7 @@ dsh web 的左侧栏底部有唯一一个「导入会话」入口：**导入会�
 
 ### `/import` 斜杠命令与 `/resume-*` 交接
 
-插件还注册了一个 **`/import <source> <path>`** 斜杠命令（在挂载了 dsh `commands` 服务的环境下可用）：直接在会话里输入即可导入，不占模型轮次——与 `import_*` 工具同一管线、同一重导 / force / 上下文预算语义。`<source>` 接受短名（`claude`、`codex`…）、客户端来源 id（`claude-code`）或工具全名（`import_claude`）；`<path>` 为 transcript 文件或会话目录 / 数据根（单文件导入 / 目录批量照常判定）。
+插件还注册了一个 **`/import <source> <path>`** 斜杠命令（在挂载了 dsh `commands` 服务的环境下可用）：直接在会话里输入即可导入，不占模型轮次——与 `import_*` 工具同一管线、同一重导 / force / 上下文预算语义。`<source>` 接受短名（`claude`、`codex`…）、客户端来源 id（`claude-code`）或旧工具形别名（`import_claude`）；`<path>` 为 transcript 文件或会话目录 / 数据根（单文件导入 / 目录批量照常判定）。
 
 **`/import-all [source] [path]`** 一键扫描默认数据根（或单一来源 / 显式路径）并批量导入所有未导入会话——同一管线：未变跳过、未续聊续写、已续聊另建副本，归档与已忽略源跳过，失败逐条上报。
 

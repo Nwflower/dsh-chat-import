@@ -1,9 +1,9 @@
 // file-import.test.mjs — 面板「从文件导入」的编排与路由行为测试。
 //
 // 覆盖：/api-import/file（预览 / 导入 / bundle 分流 / format 覆盖 / target 校验）、
-// /api-import/browse（info / list / pick 能力分派）、/api-import/upload/* 与
-// /api-import/uploads（上传件直达导入、暂存维护）。走真实 registerPanelRoutes +
-// 真实导入状态机，只有宿主服务是 mock（fs 树 / sessionPersistence / workspaceRegistry）。
+// /api-import/upload/* 与 /api-import/uploads（上传件直达导入、暂存维护）。走真实
+// registerPanelRoutes + 真实导入状态机，只有宿主服务是 mock（fs 树 / sessionPersistence
+// / workspaceRegistry）。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { mkdtempSync, rmSync, existsSync } from 'node:fs'

@@ -21,7 +21,7 @@ jobs:
       - run: npm ci --no-audit --no-fund
       # 全套测试 + 覆盖率护栏一步完成：npm run coverage 跑的就是 npm test 的同一批文件
       #（node --test --experimental-test-coverage），任何用例失败照常红；另加 line ≥ 75%
-      # 下限（基线 81.48%，宽松下限防显著回归）。不再先 npm test 再整套重跑一遍。
+      # 下限（基线 95.46%，宽松下限防显著回归）。不再先 npm test 再整套重跑一遍。
       # --test-coverage-lines 阈值 flag 需 node >= 22.7（CI 用 latest 22.x）。
       - run: npm run coverage
       # eslint flat config（无插件），与 test 同机跑，违规即红
