@@ -13,6 +13,7 @@ import { DatabaseSync } from 'node:sqlite'
 import { convertHermesJson } from '../lib/convert/hermes.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { readHermesDb } from '../lib/sources/hermes.mjs'
+import { openSqliteFixture, tempDbPath } from './_support/tmp-db.mjs'
 
 // 平衡会话断言：seq 连续、turn 开合配对、tool call/result 1:1、surface 事件带 surfaceOp。
 function assertBalanced(out) {
@@ -80,9 +81,8 @@ function hermesTestSessions() {
 // 在 os.tmpdir() 建临时 hermes state.db（真实 schema：sessions + messages 表，
 // block 数组 content 以 JSON 文本落库）。
 function makeHermesDb(sessions) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-hermes-'))
-  const dbPath = join(dir, 'state.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-hermes-', 'state.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, cwd TEXT, started_at REAL, ended_at REAL)')
   db.exec('CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, content TEXT, created_at REAL)')
   for (const s of sessions) {

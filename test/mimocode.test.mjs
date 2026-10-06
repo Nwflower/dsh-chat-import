@@ -8,10 +8,7 @@
 //（checkpoint-writer / AutoDream / AutoDistill）默认剔除。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { dirname } from 'node:path'
 import { apply } from '../lib/index.mjs'
 import { loadImports, unwrapRecord, resolveRegistryDir } from '../lib/imports.mjs'
 import { convertMimocodeJson } from '../lib/convert/index.mjs'
@@ -20,7 +17,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { freshDshHome } from './_support/tmp-db.mjs'
+import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
@@ -101,9 +98,8 @@ function mimocodeTestSessions() {
 
 // 建临时 mimocode.db：session 表无 model 列（mimocode schema），message/part 同 opencode。
 function makeMimocodeDb(sessions) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-mimocode-'))
-  const dbPath = join(dir, 'mimocode.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-mimocode-', 'mimocode.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')

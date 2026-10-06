@@ -22,7 +22,7 @@ import { verifyOpencodeImportJson } from '../lib/export/index.mjs'
 import { hostAbs, hostAbsText } from './_support/host-path.mjs'
 import { makeCtx, makeHandlePersistence, toolDef, chatDef, exportDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { freshDshHome } from './_support/tmp-db.mjs'
+import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 // 夹具文本里的盘符路径按宿主平台改写：这些转录/元数据夹具带的是 Windows cwd，而宿主落盘
@@ -1679,9 +1679,8 @@ function opencodeCompactedSession() {
 
 // 在 os.tmpdir() 建临时 opencode.db（opencode schema 的 session/message/part 三表），返回 db 路径。
 function makeOpencodeDb(sessions) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-opencode-'))
-  const dbPath = join(dir, 'opencode.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-opencode-', 'opencode.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER, model TEXT)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')
@@ -2047,9 +2046,8 @@ test('import_grokbuild 增量续写：chat_history 增长 → appended 同一会
 
 // 建临时 hermes state.db（真实 schema：sessions + messages 表，content 为 TEXT）。
 function makeHermesTestDb() {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-hermes-'))
-  const dbPath = join(dir, 'state.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-hermes-', 'state.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, cwd TEXT, started_at REAL)')
   db.exec('CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, content TEXT, created_at REAL)')
   db.prepare('INSERT INTO sessions (id, title, cwd, started_at) VALUES (?, ?, ?, ?)').run('hm-a', 'Fix hermes build', hostAbs('E:/demo/hermes'), 1786000000000)
@@ -3707,9 +3705,8 @@ test('REQ-22 import_claude 压缩：原生检查点 + compacted/compactions 报�
 // 建带 parent_session_id 列的 hermes state.db：父会话（带消息，压缩分叉节点）+
 // 叶子子会话（承接内容）。父会话有消息时默认会导入、lineage:tail 会排除。
 function makeHermesLineageDb() {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-hermes-'))
-  const dbPath = join(dir, 'state.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-hermes-', 'state.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE sessions (id TEXT PRIMARY KEY, title TEXT, parent_session_id TEXT, started_at REAL)')
   db.exec('CREATE TABLE messages (id INTEGER PRIMARY KEY AUTOINCREMENT, session_id TEXT, role TEXT, content TEXT, created_at REAL)')
   db.prepare('INSERT INTO sessions (id, title, parent_session_id, started_at) VALUES (?, ?, ?, ?)').run('parent-1', 'Parent', null, 1786000000000)

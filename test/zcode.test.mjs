@@ -19,7 +19,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { freshDshHome } from './_support/tmp-db.mjs'
+import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
@@ -91,9 +91,8 @@ function zcodeCompactedSession() {
 
 // 在 os.tmpdir() 建临时 zcode db.sqlite（真实 schema 的 session/message/part 三表）。
 function makeZcodeDb(sessions) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-zcode-'))
-  const dbPath = join(dir, 'db.sqlite')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-zcode-', 'db.sqlite')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, parent_id TEXT, title TEXT, directory TEXT, time_updated INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, time_created INTEGER, data TEXT)')

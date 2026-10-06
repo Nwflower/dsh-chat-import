@@ -6,7 +6,6 @@ import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { join } from 'node:path'
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { DatabaseSync } from 'node:sqlite'
 import { apply } from '../lib/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
@@ -14,7 +13,7 @@ import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
 import { assertToolPairing } from './_support/session-invariants.mjs'
-import { freshDshHome } from './_support/tmp-db.mjs'
+import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
 
 // 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
 // 进程内共享的扫描缓存每用例清空。
@@ -326,9 +325,8 @@ function gooseFixtureSessions() {
 }
 
 function makeGooseDb(sessions) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-goose-'))
-  const dbPath = join(dir, 'sessions.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-goose-', 'sessions.db')
+  const db = openSqliteFixture(dbPath)
   db.exec(`CREATE TABLE sessions (
     id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '', description TEXT NOT NULL DEFAULT '',
     session_type TEXT NOT NULL DEFAULT 'user', working_dir TEXT NOT NULL,

@@ -7,7 +7,6 @@ import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compa
 import { mkdtempSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { zstdCompressSync } from 'node:zlib'
 import { Buffer } from 'node:buffer'
 import { apply } from '../lib/index.mjs'
@@ -17,7 +16,7 @@ import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
 import { assertToolPairing } from './_support/session-invariants.mjs'
-import { freshDshHome } from './_support/tmp-db.mjs'
+import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
 
 // 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
 // 进程内共享的扫描缓存每用例清空。
@@ -332,9 +331,8 @@ function zedThreadPayload({ title = '修登录页分页', version = '0.3.0', wit
 }
 
 function makeZedDb(threads) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-zed-'))
-  const dbPath = join(dir, 'threads.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-zed-', 'threads.db')
+  const db = openSqliteFixture(dbPath)
   db.exec(`CREATE TABLE threads (
     id TEXT PRIMARY KEY, summary TEXT NOT NULL, updated_at TEXT NOT NULL,
     data_type TEXT NOT NULL, data BLOB NOT NULL, parent_id TEXT,

@@ -65,15 +65,25 @@ export function insertRows(db, table, rows) {
 }
 
 /**
+ * 打开（必要时新建）一个夹具库并执行建表语句：create（字符串或数组）→ statements（额外
+ * 语句）。返回打开的句柄——行形状复杂的来源（嵌套写入 / 显式列名 / JSON 序列化）自己写行、
+ * 自己 close；能按对象键插入的用 insertRows。
+ */
+export function openSqliteFixture(dbPath, { create, statements = [] } = {}) {
+  mkdirSync(dirname(dbPath), { recursive: true })
+  const db = new DatabaseSync(dbPath)
+  for (const sql of [].concat(create ?? [])) db.exec(sql)
+  for (const sql of statements) db.exec(sql)
+  return db
+}
+
+/**
  * 建一个夹具库：create（建表 SQL，字符串或数组）→ statements（额外语句：索引 / 侧表）
  * → rows（表名 → 行数组，按对象键插入）。默认关库并返回路径；keepOpen 时返回打开的句柄
  *（WAL / 需要继续写的用例自行关闭）。
  */
 export function writeSqliteFixture(dbPath, { create, statements = [], rows = {}, keepOpen = false } = {}) {
-  mkdirSync(dirname(dbPath), { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  for (const sql of [].concat(create ?? [])) db.exec(sql)
-  for (const sql of statements) db.exec(sql)
+  const db = openSqliteFixture(dbPath, { create, statements })
   for (const [table, list] of Object.entries(rows)) insertRows(db, table, list)
   if (keepOpen) return db
   db.close()

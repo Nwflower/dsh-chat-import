@@ -8,10 +8,7 @@
 // 与已归档会话（time_archived 非空）默认跳过，只导主会话。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { dirname, join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
+import { dirname } from 'node:path'
 import { apply } from '../lib/index.mjs'
 import { convertKilocodeJson } from '../lib/convert/index.mjs'
 import { readKilocodeDb } from '../lib/sources/kilocode.mjs'
@@ -19,7 +16,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { freshDshHome } from './_support/tmp-db.mjs'
+import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
@@ -98,9 +95,8 @@ function kilocodeTestSessions() {
 
 // 建临时 kilo.db：session 表为 Kilo schema（model + parent_id + time_archived）。
 function makeKilocodeDb(sessions) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-kilocode-'))
-  const dbPath = join(dir, 'kilo.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-kilocode-', 'kilo.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER, model TEXT, parent_id TEXT, time_archived INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')
@@ -141,9 +137,8 @@ test('readKilocodeDb：默认跳过子会话（parent_id 非空）与已归档�
 })
 
 test('readKilocodeDb：无 parent_id / time_archived 列的旧库正常读取（PRAGMA 探测兼容）', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-kilocode-legacy-'))
-  const dbPath = join(dir, 'kilo.db')
-  const db = new DatabaseSync(dbPath)
+  const dbPath = tempDbPath('dsh-kilocode-legacy-', 'kilo.db')
+  const db = openSqliteFixture(dbPath)
   db.exec('CREATE TABLE session (id TEXT PRIMARY KEY, title TEXT, directory TEXT, time_created INTEGER)')
   db.exec('CREATE TABLE message (id TEXT PRIMARY KEY, session_id TEXT, time_created INTEGER, data TEXT)')
   db.exec('CREATE TABLE part (id TEXT PRIMARY KEY, message_id TEXT, session_id TEXT, time_created INTEGER, data TEXT)')
