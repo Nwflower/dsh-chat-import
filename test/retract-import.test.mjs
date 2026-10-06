@@ -11,9 +11,6 @@
 // 后 → 全新导入）。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { apply } from '../lib/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { resolveRegistryDir, loadImports, rememberImport, removeImport } from '../lib/imports.mjs'
@@ -21,11 +18,12 @@ import { forgetIgnore } from '../lib/ignore.mjs'
 import { renderImportText } from '../lib/tools/import-render.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx as makeHostCtx, makePersistence as makeHostPersistence, forbiddenFs, chatDef } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 const T0 = 1710000000000 // 固定毫秒时间戳（导入时间）
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 // ── 自包含 mock ────────────────────────────────────────────────

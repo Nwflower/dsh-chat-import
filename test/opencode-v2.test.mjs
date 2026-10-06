@@ -8,9 +8,6 @@
 // 正文不丢），以及缺表时大声报错。夹具全部合成。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { DatabaseSync } from 'node:sqlite'
 import { apply } from '../lib/index.mjs'
 import { convertOpencodeJson } from '../lib/convert/index.mjs'
@@ -23,18 +20,18 @@ import {
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { freshDshHome, tempDbPath } from './_support/tmp-db.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 /** 1×1 PNG（合成字节，仅用于验证附件走图片通路）。 */
 const PNG_BASE64 = 'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg=='
 
-function tmpDbPath(name) {
-  return join(mkdtempSync(join(tmpdir(), 'dsh-opencode2-')), name)
-}
+// 本文件的临时库前缀；mkdtemp / 库路径都在 _support/tmp-db.mjs。
+const tmpDbPath = (name) => tempDbPath('dsh-opencode2-', name)
 
 // 混合库：V1 三表（含诱饵会话）+ V2 两表。
 function makeMixedDb({ withLegacy = true } = {}) {

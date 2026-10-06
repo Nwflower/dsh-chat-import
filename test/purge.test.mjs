@@ -1,10 +1,9 @@
 // purge.test.mjs — 导入历史列表 + 批量撤回（删除本插件创建的会话）
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, writeFileSync, accessSync, mkdirSync, chmodSync } from 'node:fs'
+import { writeFileSync, accessSync, mkdirSync, chmodSync } from 'node:fs'
 import { spawn } from 'node:child_process'
 import { once } from 'node:events'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { registerPanelRoutes } from '../lib/panel.mjs'
 import {
@@ -15,11 +14,12 @@ import {
 } from '../lib/purge.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx as makeHostCtx, makePersistence as makeHostPersistence } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 const T0 = 1710000000000
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 function markerEvent(sourcePath) {

@@ -19,9 +19,10 @@ import { convertClaudeJsonl } from '../lib/convert/index.mjs'
 import { serializeBundle } from '../lib/export/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx as makeHostCtx, chatDef } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 // 真实文件系统上的 ctx：夹具写进临时目录，fs 全部回退 node:fs；services 注入额外宿主服务

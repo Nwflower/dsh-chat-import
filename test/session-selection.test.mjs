@@ -15,6 +15,7 @@ import { registerTools } from '../lib/tools.mjs'
 import { registerPanelRoutes } from '../lib/panel.mjs'
 import { IMPORT_SPECS } from '../lib/toolkit.mjs'
 import { makeCtx } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 function traeDb() {
   const dir = mkdtempSync(join(tmpdir(), 'dsh-trae-select-'))
@@ -36,7 +37,7 @@ function traeDb() {
 // 共享假宿主（树为空，fs 全部回退真实磁盘）上注册工具与面板路由；call 直调面板 handler
 function makeHost() {
   const { ctx, persistence, registered } = makeCtx({}, { real: true })
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-select-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-select-')
   const registryDir = join(process.env.DSH_HOME, 'dsh-chat-import')
   mkdirSync(registryDir, { recursive: true })
   registerTools(ctx, registryDir)

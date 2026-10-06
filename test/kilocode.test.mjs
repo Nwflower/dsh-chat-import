@@ -19,10 +19,11 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 // ── 合成 kilo.db fixture：session 表为 Kilo schema（model + parent_id + time_archived） ──

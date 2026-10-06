@@ -23,9 +23,10 @@ import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { diskHost } from './_support/discovery-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   delete process.env.TELEAGENT_HOME
 })
 

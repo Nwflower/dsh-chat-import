@@ -8,9 +8,10 @@ import { summarizeClaudeJsonl, summarizeCodexJsonl } from '../lib/handoff.mjs'
 import { registerResumeCommands } from '../lib/resume-command.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
 import { makeCtx } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   clearScanCache()
 })
 

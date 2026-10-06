@@ -7,28 +7,16 @@
 // 分派形状（条目不含 messageCount）。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync, rmSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
-import { DatabaseSync } from 'node:sqlite'
 import { readOpencodeDbSummaries } from '../lib/sources/opencode.mjs'
 import { readMimocodeDbSummaries } from '../lib/sources/mimocode.mjs'
 import { readKilocodeDbSummaries } from '../lib/sources/kilocode.mjs'
 import { readZcodeDbSummaries } from '../lib/sources/zcode.mjs'
 import { readHermesDbSummaries } from '../lib/sources/hermes.mjs'
 import { makeDiscoveryHost } from '../lib/discovery-host.mjs'
+import { tempDb, tempDbPath } from './_support/tmp-db.mjs'
 
-function tmpDb(name, build) {
-  const dir = mkdtempSync(join(tmpdir(), 'dsh-summary-'))
-  const path = join(dir, name)
-  const db = new DatabaseSync(path)
-  try {
-    build(db)
-  } finally {
-    db.close()
-  }
-  return { dir, path, cleanup: () => rmSync(dir, { recursive: true, force: true }) }
-}
+// 本文件的临时库前缀；mkdtemp / 建库 / 清理都在 _support/tmp-db.mjs。
+const tmpDb = (name, build) => tempDb('dsh-summary-', name, build)
 
 // opencode 三表最小形态：message.data 故意写成非 JSON——摘要路径不得解析正文。
 function makeOpencodeDb(name = 'opencode.db', extraSessionCols = '') {
@@ -154,7 +142,7 @@ test('readHermesDbSummaries：会话元数据 + 最近消息时间；非 hermes 
   try {
     assert.equal(readHermesDbSummaries(other.path), null) // 无 sessions 表 → 不是 hermes 库
   } finally { other.cleanup() }
-  assert.equal(readHermesDbSummaries(join(tmpdir(), 'definitely-missing-' + Date.now() + '.db')), null)
+  assert.equal(readHermesDbSummaries(tempDbPath('dsh-summary-', 'definitely-missing-' + Date.now() + '.db')), null)
 })
 
 test('discovery-host.readSessions：按格式分派到摘要读取器，条目字段稳定（无 messageCount/cwd 冗余键）', async () => {

@@ -20,10 +20,11 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 // ── 合成 mimocode.db fixture：session 表无 model 列（与 opencode 唯一 schema 差异） ──
@@ -236,7 +237,7 @@ test('import_mimocode 目录模式：自动定位 mimocode.db', async () => {
 test('import_mimocode 目录模式与单库模式同口径：转换器 / 来源标签 / 导入格式一致', async () => {
   const dbPath = makeMimocodeDb(mimocodeTestSessions())
   const runIsolated = async (path) => {
-    process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+    process.env.DSH_HOME = freshDshHome('dsh-home-')
     const { ctx, persistence } = makeCtx()
     apply(ctx)
     await chatDef(ctx, 'mimocode').execute({ path })

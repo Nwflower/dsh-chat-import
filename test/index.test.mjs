@@ -22,6 +22,7 @@ import { verifyOpencodeImportJson } from '../lib/export/index.mjs'
 import { hostAbs, hostAbsText } from './_support/host-path.mjs'
 import { makeCtx, makeHandlePersistence, toolDef, chatDef, exportDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 const fixtures = join(dirname(fileURLToPath(import.meta.url)), 'fixtures')
 // 夹具文本里的盘符路径按宿主平台改写：这些转录/元数据夹具带的是 Windows cwd，而宿主落盘
@@ -31,7 +32,7 @@ const load = (name) => hostAbsText(readFileSync(join(fixtures, name), 'utf8'))
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 // REQ-25 扫描缓存隔离：scan_discover 的 30s TTL 缓存进程内共享，每用例清空防串扰
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   clearScanCache()
 })
 

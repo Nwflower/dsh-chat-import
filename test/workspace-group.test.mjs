@@ -11,8 +11,9 @@ import { mkdtempSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { attachPlannedWorkspace, planWorkspaceGroup, normalizeWorkspaceMode } from '../lib/workspace-group.mjs'
 import { loadIgnores, rememberWorkspaceIgnore } from '../lib/ignore.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
-process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-wsg-'))
+process.env.DSH_HOME = freshDshHome('dsh-home-wsg-')
 
 const DEDICATED = join(process.env.DSH_HOME, 'dsh-chat-import-workspace')
 

@@ -7,16 +7,14 @@
 // 夹具全部合成（不掺真实 transcript），形状按报告者实测描述构造。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { apply } from '../lib/index.mjs'
 import { convertChatgptJson } from '../lib/convert/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { makeCtx } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 // Unix 秒（带小数）—— 官方导出的 create_time 形态

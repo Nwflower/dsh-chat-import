@@ -5,9 +5,6 @@
 // 全部用合成数据，不掺真实 transcript。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdtempSync } from 'node:fs'
-import { tmpdir } from 'node:os'
-import { join } from 'node:path'
 import { apply } from '../lib/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import {
@@ -17,10 +14,11 @@ import {
 } from '../lib/convert/index.mjs'
 import { detectSecretKinds, parseJsonlLines, SKIPPED_LINES_CAP } from '../lib/convert/core.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 // index 层用例的 registry 隔离（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
 })
 
 const SECRET = 'sk-abc123456789012345'

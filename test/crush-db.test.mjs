@@ -3,12 +3,10 @@
 // 项目路径反查（DB 里没有 cwd 列）与老库缺列自适应。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { readCrushSessions, readCrushDb, crushProjectPathFor, crushDeriveArgs } from '../lib/sources/crush.mjs'
 import { crushProjectDbPath } from '../lib/convert/crush.mjs'
+import { withTempDir, withTempDirAsync, writeSqliteFixture } from './_support/tmp-db.mjs'
 
 // 上游 8 个 goose 迁移合并后的形状（列名逐字）
 const CREATE = `
@@ -32,30 +30,11 @@ const SID = 'a8f1c3d2-0000-4000-8000-000000000001'
 const CREATED = 1768000001
 const UPDATED = 1768000123
 
-function withTmp(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'crush-test-'))
-  try {
-    return fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
+// 本文件的临时库前缀；mkdtemp / 清理 / 建表 / 插行都在 _support/tmp-db.mjs。
+const withTmp = (fn) => withTempDir('crush-test-', fn)
 
 function makeDb(dbPath, { sessions = [], messages = [], create = CREATE } = {}) {
-  mkdirSync(join(dbPath, '..'), { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  db.exec(create)
-  for (const s of sessions) {
-    const cols = Object.keys(s)
-    db.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-      .run(...cols.map((c) => s[c]))
-  }
-  for (const m of messages) {
-    const cols = Object.keys(m)
-    db.prepare(`INSERT INTO messages (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => m[c]))
-  }
-  db.close()
-  return dbPath
+  return writeSqliteFixture(dbPath, { create, rows: { sessions, messages } })
 }
 
 function sessionRow(over = {}) {
@@ -169,10 +148,5 @@ test('crushDeriveArgs：注册表可用时给出 cwd；不可用时回退几何�
 })
 
 async function withTmpAsync(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'crush-test-'))
-  try {
-    return await fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
+  return withTempDirAsync('crush-test-', fn)
 }

@@ -4,10 +4,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { readGooseDb, readGooseSessions, gooseDefaultDbPath } from '../lib/sources/goose.mjs'
+import { withTempDir, writeSqliteFixture } from './_support/tmp-db.mjs'
 
 // 上游 session_manager.rs 的建表要点（CURRENT_SCHEMA_VERSION=16；老库靠 ALTER 逐列补齐）
 const CREATE = `
@@ -36,29 +35,11 @@ CREATE TABLE schema_version (version INTEGER PRIMARY KEY, applied_at TIMESTAMP D
 const SID = '20260422_3'
 const CWD = '/home/u/repo'
 
-function withTmp(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'goose-test-'))
-  try {
-    return fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
+// 本文件的临时库前缀；mkdtemp / 清理 / 建表 / 插行都在 _support/tmp-db.mjs。
+const withTmp = (fn) => withTempDir('goose-test-', fn)
 
 function makeDb(dbPath, { create = CREATE, sessions = [], messages = [] } = {}) {
-  mkdirSync(join(dbPath, '..'), { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  db.exec(create)
-  for (const s of sessions) {
-    const cols = Object.keys(s)
-    db.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => s[c]))
-  }
-  for (const m of messages) {
-    const cols = Object.keys(m)
-    db.prepare(`INSERT INTO messages (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(...cols.map((c) => m[c]))
-  }
-  db.close()
-  return dbPath
+  return writeSqliteFixture(dbPath, { create, rows: { sessions, messages } })
 }
 
 function sessionRow(over = {}) {

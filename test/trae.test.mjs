@@ -12,6 +12,7 @@ import { discoverSessions } from '../lib/discovery.mjs'
 import { apply } from '../lib/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx as makeHostCtx, chatDef } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 function fixtureSessions() {
   return {
@@ -166,7 +167,7 @@ function makeUserRoot() {
 }
 
 test('import_trae 目录模式：跳过没有 Trae 会话的工作区库，不计失败；重导幂等', async () => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   const root = makeUserRoot()
   try {
     const { persistence, execute } = makeCtx()
@@ -190,7 +191,7 @@ test('import_trae 目录模式：跳过没有 Trae 会话的工作区库，不�
 })
 
 test('import_trae 失败要大声：全目录无会话报错；有条目却认不出的库计失败', async () => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   const root = mkdtempSync(join(tmpdir(), 'dsh-trae-user-'))
   try {
     makeStateDb(join(root, 'workspaceStorage', 'no-chat'), [['workbench.panel.width', 320]])

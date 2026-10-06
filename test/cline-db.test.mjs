@@ -2,12 +2,10 @@
 // 造真实 SQLite 夹具（node:sqlite），覆盖读写口径、子代理过滤、老库缺列、回退路径。
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
-import { DatabaseSync } from 'node:sqlite'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { readClineDb, clineMessagesPath, clineDeriveArgs, collectClineFiles } from '../lib/sources/cline.mjs'
 import { makeFs } from './_support/fake-host.mjs'
+import { withTempDir, withTempDirAsync, writeSqliteFixture } from './_support/tmp-db.mjs'
 
 // 上游 sqlite-db.ts 的建表 SQL（main @ 6e8bea1）；老库靠 ALTER TABLE 逐列补齐，
 // 故测试另造一个「缺列」的库验证自适应读取。
@@ -23,30 +21,17 @@ const SID = '01J8Z6Q0M4V7X2K9TB3N5R8WDA'
 const TS = '2026-04-22T17:40:00.000Z'
 const TS_END = '2026-04-22T17:42:10.123Z'
 
-function withTmp(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'cline-test-'))
-  try {
-    return fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
+// 本文件的临时库前缀；mkdtemp / 清理 / 建表 / 插行都在 _support/tmp-db.mjs。
+const withTmp = (fn) => withTempDir('cline-test-', fn)
 
 function makeDb(dbPath, { create = CREATE_SESSIONS, rows = [], extraTables = true } = {}) {
-  mkdirSync(join(dbPath, '..'), { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  db.exec(create)
-  if (extraTables) {
-    db.exec('CREATE TABLE subagent_spawn_queue (id TEXT PRIMARY KEY)')
-    db.exec('CREATE TABLE schedules (id TEXT PRIMARY KEY)')
-  }
-  for (const row of rows) {
-    const cols = Object.keys(row)
-    db.prepare(`INSERT INTO sessions (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`).run(
-      ...cols.map((c) => row[c]),
-    )
-  }
-  db.close()
+  return writeSqliteFixture(dbPath, {
+    create,
+    statements: extraTables
+      ? ['CREATE TABLE subagent_spawn_queue (id TEXT PRIMARY KEY)', 'CREATE TABLE schedules (id TEXT PRIMARY KEY)']
+      : [],
+    rows: { sessions: rows },
+  })
 }
 
 function leadRow(over = {}) {
@@ -259,14 +244,7 @@ test('readClineManifest：畸形 JSON → null；缺字段 → 空标题 + null 
 })
 
 // withTmp 的异步版（derive 是 async）
-async function withTmpAsync(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'cline-test-'))
-  try {
-    return await fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
+const withTmpAsync = (fn) => withTempDirAsync('cline-test-', fn)
 
 test('clineMessagesPath：两种分隔符都不重复拼分隔符', () => {
   assert.equal(clineMessagesPath('/a/b', 'x'), '/a/b/x/x.messages.json')

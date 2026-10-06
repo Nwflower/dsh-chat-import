@@ -10,11 +10,12 @@ import { discoverSessions, createScanCache, clearScanCache } from '../lib/discov
 import { hostAbs } from './_support/host-path.mjs'
 import { memoryHost } from './_support/discovery-host.mjs'
 import { makeCtx, toolDef } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 const j = (o) => JSON.stringify(o)
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   clearScanCache()
 })
 

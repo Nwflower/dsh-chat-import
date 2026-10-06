@@ -16,11 +16,12 @@ import { serializeBundle } from '../lib/export/index.mjs'
 import { makeExportTools } from '../lib/tools/export-tools.mjs'
 import { loadImports, rememberImport } from '../lib/imports.mjs'
 import { makeCtx } from './_support/fake-host.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 let registryDir
 
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-restore-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-restore-')
   registryDir = join(process.env.DSH_HOME, 'dsh-chat-import')
   mkdirSync(registryDir, { recursive: true })
 })

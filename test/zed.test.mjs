@@ -17,11 +17,12 @@ import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
 import { assertToolPairing } from './_support/session-invariants.mjs'
+import { freshDshHome } from './_support/tmp-db.mjs'
 
 // 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
 // 进程内共享的扫描缓存每用例清空。
 beforeEach(() => {
-  process.env.DSH_HOME = mkdtempSync(join(tmpdir(), 'dsh-home-'))
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
   clearScanCache()
 })
 

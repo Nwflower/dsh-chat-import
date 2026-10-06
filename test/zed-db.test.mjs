@@ -6,10 +6,9 @@ import assert from 'node:assert/strict'
 import { DatabaseSync } from 'node:sqlite'
 import { zstdCompressSync, zstdDecompressSync } from 'node:zlib'
 import { Buffer } from 'node:buffer'
-import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { readZedThreads, readZedDb } from '../lib/sources/zed.mjs'
+import { withTempDir, writeSqliteFixture } from './_support/tmp-db.mjs'
 
 // 上游 db.rs 的建表 + 3×ALTER（老库可能缺后 4 列）
 const CREATE = `CREATE TABLE IF NOT EXISTS threads (
@@ -36,27 +35,15 @@ function threadJson(over = {}) {
   })
 }
 
-function withTmp(fn) {
-  const root = mkdtempSync(join(tmpdir(), 'zed-test-'))
-  try {
-    return fn(root)
-  } finally {
-    rmSync(root, { recursive: true, force: true })
-  }
-}
+// 本文件的临时库前缀；mkdtemp / 清理 / 建表 / 插行都在 _support/tmp-db.mjs。
+const withTmp = (fn) => withTempDir('zed-test-', fn)
 
 function makeDb(dbPath, rows, { create = CREATE, extraTable = null } = {}) {
-  mkdirSync(join(dbPath, '..'), { recursive: true })
-  const db = new DatabaseSync(dbPath)
-  db.exec(create)
-  if (extraTable) db.exec(extraTable)
-  for (const row of rows) {
-    const cols = Object.keys(row)
-    db.prepare(`INSERT INTO threads (${cols.join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-      .run(...cols.map((c) => row[c]))
-  }
-  db.close()
-  return dbPath
+  return writeSqliteFixture(dbPath, {
+    create,
+    statements: extraTable ? [extraTable] : [],
+    rows: { threads: rows },
+  })
 }
 
 function row(over = {}) {
