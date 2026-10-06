@@ -7,6 +7,14 @@
 import assert from 'node:assert/strict'
 
 /**
+ * seq 从 0 连续（宿主日志的硬要求：seq 即数组下标，跳号 / 重复会让会话读不出来）。
+ * 此前 6 个测试文件各写一遍 `events.forEach((e, i) => assert.equal(e.seq, i))`。
+ */
+export function assertSeqContinuity(events) {
+  events.forEach((e, i) => assert.equal(e.seq, i, `第 ${i} 个事件的 seq 应为 ${i}（实际 ${e.seq}）`))
+}
+
+/**
  * 每个 tool/call 都有对应的 tool/result，且结果的 sourceEventSeqs 指向该调用的 seq
  *（synthesizeSession 的兜底配对保证，见 lib/convert/events.mjs）。
  */

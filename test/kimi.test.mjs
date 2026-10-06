@@ -5,7 +5,7 @@ import { convertKimiWire } from '../lib/convert/kimi.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertNativeCompaction, derivedSurfaceMessages } from './_support/compaction.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
+import { assertToolPairing, assertMessageOrderLegal, assertSeqContinuity } from './_support/session-invariants.mjs'
 
 function wire(recs, tsBase = 1776162400) {
   const lines = ['{"type":"metadata","protocol_version":"1"}']
@@ -41,7 +41,7 @@ test('convertKimiWire: 简单问答（TurnBegin/StepBegin/TextPart/TurnEnd）、
   assert.deepEqual(types, [
     'turn/start', 'step/start', 'system/message', 'user/message', 'user/message', 'assistant/message', 'step/end', 'turn/end',
   ])
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assertEnvelopeHygiene(out.events)
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message')) {
     assert.equal(e.surfaceOp, 'append')
@@ -363,7 +363,7 @@ test('convertKimiWire: 新 Kimi Code wire（turn.prompt + context.append_loop_ev
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
   assert.deepEqual(asst.content.map((c) => c.type), ['reasoning', 'text'])
   assert.equal(asst.content[1].text, '是缺少依赖。')
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assertMessageOrderLegal(out.events)
 })
 

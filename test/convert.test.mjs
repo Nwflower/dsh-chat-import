@@ -11,7 +11,7 @@ import { pinSourcedSessionTitle } from '../lib/sourced-title.mjs'
 import { synthesizeSession } from '../lib/convert/core.mjs'
 import { contentText } from '../lib/convert/util.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
+import { assertToolPairing, assertMessageOrderLegal, assertSeqContinuity } from './_support/session-invariants.mjs'
 import { loadFixture } from './_support/fixtures.mjs'
 
 const load = loadFixture
@@ -32,7 +32,7 @@ test('convertClaudeJsonl: 简单问答合成平衡回合', () => {
     'turn/start', 'step/start', 'system/message', 'user/message', 'user/message', 'assistant/message', 'step/end', 'turn/end',
   ])
   // seq 连续从 0 开始；环境变更声明（plugin 注入）在首个 step/start 之后、真实提问之前
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assertEnvelopeHygiene(out.events)
   // surface 事件带 surfaceOp
   const surface = out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message')
@@ -433,7 +433,7 @@ test('convertCodexJsonl: 简单问答合成平衡回合（元数据来自 sessio
     'turn/start', 'step/start', 'system/message', 'user/message', 'user/message', 'assistant/message', 'step/end', 'turn/end',
   ])
   // seq 连续从 0 开始；最后一个事件是 turn/end（平衡）
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assert.equal(types.at(-1), 'turn/end')
   assertEnvelopeHygiene(out.events)
   // surface 事件带 surfaceOp
@@ -882,7 +882,7 @@ test('convertChatgptJson: 一文件多会话、多轮、mapping 主线程', () =
   // 事件以 turn/end 平衡收尾（session/title 钉在最后，不破坏回合平衡）
   assert.equal(types1.filter((t) => t === 'turn/end').length, 2)
   assert.equal([...types1].reverse().find((t) => t !== 'session/title'), 'turn/end')
-  c1.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(c1.events)
   // 时间戳：Unix 秒 → ms
   assert.equal(c1.meta.createdAt, 1710000000 * 1000)
   // assistant source
@@ -1132,7 +1132,7 @@ test('convertCursorJsonl: 简单问答、user_query 剥离、平衡回合', () =
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal(types.filter((t) => t === 'turn/end').length, 1)
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   // user_query 标签被剥离
   const user = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user').data
   assert.equal(user.content[0].text, 'Create a basic python interpreter in rust.')
@@ -1216,7 +1216,7 @@ test('convertGeminiJson: 简单会话、元数据、平衡回合', () => {
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   // 用户 parts 数组 → prompt
   const user = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user').data
   assert.equal(user.content[0].text, 'Create a basic python interpreter in rust.')
@@ -1310,7 +1310,7 @@ test('convertReasonixJsonl: v1 嵌套 tool_calls + tool_call_id 配对 + reasoni
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   // 工具调用与结果配对
   const call = out.events.find((e) => e.type === 'tool/call')
   assert.equal(call.data.name, 'search_files')
@@ -1484,7 +1484,7 @@ test('convertPiJsonl: 简单问答、头行元数据、平衡回合', () => {
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.equal(types.at(-1), 'turn/end')
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assert.equal(out.events.filter((e) => e.type === 'turn/start').length, 2)
   // assistant source.model 来自消息级 model
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
@@ -1611,7 +1611,7 @@ test('convertOpencodeJson: 简单问答、元数据、平衡回合', () => {
   const types = out.events.map((e) => e.type)
   // 回合平衡：最后一个（非 title）事件是 turn/end；seq 连续
   assert.equal([...types].reverse().find((t) => t !== 'session/title'), 'turn/end')
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message' || e.type === 'tool/result')) {
     assert.equal(e.surfaceOp, 'append')
   }

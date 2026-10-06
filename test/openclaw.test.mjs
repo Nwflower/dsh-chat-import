@@ -8,7 +8,7 @@ import { apply } from '../lib/index.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { clearScanCache } from '../lib/discovery.mjs'
-import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
+import { assertToolPairing, assertMessageOrderLegal, assertSeqContinuity } from './_support/session-invariants.mjs'
 import { freshDshHome } from './_support/tmp-db.mjs'
 
 // 集成用例隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import），
@@ -39,7 +39,7 @@ test('convertOpenclawJson: session 事件 + 简单问答合成平衡回合（标
   assertEnvelopeHygiene(out.events)
   const types = out.events.map((e) => e.type)
   assert.deepEqual(types, ['turn/start', 'step/start', 'system/message', 'user/message', 'user/message', 'assistant/message', 'step/end', 'turn/end'])
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   const user = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user')
   assert.equal(user.data.content[0].text, '帮我看看构建失败')
   assertMessageOrderLegal(out.events)

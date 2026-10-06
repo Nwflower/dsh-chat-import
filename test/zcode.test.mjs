@@ -20,6 +20,7 @@ import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 import { freshDshHome, tempDbPath, openSqliteFixture } from './_support/tmp-db.mjs'
+import { assertSeqContinuity } from './_support/session-invariants.mjs'
 
 // REQ-24 registry 隔离：每个用例独立 DSH_HOME（registry 落盘在 $DSH_HOME/dsh-chat-import）
 beforeEach(() => {
@@ -164,7 +165,7 @@ test('convertZcodeJson: 简单问答、元数据、平衡回合', () => {
   assert.deepEqual(types, [
     'turn/start', 'step/start', 'system/message', 'user/message', 'user/message', 'assistant/message', 'step/end', 'turn/end', 'session/title',
   ])
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message' || e.type === 'tool/result')) {
     assert.equal(e.surfaceOp, 'append')
   }

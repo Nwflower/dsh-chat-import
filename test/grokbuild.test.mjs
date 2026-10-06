@@ -4,7 +4,7 @@ import assert from 'node:assert/strict'
 import { convertGrokbuildJson } from '../lib/convert/grokbuild.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
-import { assertToolPairing, assertMessageOrderLegal } from './_support/session-invariants.mjs'
+import { assertToolPairing, assertMessageOrderLegal, assertSeqContinuity } from './_support/session-invariants.mjs'
 
 function summaryJson(over = {}) {
   return JSON.stringify({
@@ -43,7 +43,7 @@ test('convertGrokbuildJson: 简单问答、元数据、显式标题、平衡回�
     'turn/start', 'step/start', 'system/message', 'user/message', 'user/message', 'assistant/message', 'step/end', 'turn/end', 'session/title',
   ])
   assert.equal(out.events.at(-1).data.title, 'Grok 会话标题')
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assertEnvelopeHygiene(out.events)
   for (const e of out.events.filter((e) => e.type === 'user/message' || e.type === 'assistant/message')) {
     assert.equal(e.surfaceOp, 'append')

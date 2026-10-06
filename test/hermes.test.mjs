@@ -14,10 +14,11 @@ import { convertHermesJson } from '../lib/convert/hermes.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { readHermesDb } from '../lib/sources/hermes.mjs'
 import { openSqliteFixture, tempDbPath } from './_support/tmp-db.mjs'
+import { assertSeqContinuity } from './_support/session-invariants.mjs'
 
 // 平衡会话断言：seq 连续、turn 开合配对、tool call/result 1:1、surface 事件带 surfaceOp。
 function assertBalanced(out) {
-  out.events.forEach((e, i) => assert.equal(e.seq, i))
+  assertSeqContinuity(out.events)
   assert.equal(
     out.events.filter((e) => e.type === 'turn/start').length,
     out.events.filter((e) => e.type === 'turn/end').length,
