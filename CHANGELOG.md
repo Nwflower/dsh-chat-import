@@ -2,17 +2,43 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
-## [Unreleased]
+## [0.25.2] - 2026-10-06
 
-[中文](#cn-unreleased) | [English](#en-unreleased)
+[中文](#cn-0.25.2) | [English](#en-0.25.2)
 
-<h3 id="cn-unreleased">体验优化</h3>
+<h3 id="cn-0.25.2">体验优化</h3>
 
 - **面板不再把大 DSH 会话列成「(无标题)」**：DSH 来源里压缩后超过 256KB 的会话日志原本整份不解压、按布局目录名兜底，标题恒空且工作区落到 `--D-Build-…--` 这类布局名——同一工作区在面板里被劈成两组，按标题搜索也搜不到。现在这类条目的标题、工作区与创建时间由宿主的会话 header 与持久投影缓存补齐（与宿主侧栏显示的是同一个标题）：本机实测 `dsh4` 来源无标题由 214 条降到 87 条（剩下的只有从未发过消息的空会话与子代理会话），`dsh-claude-style` 由 63 + 43 两组并回 106 一组。来源日志自己读到的标题（含改名）永远优先；宿主未挂投影缓存或该会话没有缓存行时退回原行为，只记一行警告。
 
-<h3 id="en-unreleased">Improvements</h3>
+<h3 id="cn-0.25.2">问题修复</h3>
+
+- **grokbuild 的 `fullHistory` 开关不再静默失效**：该参数决定是否写原生压缩检查点，但编排把参数指纹硬编码成空表——换值重导时「源未变」短路径照常跳过，开关永远不生效且不报任何变化。现在接通参数指纹：已导入过 `fullHistory: false` 的会话改用 `true` 重导会报 `argsChanged`（需 `force` 才真重导）；从不传该参数的调用方指纹不变，零差异。
+- **面板不再认领或连带删除别人的样式表**：宿主客户端模块系统按 `data-plugin` 记账——前端模块物化时把文档里所有无标记的 `<style>` 认领到正在物化的包名下，并在该包换 revision 时整批删除。插件设置导航的遮罩样式表此前没有标记，两个方向都会出事：自己那张被下一个物化的包收走，别人的无标记样式表在插件重载时被连带删掉（实测删掉过 dsh-meme 的两张，表情包界面整份失去样式）。现在该样式表带 `data-plugin` / `data-plugin-css` 标记并按自己的键认回既有元素，无标记的外来样式表被改写到不匹配任何包名的值上（本插件之后出现的那些由常驻观察者照看）。
+
+<h3 id="cn-0.25.2">其他变更</h3>
+
+- 体量治理按 D6 继续：`lib/imports.mjs` 的宿主 `sessionPersistence` ABI 移进 `lib/host-session.mjs`（该文件的既定职责就是「按宿主契约怎么写」），`imports.mjs` 只留 registry 与决策；会话骨架（轮队列 + 待落压缩检查点）从 13 个转换器收进 `lib/convert/ir.mjs` 的 `createTurns()`，落盘序列收成 `writeOneSession()` / `appendTail()`。`lib/` 下最大的手维护文件由 932 行降到 803 行。
+- 来源清单三张表（发现层描述符 / `import_chat` 的 format 表 / 导入 spec）互相对账成测试门禁；`fullHistory` 另有「spec 声明 ↔ 实现 ↔ 参数指纹」三面对账，已知缺口（vibe / trae）显式记录、不得被悄悄实现。
+- 新增两个机械护栏：`check:tests` 保证每个来源至少一个测试锚点且单测文件不超停止线，`check:coverage` 逐文件与逐目录设下限（全局数字会盖住单文件空洞）；`test/*.test.mjs` 按主题拆分，最大的由 5284 行降到 819 行。
+- 测试共用件继续收口（夹具载入口径 / 建库原语 / 会话不变量断言 / 临时目录骨架），删掉零消费者的死代码与已失效的 eslint 全局声明；`docs/USAGE` 双语修正 17 处指向已不存在工具名的调用示例，来源数 27 → 29。
+
+<h3 id="en-0.25.2">Improvements</h3>
 
 - **The panel no longer lists large DSH sessions as "(untitled)"**: a DSH session log above 256KB compressed used to be left undecoded and fall back to its layout directory name — no title, and the workspace name became a layout key like `--D-Build-…--`, splitting one workspace into two panel groups and hiding those sessions from title search. Such entries now take their title, workspace and creation time from the host's session header plus its persisted projection cache (the same title the host sidebar shows): measured on this machine, untitled `dsh4` entries dropped from 214 to 87 (what remains is only never-used empty sessions and subagent sessions), and `dsh-claude-style` merged from 63 + 43 back into a single group of 106. A title the source log itself yields (including a rename) always wins; when the host does not mount the projection cache, or the session has no cache row, the previous behaviour returns with a single warning line.
+
+<h3 id="en-0.25.2">Bug Fixes</h3>
+
+- **grokbuild's `fullHistory` switch no longer fails silently**: the parameter decides whether native compaction checkpoints are written, but the orchestration hard-coded an empty args fingerprint — re-importing with a changed value took the "source unchanged" short path, so the switch never took effect and nothing was reported. The fingerprint is now wired up: re-importing a session previously imported with `fullHistory: false` using `true` reports `argsChanged` (`force` is needed to actually re-import); callers that never pass the parameter have an unchanged fingerprint and see zero difference.
+- **The panel no longer claims or deletes other packages' stylesheets**: the host's client module system keeps its books by `data-plugin` — when a front-end module materializes it claims every unmarked `<style>` in the document under the materializing package's name and deletes them in bulk when that package swaps revisions. The plugin's settings-nav scrim stylesheet carried no marker, which broke in both directions: its own sheet was taken over by the next materializing package, and other packages' unmarked sheets were deleted when the plugin reloaded (measured: two of dsh-meme's were removed and its whole UI lost its styling). The sheet now carries `data-plugin` / `data-plugin-css` and reclaims existing elements by its own key instead of adding a second one, while unmarked foreign sheets are rewritten to a value matching no package name (a resident observer handles those appearing after the plugin loads).
+
+<h3 id="en-0.25.2">Chores</h3>
+
+- Size governance continues per D6: the host `sessionPersistence` ABI moved out of `lib/imports.mjs` into `lib/host-session.mjs` (whose stated job is "how to write against the host contract"), leaving `imports.mjs` with the registry and the decisions; the session skeleton (turn queue plus pending compaction checkpoints) moved out of 13 converters into `createTurns()` in `lib/convert/ir.mjs`, and the write sequence collapsed into `writeOneSession()` / `appendTail()`. The largest hand-maintained file under `lib/` drops from 932 to 803 lines.
+- The three source tables (discovery descriptors / `import_chat`'s format table / import specs) are now cross-checked by a test gate; `fullHistory` additionally has a three-way "spec declaration ↔ implementation ↔ args fingerprint" check, with known gaps (vibe / trae) recorded explicitly so they cannot be implemented by accident.
+- Two new mechanical guards: `check:tests` keeps at least one test anchor per source and holds unit files under the size stop line, and `check:coverage` sets per-file and per-directory floors (a global number hides a single-file hole); `test/*.test.mjs` was split by topic, the largest dropping from 5284 to 819 lines.
+- Test helpers keep consolidating (fixture loading, database primitives, session-invariant assertions, temp-directory scaffolding); zero-consumer dead code and stale eslint globals were removed; both `docs/USAGE` languages had 17 call examples pointing at tool names that no longer exist corrected, and the source count went 27 → 29.
+
+**Full Changelog**: [v0.25.1...v0.25.2](https://github.com/Nwflower/dsh-chat-import/compare/v0.25.1...v0.25.2)
 
 ## [0.25.1] - 2026-10-05
 
@@ -136,6 +162,8 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - **上传通道**：`POST /api-import/upload/init|chunk|complete` 三步，按 (sha256, size) 幂等——刷新或断线后从已收字节续传，同一文件重复上传零重传；整文件指纹校验通过才产出可导入路径。配额单文件 256MiB、暂存 2GiB、未完成 24 小时回收；文件名 sanitize 且落点固定在 `$DSH_HOME/dsh-chat-import/uploads/`。导入后的暂存件保留（重导语义以它为源键），维护路由可清理未被 registry 引用的件。
 - **Agent 转换指南与失败摘要任务模板**：新增双语文档 `docs/INTERCHANGE-GUIDE.md` / `.zh-CN.md`——给 Agent 的 Skill 指令（任务说明、最小合法示例、字段必填表、自检清单、常见错误后果表），`docs/INTERCHANGE.md` 保持维护者视角的协议规范并在头部互链。识别失败的「复制失败摘要」从「路径 + 原因清单」升级为可直接发给 Agent 的任务模板（任务说明 + 指南链接 + 源路径 + 六条产出要求 + 逐解析器失败原因），面板出路链接按界面语言分链到对应语言的转换指南。
 - **转换指南注册为宿主 skill**：插件把 `docs/INTERCHANGE-GUIDE.md` 注册为运行时 skill `dsh-chat-import-convert`（`skills` 是可选宿主服务，旧宿主 / headless 缺席时记警告跳过，不影响导入），DSH 内的 Agent 可直接调用它拿到转换指令；识别失败的提示小字改为「请复制失败摘要给 Agent」，任务模板引导优先调用该 skill，GitHub 链接作兜底。
+- **新增 Mistral Vibe 会话导入**：新来源 `vibe`（`import_chat({ format: 'vibe' })`、`/import vibe <路径>`、面板来源列表与 `scan_discover`）。读取 Vibe CLI 的 `~/.vibe/logs/session/<session_dir>/`（`messages.jsonl` + `meta.json`，`VIBE_HOME` 可覆盖数据根），会话目录本身即一个会话；用户提问开轮，助手消息成步（`reasoning_content` 进推理块，`tool_calls` 与 `role: 'tool'` 结果按 `tool_call_id` 配对，未配对的结果计数丢弃），内联 base64 图片落为图片块、拿不到字节的降级为占位文本并计数。`context_boundary = "compaction"` 导入为 DSH 原生压缩检查点。两个文件的联合 stat 指纹驱动未变跳过 / 增量续写，`meta.json` 缺失或头部有解析不了的行时标题退回首条用户消息。
+- **逐记录时间戳与 provider 用量透传**：源转录里真实存在的逐条时间戳成为会话事件时间（宿主统计据此折出真实的逐步模型耗时与工具耗时；源没有逐记录时间的会话这些耗时为 0），provider 回报的 token 用量（Claude Code 的 `message.usage`、opencode / kilocode / mimocode 的 `message.data.tokens`、Reasonix v2 的行级 `usage` 等）写入 `assistant/message.data.usage` 供宿主 token 统计折叠；事件时间只前进不倒退，`input` / `output` 不是非负整数时整份丢弃，不污染统计。**首 token 延迟与输出速度任何源都导不了**——外部转录只记录完成态消息、没有流块时间戳，不伪造。导出 opencode 方向对称：事件带 usage 时如实回填 `tokens`，没有才写 0 并计入 `usage-unknown`。
 
 <h3 id="cn-0.24.1">问题修复</h3>
 
@@ -149,6 +177,8 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - **Upload channel**: `POST /api-import/upload/init|chunk|complete` — idempotent per (sha256, size), so a refresh or a dropped connection resumes from the received byte count and re-uploading the same file transfers nothing; a path only becomes importable after the whole-file fingerprint checks out. Limits: 256 MiB per file, 2 GiB of staging, incomplete uploads reclaimed after 24 hours; names are sanitized and staging stays under `$DSH_HOME/dsh-chat-import/uploads/`. Imported staging files are kept (the re-import semantics key on them) and a maintenance route removes the ones no registry entry references.
 - **Agent conversion guide and failure-summary task brief**: new bilingual docs `docs/INTERCHANGE-GUIDE.md` / `.zh-CN.md` — skill instructions for agents (task statement, minimal valid document, required-field tables, a pre-delivery checklist, and a mistake→consequence table), while `docs/INTERCHANGE.md` stays the maintainer-facing protocol specification and cross-links to them. On a failed detection, "Copy failure summary" now copies a ready-to-send agent task brief (task statement + guide link + source path + six output requirements + per-parser failure reasons) instead of a bare path-and-reasons list, and the panel's way-out link points at the conversion guide in the UI's language.
 - **Conversion guide registered as a host skill**: the plugin registers `docs/INTERCHANGE-GUIDE.md` as the runtime skill `dsh-chat-import-convert` (`skills` is an optional host service — older or headless hosts skip with a logged warning, imports unaffected), so an agent inside DSH can invoke the guide directly; the failed-detection hint now reads "Copy the failure summary to your agent", and the copied task brief points at the skill first with the GitHub link as fallback.
+- **Mistral Vibe session import**: new source `vibe` (`import_chat({ format: 'vibe' })`, `/import vibe <path>`, the panel source list and `scan_discover`). It reads the Vibe CLI's `~/.vibe/logs/session/<session_dir>/` (`messages.jsonl` plus `meta.json`; `VIBE_HOME` overrides the data root), where each session directory is one session. User prompts open turns, assistant messages become steps (`reasoning_content` lands as reasoning blocks, `tool_calls` pair with `role: 'tool'` results by `tool_call_id`, unpaired results are dropped and counted), inline base64 images become image blocks while images without usable bytes degrade to a placeholder and are counted. `context_boundary = "compaction"` imports as a native DSH compaction checkpoint. A composite stat fingerprint over both files drives the unchanged-skip / incremental-append paths, and a missing `meta.json` or unparseable head lines fall back to the first user message for the title.
+- **Per-record timestamps and provider usage pass through**: timestamps that genuinely exist in the source become session event times (the host folds them into real per-step model and tool durations; sessions whose source has no per-record times report 0 there rather than an invented value), and provider-reported token usage (Claude Code's `message.usage`, opencode / kilocode / mimocode's `message.data.tokens`, Reasonix v2's per-line `usage`, and more) is written to `assistant/message.data.usage` for the host's token statistics; event time only moves forward, and a non-negative-integer check drops the whole usage object rather than polluting the stats. **Time to first token and output speed are unavailable from every source** — external transcripts only record completed messages and carry no stream-chunk timestamps, so nothing is fabricated. The opencode export direction is symmetric: usage is written back as `tokens` when present, otherwise 0 plus a `usage-unknown` degradation.
 
 <h3 id="en-0.24.1">Bug Fixes</h3>
 
