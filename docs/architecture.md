@@ -53,7 +53,7 @@
   - `lib/discovery.mjs` → 薄门面 + `lib/discovery/`：来源描述符表 `registry.mjs`（FORMATS / 默认根 / 扫描器 / 单文件判格式全部由描述符派生）、驱动 `discover.mjs`、书签缓存 `scan-cache.mjs`、遍历与状态标注件，以及按来源族的扫描器模块（`claude` / `jsonl` / `gemini` / `sqlite` / `cline` / `session-dirs` / `documents` / `dsh`）。
   - `lib/tools.mjs` → 薄门面（`registerTools` + 档位对账）+ `lib/tools/`：导入 spec 表、参数派生、输出 schema 片段、结果文案、管理 / 导出 / 会话 / 扫描四组工具。
   - `lib/import-core.mjs` → 共享状态机拆出 `lib/import-state.mjs`（已知记录 + 源未变短路径）、`lib/import-batch.mjs`（文件收集 + 批量计数）、`lib/host-session.mjs`（宿主会话读写适配）。
-    - 续拆（2026-10）：宿主 `sessionPersistence` 的两套形状适配（列会话 / 读事件 / 写会话 / 归档集 / 实测日志长度）从 `lib/imports.mjs` 收进 `lib/host-session.mjs`——该文件的既定职责就是「按宿主契约怎么写」，此前它反而要从 registry 模块取 `listPersistedHeaders` / `writeSession`。`imports.mjs` 只转出这些名字（既有消费者零改动），932 → 801 行；会话骨架（轮队列 + 待落压缩检查点 + 遮蔽）从 13 个转换器收进 `lib/convert/ir.mjs` 的 `createTurns()`。
+    - 续拆（2026-10）：宿主 `sessionPersistence` 的两套形状适配（列会话 / 读事件 / 写会话 / 归档集 / 实测日志长度）从 `lib/imports.mjs` 收进 `lib/host-session.mjs`——该文件的既定职责就是「按宿主契约怎么写」，此前它反而要从 registry 模块取 `listPersistedHeaders` / `writeSession`。`imports.mjs` 只转出这些名字（既有消费者零改动），932 → 803 行；会话骨架（轮队列 + 待落压缩检查点 + 遮蔽）从 13 个转换器收进 `lib/convert/ir.mjs` 的 `createTurns()`。
 - **决定**：治理方向不是「按行数强拆」，而是：
   - `discovery.mjs` 按**来源族**拆（每种来源的发现逻辑内聚，与 D3 的来源流水线对齐）；
   - `tools.mjs` 按**工具分组**拆（import / export / purge 各自的工具定义与 handler 同文件）；
