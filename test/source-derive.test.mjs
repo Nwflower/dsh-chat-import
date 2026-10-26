@@ -5,7 +5,11 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { reasonixDesktopLayout, reasonixDeriveArgs, fileStem } from '../lib/tools/source-derive.mjs'
+import { reasonixDesktopLayout, reasonixDeriveArgs, cursorDeriveArgs, fileStem } from '../lib/tools/source-derive.mjs'
+import { clearWorkspacePathCache } from '../lib/cwd-map.mjs'
+import { cursorWorkspaceFixture } from './_support/cursor.mjs'
+import { openSqliteFixture, withTempDirAsync } from './_support/tmp-db.mjs'
+import { readCursorComposerWorkspaces } from '../lib/sources/cursor.mjs'
 
 function exactFs(files) {
   return {
@@ -58,6 +62,41 @@ test('reasonixDeriveArgs：没有 .titles.json 是常态，不告警', async (t)
   const derived = await reasonixDeriveArgs({ fs: exactFs({ [file]: '' }) }, { targetKey: file, displayPath: file })
   assert.equal(derived.title, undefined)
   assert.equal(warn.mock.callCount(), 0)
+})
+
+test('cursorDeriveArgs：composer 登记覆盖旧 slug，缺登记仍解码 slug', async () => {
+  await withTempDirAsync('cursor-derive-', async (root) => {
+    clearWorkspacePathCache()
+    const cwd = join(root, 'moved-project')
+    const fallback = 'E:\\demo'
+    const { ctx } = cursorWorkspaceFixture(root, {
+      rows: [{ composerId: 'registered', value: JSON.stringify({ workspaceIdentifier: { uri: { fsPath: cwd } } }) }],
+      tree: { [cwd]: 'dir', [fallback]: 'dir' },
+    })
+    const target = (id) => ({ displayPath: join(root, 'projects', 'e-demo', 'agent-transcripts', id, id + '.jsonl') })
+    assert.deepEqual(await cursorDeriveArgs(ctx, target('registered')), { cursorId: 'registered', cwd })
+    assert.deepEqual(await cursorDeriveArgs(ctx, target('missing')), { cursorId: 'missing', cwd: fallback })
+  })
+})
+
+test('cursorDeriveArgs：导入忽略发现缓存，即使 DB/WAL 指纹不变也重新读取', async (t) => {
+  await withTempDirAsync('cursor-fresh-import-', async (root) => {
+    const old = join(root, 'old-project')
+    const cwd = join(root, 'moved-project')
+    const value = (fsPath) => JSON.stringify({ workspaceIdentifier: { uri: { fsPath } } })
+    const { ctx, dbPath } = cursorWorkspaceFixture(root, {
+      rows: [{ composerId: 'session', value: value(old) }], tree: { [old]: 'dir', [cwd]: 'dir' },
+    })
+    const stat = ctx.fs.stat
+    t.mock.method(ctx.fs, 'stat', async (target) => target.targetKey === dbPath
+      ? { type: 'file', size: 1, mtimeMs: 1 }
+      : target.targetKey === dbPath + '-wal' ? null : stat(target))
+    assert.equal((await readCursorComposerWorkspaces(ctx)).get('session'), old)
+    const db = openSqliteFixture(dbPath)
+    try { db.prepare('UPDATE composerHeaders SET value = ?').run(value(cwd)) } finally { db.close() }
+    const target = { displayPath: join(root, 'projects', 'empty-window', 'agent-transcripts', 'session', 'session.jsonl') }
+    assert.deepEqual(await cursorDeriveArgs(ctx, target), { cursorId: 'session', cwd })
+  })
 })
 
 test('fileStem：去掉目录与扩展名（两种分隔符）', () => {

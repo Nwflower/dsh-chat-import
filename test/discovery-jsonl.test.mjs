@@ -9,7 +9,7 @@ import { join } from 'node:path'
 import { discoverSessions, clearScanCache, clearInflightScans } from '../lib/discovery.mjs'
 import { convertCodexJsonl } from '../lib/convert/codex.mjs'
 import { resolveCursorSlugPath, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
-import { memoryHost } from './_support/discovery-host.mjs'
+import { memoryHost, withDirs } from './_support/discovery-host.mjs'
 import { FAKE_HOME as HOME, j } from './_support/discovery-host.mjs'
 
 beforeEach(() => {
@@ -317,6 +317,39 @@ test('cursor：slug 解码为真实工作区名分组，<timestamp> 解析时间
   const numeric = sessions.find((s) => s.sessionId === 'cccccccc-cccc-cccc-cccc-cccccccccccc')
   assert.equal(numeric.project, null)
   assert.equal(numeric.cwd, null)
+})
+
+test('cursor：登记册优先恢复旧 slug 的工作区，冷扫与旧书签同源，缺行回退 slug', async (t) => {
+  const root = join(HOME, '.cursor', 'projects')
+  const cacheDir = mkdtempSync(join(tmpdir(), 'cursor-workspace-'))
+  t.after(() => rmSync(cacheDir, { recursive: true, force: true }))
+  const files = new Map(['stale', 'empty-window', '1784784551097', 'fallback'].map((slug) => [
+    join(root, slug, 'agent-transcripts', slug, slug + '.jsonl'),
+    { type: 'file', mtimeMs: 1, text: j({ role: 'user', message: { content: '合成提问' } }) },
+  ]))
+  const host = memoryHost(withDirs(root, files))
+  const fallback = join(cacheDir, 'fallback-project')
+  host.resolveCursorSlug = async (slug) => slug === 'fallback' ? fallback : null
+  const registry = new Map()
+  host.cursorComposerWorkspace = async (id) => registry.get(id) || null
+  const scan = (bookmarks) => discoverSessions({ path: root, format: 'cursor', host, imports: {}, cacheDir: bookmarks })
+  const old = await scan(cacheDir)
+  assert.equal(old.sessions.find((s) => s.sessionId === 'stale').cwd, null)
+  registry.set('stale', join(cacheDir, 'moved-project'))
+  registry.set('empty-window', join(cacheDir, 'registered-project'))
+  registry.set('1784784551097', join(cacheDir, 'registered-project'))
+  for (const bookmarks of [undefined, cacheDir]) {
+    clearScanCache()
+    const reads = host.counters.reads
+    const { sessions } = await scan(bookmarks)
+    for (const id of ['stale', 'empty-window', '1784784551097']) {
+      const entry = sessions.find((s) => s.sessionId === id)
+      assert.equal(entry.cwd, registry.get(id))
+      assert.equal(entry.project, id === 'stale' ? 'moved-project' : 'registered-project')
+    }
+    assert.equal(sessions.find((s) => s.sessionId === 'fallback').cwd, fallback)
+    if (bookmarks) assert.equal(host.counters.reads, reads, '书签补工作区不重读转录')
+  }
 })
 
 test('codex：扁平 archived_sessions/ 下的 rollout 可被发现', async () => {

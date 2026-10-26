@@ -114,6 +114,8 @@ import_chat({ format: "chatgpt", path: "~/Downloads/chatgpt-export/conversations
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
+Cursor 的工作区分组与导入优先按对话 id 查询本机 Cursor 工作区登记册，只采用现存目录。导入始终重新读取，发现缓存成功结果并在 DB/WAL 变化时失效；畸形 JSON 与文件系统读取失败会在诊断告警中计数。没有可用登记时，仍回退转录所在项目目录名的解码。
+
 ## 配置
 
 为了照顾 TUI 用户，插件提供的工具默认会注入上下文。你可以在设置页里把它们设成**不注入**或**只注入一部分**，这样能省下不少 token。
