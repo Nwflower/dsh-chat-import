@@ -38,6 +38,7 @@ const OUT = resolve(root, 'lib/client.js')
 /** 组装顺序即运行时声明顺序：跨片引用只能指向排在前面的片段。 */
 export const FRAGMENTS = [
   'lib/panel-filter.mjs', // 工作区筛选纯函数（宿主侧模块原样内联，测试直接 import）
+  'lib/highlight.mjs',    // search-term highlight ranges (inlined; tests import it directly)
   'i18n.js',      // 字典 DICT + fill + locale 服务句柄
   'prefs.js',     // 侧栏按钮偏好存取 + useTranslate
   'sources.js',   // 来源枚举 / 标签 / 徽标 / 分页常量 / 排序
@@ -48,6 +49,7 @@ export const FRAGMENTS = [
   'utils.js',     // fmt* / 结果摘要 / 响应解析 worker / postJson 请求出口 / Toggle
   'settings.js',  // 设置页「会话导入」分区 + 同步设置
   'tabs.js',      // ImportTabContent / SidebarImportTab / HistoryPanel / SearchableSelect
+  'session-tools.js', // row tools: highlight / preview card / content search / delete dialog / sidebar drop
   'discovery.js', // DiscoveryPanel（发现 + 多选导入主面板）及其纯函数 / hooks / 子组件
   'file-import.js', // FileImportPanel（「从文件导入」折叠区：上传 / 路径浏览 / 预览 / 目录批处理）
   'lib/footer-layout.mjs', // footer 车道量法与形态判定（宿主侧模块原样内联，测试直接 import）

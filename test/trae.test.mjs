@@ -85,6 +85,45 @@ test('Trae reader uses the primary key, fallback keys, and deduplicates sessions
   }
 })
 
+test('Trae reader picks up chat-storage keys whose numeric suffix differs per install', () => {
+  const other = fixtureSessions()
+  other.list[0].sessionId = 'trae-other-install'
+  const { dir, path } = makeDb([
+    ['memento/icube-ai-ng-chat-storage-1111222233334444555', other],
+  ])
+  try {
+    const sessions = readTraeDb(path)
+    assert.deepEqual(sessions.map((session) => session.id), ['trae-other-install'])
+    assert.equal(readTraeDbSummaries(path)[0].title, 'Trae import fixture')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Trae reader deduplicates a session found under both the primary key and an install-suffixed key', () => {
+  const { dir, path } = makeDb([
+    ['memento/icube-ai-agent-storage', fixtureSessions()],
+    ['memento/icube-ai-chat-storage-9999888877776666', fixtureSessions()],
+  ])
+  try {
+    const sessions = readTraeDb(path)
+    assert.deepEqual(sessions.map((session) => session.id), ['trae-1'])
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
+test('Trae reader skips unrelated icube-ai entries instead of failing the database', () => {
+  const { dir, path } = makeDb([
+    ['memento/icube-ai-telemetry-cache', { events: [{ at: 1 }] }],
+  ])
+  try {
+    assert.throws(() => readTraeDb(path), (error) => error?.code === 'TRAE_NO_SESSIONS')
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+})
+
 test('Trae discovery expands workspaceStorage databases without scanning unrelated files', async () => {
   const root = 'C:/Users/tester/AppData/Roaming/Trae/User'
   const workspace = join(root, 'workspaceStorage', 'workspace-hash')

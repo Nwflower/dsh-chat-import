@@ -72,7 +72,8 @@ test('apply 的面板路由经 effect 登记：卸载时全部撤销，不给重
   const { ctx, webRoutes, effects } = makeCtx({})
   apply(ctx)
   // /sessions /import /history /purge /workspaces/cleanup /file /upload/{init,chunk,complete} /uploads /prefs
-  assert.equal(webRoutes.length, 11)
+  // + /preview /search /hide /unhide /delete-source
+  assert.equal(webRoutes.length, 16)
   assert.ok(effects.length > 0, '路由注册挂在 effect 上')
   for (const dispose of effects) dispose()
   assert.equal(webRoutes.length, 0, '卸载后不残留路由（残留会让重载时的重复注册抛错）')

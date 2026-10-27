@@ -51,7 +51,7 @@ test('inlineModule：拒绝无法安全内联的模块形态', () => {
 
 test('FRAGMENTS 里的内联模块都是可以 import 的真实模块（测试直接 import 的就是它）', async () => {
   const modules = FRAGMENTS.filter((name) => name.startsWith('lib/'))
-  assert.deepEqual(modules, ['lib/panel-filter.mjs', 'lib/footer-layout.mjs'])
+  assert.deepEqual(modules, ['lib/panel-filter.mjs', 'lib/highlight.mjs', 'lib/footer-layout.mjs'])
   for (const name of modules) {
     const exported = await import(new URL('../' + name, import.meta.url))
     assert.ok(Object.keys(exported).length > 0, name + ' 应有导出')

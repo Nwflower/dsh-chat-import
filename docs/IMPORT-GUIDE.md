@@ -42,6 +42,7 @@ database → one session; a directory → batch. Root shapes:
 | `vibe` | Mistral Vibe CLI session directory (~/.vibe/logs/session) |
 | `continue` | Continue session JSON (~/.continue/sessions) |
 | `copilot-vscode` | GitHub Copilot VS Code session JSON (<User>/workspaceStorage/<hash>/chatSessions) |
+| `copilot-cli` | GitHub Copilot CLI session events.jsonl (~/.copilot/session-state/<id>) |
 | `cline` | Cline session messages.json (~/.cline/data/sessions) |
 | `goose` | Goose session db sessions.db (~/.local/share/goose/sessions) |
 | `zed` | Zed agent thread db threads.db (<data_dir>/threads) |
@@ -52,8 +53,8 @@ database → one session; a directory → batch. Root shapes:
 
 `local-jsonl` is not a source of its own: it is the fallback entry for a file no source claimed.
 It auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes`
-/ `qoder` / `vibe` / `generic` (content marker > path hint > parser trial) and `parseFormat`
-forces one parser when detection is wrong.
+/ `qoder` / `vibe` / `copilot-vscode` / `copilot-cli` / `generic` (content marker > path hint >
+parser trial) and `parseFormat` forces one parser when detection is wrong.
 
 `doubao` reads the Chromium IndexedDB store of Doubao Desktop. Its conversation list is server-side,
 so the local store only holds bodies for conversations the client has recently opened — sessions
@@ -116,6 +117,23 @@ preserved. The adjacent `workspace.json` supplies a single folder workspace.
 VS Code does not save every tool's original parameters or output. Import
 results report `missingToolInputs` and `missingToolOutputs`; unsupported result
 blocks contribute to `droppedToolResultBlocks`.
+
+## Copilot CLI
+
+`copilot-cli` reads the per-session event stream at
+`~/.copilot/session-state/<session-id>/events.jsonl`; the path accepts the
+`session-state` root, a single session directory or one `events.jsonl` file.
+Set `COPILOT_HOME` when the `.copilot` root was moved. The stream replays user
+prompts, assistant prose and reasoning, and tool calls paired with their
+execution results by `toolCallId`. `session.compaction_complete` becomes a
+native DSH compaction checkpoint (earlier turns stay in the log as log-only);
+`fullHistory: true` keeps the full surface instead. Titles have no explicit
+source, so the first user prompt is used. The event format is not under an
+upstream stability contract: unknown event types, dropped attachments and
+unpaired tool events are counted (`metaMessages`, `unknownEvents`,
+`droppedAttachments`, `unannouncedToolCalls`, `orphanResults`), while unreadable
+lines and suspected secrets are reported (`skippedLines`, `secrets`) — none of
+them fails the whole session.
 
 ## Related
 

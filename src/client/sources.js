@@ -2,7 +2,7 @@
     // claude）。chatgpt 无默认数据根，仅显式 path 可发现。
     const SOURCES = [
       // DSH 两代置顶（紧随「全部来源」）：这是本插件自己的会话格式，最常被用来做迁移/续聊
-      "", "dsh", "dsh4", "claude-code", "codex", "chatgpt", "copilot-vscode", "cursor", "gemini", "antigravity", "reasonix",
+      "", "dsh", "dsh4", "claude-code", "codex", "chatgpt", "copilot-vscode", "copilot-cli", "cursor", "gemini", "antigravity", "reasonix",
       "opencode", "mimocode", "teleagent", "kilocode", "zcode", "grokbuild", "openclaw", "pi", "omp", "hermes", "kimi", "qoder", "workbuddy", "qwen", "trae", "doubao", "vibe", "continue", "cline", "goose", "zed", "crush",
     ];
     // 「导入到」下拉：dsh3 / dsh4 = 建指定代次的 DSH 会话日志（宿主按 header.version 落盘），
@@ -11,14 +11,14 @@
     const IMPORT_TARGETS = ["dsh3", "dsh4", "claude", "codex", "kimi", "opencode"];
     // discovery format 短名 → 客户端来源 id（构建 /api-import/import 的 items）。
     const FORMAT_SOURCE = {
-      claude: "claude-code", codex: "codex", chatgpt: "chatgpt", "copilot-vscode": "copilot-vscode", cursor: "cursor",
+      claude: "claude-code", codex: "codex", chatgpt: "chatgpt", "copilot-vscode": "copilot-vscode", "copilot-cli": "copilot-cli", cursor: "cursor",
       gemini: "gemini", antigravity: "antigravity", reasonix: "reasonix", opencode: "opencode", mimocode: "mimocode", teleagent: "teleagent", kilocode: "kilocode", zcode: "zcode",
       grokbuild: "grokbuild", openclaw: "openclaw", pi: "pi", omp: "omp", hermes: "hermes",
       kimi: "kimi", qoder: "qoder", workbuddy: "workbuddy", qwen: "qwen", trae: "trae", doubao: "doubao", vibe: "vibe", continue: "continue", cline: "cline", goose: "goose", zed: "zed", crush: "crush", dsh: "dsh", dsh4: "dsh4",
     };
     // 来源展示名（产品名不翻译）
     const SOURCE_LABELS = {
-      "claude-code": "Claude", codex: "Codex", chatgpt: "ChatGPT", "copilot-vscode": "Copilot VS Code", cursor: "Cursor",
+      "claude-code": "Claude", codex: "Codex", chatgpt: "ChatGPT", "copilot-vscode": "Copilot VS Code", "copilot-cli": "Copilot CLI", cursor: "Cursor",
       gemini: "Gemini CLI", antigravity: "Antigravity", reasonix: "Reasonix", opencode: "OpenCode", mimocode: "MimoCode",
       teleagent: "TeleAgent",
       kilocode: "Kilo Code",
@@ -32,7 +32,7 @@
     // 来源 id → 标键（SOURCE_LOGOS / SOURCE_BADGES 都按 discovery format 短名键控）：
     // claude-code 用 claude 标，copilot-vscode 用 copilot 标；dsh4 与 dsh 共用 DSH 标。
     // 两个表都查不到时由 BrandMark 按首字母兜底。
-    const SOURCE_MARK_KEY = { "claude-code": "claude", dsh4: "dsh", "copilot-vscode": "copilot" };
+    const SOURCE_MARK_KEY = { "claude-code": "claude", dsh4: "dsh", "copilot-vscode": "copilot", "copilot-cli": "copilot" };
     // 只有连项目仓库里都没有可用矢量标的来源才在这里手绘（有官方标的走 SOURCE_LOGOS，见
     // logos.js）：白色圆角卡 + 品牌标 / 品牌色缩写。目前只剩 WorkBuddy（原仓库已不可达）、
     // TeleAgent（TeleAI 产品页无矢量标）、Crush（仓库里只有演示 GIF / PNG，没有矢量标）。

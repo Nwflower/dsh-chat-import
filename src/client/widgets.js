@@ -21,6 +21,19 @@
       check: h("path", { d: "m4.5 12.5 5 5 10.5-11" }),
       // 折叠箭头（分组头，悬停才出现；收起时整体 rotate(-90deg)）
       chevronDown: h("path", { d: "m6 9 6 6 6-6" }),
+      // session row tools: preview / hide / delete source
+      eye: h(React.Fragment, null,
+        h("path", { d: "M2 12s3.6-7 10-7 10 7 10 7-3.6 7-10 7S2 12 2 12Z" }),
+        h("circle", { cx: 12, cy: 12, r: 3 })),
+      eyeOff: h(React.Fragment, null,
+        h("path", { d: "M10.6 5.1A10 10 0 0 1 12 5c6.4 0 10 7 10 7a17 17 0 0 1-2.5 3.4" }),
+        h("path", { d: "M6.6 6.6C3.7 8.4 2 12 2 12s3.6 7 10 7a9.7 9.7 0 0 0 5.4-1.6" }),
+        h("path", { d: "M9.9 9.9a3 3 0 0 0 4.2 4.2" }),
+        h("path", { d: "m2 2 20 20" })),
+      trash: h(React.Fragment, null,
+        h("path", { d: "M3 6h18" }),
+        h("path", { d: "M8 6V4h8v2" }),
+        h("path", { d: "M19 6l-1 14H6L5 6" })),
     };
     function Icon({ name, size = 14, strokeWidth = 2 }) {
       return h("svg", {

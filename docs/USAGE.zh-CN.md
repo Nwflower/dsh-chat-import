@@ -51,10 +51,11 @@ import_chat({ format: "trae", path: "C:\Users\<you>\AppData\Roaming\Trae\User\wo
 import_chat({ format: "doubao", path: "C:\Users\<you>\AppData\Local\Doubao\User Data" })
 import_chat({ format: "vibe", path: "C:\Users\<you>\.vibe\logs\session" })
 import_chat({ format: "copilot-vscode", path: "C:\Users\<you>\AppData\Roaming\Code\User\workspaceStorage" })
+import_chat({ format: "copilot-cli", path: "C:\Users\<you>\.copilot\session-state" })
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
-`format: "local-jsonl"` 接受本地会话文件或 JSONL 目录。它会自动识别 `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `generic` / `copilot-vscode`；识别不准时用 `parseFormat` 强制指定：
+`format: "local-jsonl"` 接受本地会话文件或 JSONL 目录。它会自动识别 `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `generic` / `copilot-vscode` / `copilot-cli`；识别不准时用 `parseFormat` 强制指定：
 
 ```
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
@@ -75,6 +76,13 @@ Windows、macOS 和 Linux 下 Code、Code - Insiders、VSCodium 的存储，便�
 `COPILOT_VSCODE_STORAGE_DIR`。导入保留已保存的标题、源时间、推理和工具；
 VS Code 未保存的工具参数及结果分别通过 `missingToolInputs`、`missingToolOutputs`
 计数上报。详见 [IMPORT-GUIDE.zh-CN.md](IMPORT-GUIDE.zh-CN.md#copilot-vs-code)。
+
+`format: "copilot-cli"` 导入 Copilot CLI 的逐会话事件流
+（`~/.copilot/session-state/<id>/events.jsonl`）：可传 `session-state` 根、单个
+会话目录或单个 `events.jsonl` 文件；`.copilot` 根被迁移过时设 `COPILOT_HOME`。
+按顺序还原提问、回复、推理与工具执行；源侧压缩默认写为 DSH 原生压缩检查点，
+`fullHistory: true` 保留全量。详见
+[IMPORT-GUIDE.zh-CN.md](IMPORT-GUIDE.zh-CN.md#copilot-cli)。
 
 <details>
 <summary><b>导入参数与行为</b></summary>
@@ -248,7 +256,7 @@ dsh web 的左侧栏底部只有一个「导入会话」入口：**导入会话*
 
 插件**要求 dsh ≥ 0.1.5-rc.1**（`peerDependencies` 已经抬高门槛）。导入窗口**停靠进官方原生右侧栏**：插件在右侧栏注册「导入会话」这个 tab 类型（guide 页有一个带图标、标题和一行描述的胶囊），点按钮就通过 `sidebarRight.openTab('chat-import')` 打开这个 tab，中间的对话区照常保留。这里没有回落链：没有官方右侧栏的老版本，客户端不再支持。
 
-窗口里按工作区文件夹分组列出发现的会话（用各来源记录里的 `cwd` 或项目名，都没有就归入「(未分组)」），并支持按来源过滤：「全部来源」会扫描所有格式的默认数据根，单选某个来源就只看该格式。每行只显示来源工具标、标题和相对时间，上下文、分支、导入状态放在悬停提示里。**点这一行的任意位置就勾选**（键盘聚焦后用 Enter 或空格），行首的工具标只负责标识来源与指示选中态（选中时叠一层遮罩加一个勾），不用再瞄准 22px 的小方块。唯一的例外是行内导入按钮：点它只执行导入，不会连带勾选。这个按钮默认隐藏，悬停或键盘聚焦到该行时，它出现在时间的位置。
+窗口里按工作区文件夹分组列出发现的会话（用各来源记录里的 `cwd` 或项目名，都没有就归入「(未分组)」），并支持按来源过滤：「全部来源」会扫描所有格式的默认数据根，单选某个来源就只看该格式。每行显示来源工具标、标题和相对时间；悬停或键盘聚焦时，时间的位置换成三个行工具（预览、隐藏、删除源文件，见下文「会话行工具」），上下文、分支、导入状态放在悬停提示里。**点这一行的任意位置就勾选**（键盘聚焦后用 Enter 或空格），行首的工具标只负责标识来源与指示选中态（选中时叠一层遮罩加一个勾），不用再瞄准 22px 的小方块。行内那几个按钮（导入、预览、隐藏、删除）都是例外：点哪个只做哪个动作，不会连带勾选。它们默认隐藏，悬停或键盘聚焦到该行时，出现在时间的位置。
 
 搜索框按标题、工作区、路径过滤。列表**分页**展示，每页 500 / 2000 / **全部** 可选，默认 500；列表只挂载可视区那十几行，所以档位大小不影响渲染开销，选「全部」就是不分页。跨页选择会保留，方便批量操作。扫描进度与分页信息合并在列表下方的同一条状态栏里：扫描中显示「已发现 N 个」，完成后显示页码与总数。
 
@@ -270,11 +278,21 @@ dsh web 的左侧栏底部只有一个「导入会话」入口：**导入会话*
 
 > **转投与图片**：目标工具能承载图片时（Claude Code、Codex），图片会先按常规路径落进中间会话的附件存储，导出时读回字节写进目标格式。但中间会话随后会被撤回，而宿主附件服务没有删除接口，所以这些图片字节会**留在附件存储里，无法回收**。结果里 `attachmentsOrphaned: <N>` 会点名这个张数。目标工具导不出图片时（Kimi 的 wire 只认自有 blob，opencode 的 file part 还需要外部文件），插件**不会落**这些字节，而是把图片降级为占位并在结果里计数，免得白白留下回收不掉的数据。
 
-> 数据来自与 `scan_discover` 同一套只读发现（30s TTL 缓存，加上持久化的 mtime 书签）。除了你主动触发的导入，面板不做任何写入。
+> 数据来自与 `scan_discover` 同一套只读发现（30s TTL 缓存，加上持久化的 mtime 书签）。面板不会自己写盘：写入只来自你主动触发的动作——导入、隐藏（在忽略表里记一条）、删除（把源文件移出原目录）。
 
 > **导入的会话落在哪个工作区**（细节见 `architecture.md` D16）：宿主只接受「会话 cwd 与工作区路径相等」的挂接，所以插件在创建会话之前先把落点定下来。cwd 命中已有工作区，就沿用它；cwd 是本机目录，就在该目录建一个工作区（会话与原生会话同区，侧栏会多出这个分组）；cwd 不在本机、或者拿不到（包括主目录，沙箱 ACL 不允许），就落到**专用导入工作区** `$DSH_HOME/dsh-chat-import-workspace`，cwd 也随之改写。`workspaceMode` 可以选 `auto`（默认，就是上面这套规则）、`per-project`（不改写 cwd，宁可「未分组」）、`dedicated`（一律落专用工作区，目录可用 `workspaceDir` 覆盖）。归组结果一律写进导入结果：`workspace` / `workspaceCreated` 表示侧栏多出的分组，`ungrouped` + `ungroupedReason` 表示会话已导入但停在侧栏最底部的「未分组」（找不到时先滚到列表末尾）。旧版本曾经为源 transcript 目录误建过空工作区，可以用「导入历史」页的「**清理空工作区**」按钮移除；它只删成员为 0 的工作区登记，目录与会话日志都保留。
 
 > **导入完成会弹一条落点提示**，用的是官方 `shell.overlay` 的 Toast：顶部居中，约 6 秒后自动消失。内容是「导入完成 → <工作区路径>（本次新建该工作区）；另有 N 个未归组」。面板结果栏里仍有完整计数，这条 Toast 只是保证你切走 tab 或收起右栏之后，也知道**这次落到了哪**。转投（导入到 DSH 之外）弹的是写出的文件路径。**被幂等跳过的会话也用同一条 Toast 提示**：「已跳过 N 个未变化 / 无法安全续写的对话」，外加一个「重新导入为新会话」按钮（等于用 force 另铸新会话，按钮停留 15 秒）。面板里原来那条底部黄条已经并进 Toast。宿主没有官方 `Toast` 组件的旧版本上，插件退化为位置相同、同样带动作按钮的自绘横幅（见 `architecture.md` D17）。
+
+### 会话行工具 —— 预览、正文搜索、隐藏、删除源文件
+
+悬停或键盘聚焦到某一行时，时间的位置会换成三个行工具；**双击会话行**打开同一张预览卡。和行内导入按钮一样，它们都不会连带勾选。
+
+- **预览**复用导入的只读 dry-run（零副作用）：标题、cwd、轮 / 消息 / 工具调用计数，以及按顺序排列的提问与回复。插件注入的消息不出现，连续的工具调用折成一行（`Bash ×2, Read`），每条消息都会截断，贴一大段内容也不会把卡片淹掉。
+- **搜内容**把搜索框从标题 / 路径匹配切到正文检索。只索引提问与回复的文本——工具入参与结果不计。空白分隔的每个词都必须出现在同一条消息里；命中的行带命中数，关键词在行标题与预览里高亮。转录是数据库或「一个文件装多条会话」的 JSON（`conversations.json`、opencode / zcode / hermes 的库）的来源会被跳过并计数，因为它们没法逐行读。换词、换来源或换 epoch 会取消上一次检索；进度与命中来自对已扫描列表的轮询，检索本身不重新扫盘。
+- **隐藏**把该行移出列表，并在忽略表里登记一条可撤销的 `hidden` 记录：重扫不再出现，`/ignores` 能看到它，提示条上的**撤销**会删掉这条记录。已经带着归档 / 撤回记录的行不会被改写——对这类行会跳过隐藏。
+- **删除文件…**在明确确认之后把源文件移进系统回收站。只对单会话来源、且只对**按默认根扫描**出来的行开放；用自定义路径扫出来的行仍可预览、搜索与导入，但面板不提供删除。DSH 侧已导入的副本保留；一个文件装多条会话的来源（数据库、`conversations.json`）一律拒绝——删它等于删掉里面的每一条会话。
+- **拖到侧栏工作区**：把行拖到左侧栏的工作区分组上，导入的落点就钉在该工作区，副本时间轴平移到「最后一个事件是现在」：它会排在该工作区最上面，而不是落回原来的日期。只对 DSH 落点成立——转投到别的工具没有工作区可落。
 
 ### 从文件导入 —— 任意本地文件与长尾工具
 

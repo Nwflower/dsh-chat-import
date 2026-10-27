@@ -11,20 +11,9 @@
     //
     // 片段契约：本文件是 bundle 的一个片段，禁 import/export；前面片段声明的 useTranslate /
     // COLORS / postJson / showAppToast / fmtImportResult 直接用。
-    // 子文件夹询问用的宿主 UI 预设组件（@deepseek-ai/dsh-client-ui-primitives 的 Modal /
-    // Button）：与导入落点 Toast（src/client/toast.js）同一条 require 通道，旧宿主缺该包
-    // 或换 API 时退回面板自绘弹层——一句询问不值得把面板拖垮（例外记在 architecture D17）。
-    let HostModal = null;
-    let HostButton = null;
-    try {
-      const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
-      HostModal = primitives && typeof primitives.Modal === "function" ? primitives.Modal : null;
-      HostButton = primitives && typeof primitives.Button === "function" ? primitives.Button : null;
-    } catch {
-      // 旧宿主没有该包：保持 null，renderSubfolderDialog 走自绘兜底
-      HostModal = null;
-      HostButton = null;
-    }
+    // 子文件夹询问用的宿主 UI 预设组件（Modal / Button，经 toast.js 的共用探测拿到，见
+    // architecture D17）：旧宿主缺该包或换 API 时就为 null，renderSubfolderDialog 走自绘兜底——
+    // 一句询问不值得把面板拖垮。
 
     // 识别失败时指给用户的「Skill」：interchange 转换指南（Agent 用，双语）。URL 按界面
     // 语言走 i18n 键 fileImport.failures.guideUrl（zh → .zh-CN.md，en → .md），不写死常量。

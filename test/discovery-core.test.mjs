@@ -363,10 +363,10 @@ test('layoutProject：各源目录布局 → 项目名', () => {
   }
 })
 
-test('FORMATS 与工具 schema enum 一致（32 种）', () => {
-  assert.equal(FORMATS.length, 32)
+test('FORMATS 与工具 schema enum 一致（33 种）', () => {
+  assert.equal(FORMATS.length, 33)
   // dsh / dsh4 是同一份会话目录的两个日志代次桶（V0–V3 / V4+），来源列表因此能分别只看
-  assert.deepEqual([...FORMATS].sort(), ['antigravity', 'chatgpt', 'claude', 'cline', 'codex', 'continue', 'copilot-vscode', 'crush', 'cursor', 'doubao', 'dsh', 'dsh4', 'gemini', 'goose', 'grokbuild', 'hermes', 'kilocode', 'kimi', 'mimocode', 'omp', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'teleagent', 'trae', 'vibe', 'workbuddy', 'zcode', 'zed'])
+  assert.deepEqual([...FORMATS].sort(), ['antigravity', 'chatgpt', 'claude', 'cline', 'codex', 'continue', 'copilot-cli', 'copilot-vscode', 'crush', 'cursor', 'doubao', 'dsh', 'dsh4', 'gemini', 'goose', 'grokbuild', 'hermes', 'kilocode', 'kimi', 'mimocode', 'omp', 'openclaw', 'opencode', 'pi', 'qoder', 'qwen', 'reasonix', 'teleagent', 'trae', 'vibe', 'workbuddy', 'zcode', 'zed'])
 })
 
 test('git 状态：cwd 为 git 仓库（纯 JS 解析 .git/HEAD）→ 分支正确；非仓库目录 → null 不报错', async (t) => {

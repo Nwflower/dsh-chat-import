@@ -326,7 +326,7 @@
      *  元素树，不再重建（大档位下这是主要开销）。比较字段全是标量，回调由父级 useCallback
      *  固定引用。 */
     const SessionRow = React.memo(function SessionRow(props) {
-      const { s, badgeOverlay, label, time, tip, checked, hot, importing, onToggle, onImport, groupName } = props;
+      const { s, badgeOverlay, label, time, tip, checked, hot, importing, onToggle, onImport, groupName, terms, hit } = props;
       const style = STYLES;
       const colors = COLORS;
       const lit = hot || checked;
@@ -356,6 +356,11 @@
         onBlur: () => props.onHot(null, key, groupName),
         onMouseEnter: () => props.onHot(key, null, groupName),
         onMouseLeave: () => props.onHot(null, key, groupName),
+        // double-click opens the preview; drag carries the row (or the selection) to a sidebar workspace
+        onDoubleClick: importing ? undefined : (e) => { e.preventDefault(); props.onPreview(s); },
+        draggable: !importing,
+        onDragStart: importing ? undefined : (e) => props.onDragStart(e, s),
+        onDragEnd: () => props.onDragEnd(),
       },
         h(SourceBadge, {
           format: s.format, checked, disabled: importing, size: 22,
@@ -365,9 +370,18 @@
         h("div", { style: style.itemMain },
           h("div", {
             style: { ...style.itemTitle, ...(lit ? style.itemTitleActive : null) },
-          }, s.title || props.noTitle)),
+          }, h(Highlight, { text: s.title || props.noTitle, terms }))),
         h("div", { style: style.rowSlot },
+          hot || !hit ? null : h("span", { style: TOOL_STYLES.hits }, props.hitLabel),
           hot ? null : h("span", { style: style.rowTime }, time),
+          // row tools on hover / focus: preview, hide, delete source (each stops the row toggle)
+          hot && [["eye", props.previewTitle, props.onPreview], ["eyeOff", props.hideTitle, props.onHide], ["trash", props.deleteTitle, props.onDelete]]
+            .map(([icon, title, act]) => h("button", {
+              key: icon, type: "button", style: TOOL_STYLES.rowIcon, title, "aria-label": title, disabled: importing,
+              onClick: (e) => { e.stopPropagation(); act(icon === "trash" ? [s] : s); },
+              onFocus: () => props.onHot(key, null, groupName),
+              onBlur: () => props.onHot(null, key, groupName),
+            }, h(Icon, { name: icon, size: 14 }))),
           h("button", {
             style: hot ? style.importBtn : style.rowBtnIdle,
             disabled: importing,
@@ -379,19 +393,22 @@
           }, props.importLabel)));
     }, (a, b) => a.s === b.s && a.checked === b.checked && a.hot === b.hot && a.importing === b.importing
       && a.label === b.label && a.time === b.time && a.tip === b.tip && a.badgeOverlay === b.badgeOverlay
-      && a.onToggle === b.onToggle && a.onImport === b.onImport && a.onHot === b.onHot);
+      && a.onToggle === b.onToggle && a.onImport === b.onImport && a.onHot === b.onHot
+      && a.terms === b.terms && a.hit === b.hit && a.hitLabel === b.hitLabel);
 
     /** 一个工作区分组：组头（点击折叠 / 展开）+ 窗口化的会话行（区间见 windowRange）。组头与
      *  皮肤一致——悬停（或组内有行点亮：groupLit）时文字变亮并露出折叠箭头，不浮背景矩形
      *  （它是标题不是目标）；组头自己的悬停是本组件的局部状态，不惊动整个面板。 */
     function SessionGroup(props) {
       const { entry, win, t, importing, selected, badgeOverlay, isCollapsed, hotKey, groupLit, onCollapse, onToggle, onImport, onHot } = props;
+      const { terms, hits, tools } = props;
       const style = STYLES;
       const group = entry.group;
       const [headHover, setHeadHover] = useState(false);
       const range = isCollapsed ? null : windowRange(group.list.length, entry.rowsTop, win);
       const rows = range === null ? [] : group.list.slice(range.first, range.last).map((s) => {
         const key = itemKey(s);
+        const hit = hits ? hits.get(key) || null : null;
         return h(SessionRow, {
           key,
           s,
@@ -399,7 +416,18 @@
           groupName: group.name,
           label: sourceLabel(s.format),
           time: relTime(s.lastActiveAt || s.createdAt, t) || t("timeUnknown"),
-          tip: sessionTip(s, t),
+          tip: sessionTip(s, t) + hitTip(hit, t),
+          terms,
+          hit,
+          hitLabel: hit ? t("search.content.hits", { n: hit.count }) : "",
+          onPreview: tools.preview,
+          onHide: tools.hide,
+          onDelete: tools.remove,
+          onDragStart: tools.dragStart,
+          onDragEnd: tools.dragEnd,
+          previewTitle: t("row.preview"),
+          hideTitle: t("row.hide.title"),
+          deleteTitle: t("row.delete.title"),
           checked: selected.has(key),
           hot: hotKey === key,
           importing,
@@ -571,6 +599,10 @@
       const [pageSize, setPageSize] = useState(PAGE_SIZES[0]);
       const [collapsed, setCollapsed] = useState(new Set()); // 已折叠的工作区分组名
       const [hot, setHot] = useState(NO_HOT); // 点亮中的会话行与其所在分组（见 nextHot）
+      // 内容搜索（在会话正文里搜）：预览 / 隐藏 / 删源 / 拖拽的状态与请求在
+      // session-tools.js 的 useSessionRowTools 里，面板只留搜索模式与提交词
+      const [contentMode, setContentMode] = useState(false);
+      const [contentText, setContentText] = useState(""); // submitted content-search text
 
       const { items, setItems, stream, error, warnings } = useSessionScan({
         source, query, epoch, t,
@@ -580,6 +612,8 @@
         // 首次扫描响应到达即定项——V4 宿主默认 DSH（V4 会话格式），V3 宿主默认 V3。
         onDshVersion: (v) => setTarget((cur) => (cur ? cur : (v >= 4 ? "dsh4" : "dsh3"))),
       });
+      const search = useContentSearch({ text: contentMode ? contentText : "", source, query, epoch, ready: stream.done, t });
+      const terms = useMemo(() => highlightTerms(contentMode ? contentText : query), [contentMode, contentText, query]);
       const [setListEl, win, listEl] = useListWindow();
       // 换页 / 改每页条数 → 回到列表顶部（否则从第 3 屏切到新页会停在半空）
       useEffect(() => { if (listEl) listEl.scrollTop = 0; }, [listEl, page, pageSize]);
@@ -593,13 +627,16 @@
       const migrate = srcVersion !== 0 && targetVersion !== 0 && srcVersion !== targetVersion;
 
       // 执行导入（单选/多选共用）：POST /api-import/import → 摘要 → 刷新列表状态
-      const doImport = async (items, { replace = false, force = false, archiveSources = false } = {}) => {
+      const doImport = async (items, { replace = false, force = false, archiveSources = false, workspace = null } = {}) => {
         if (!items || items.length === 0 || importing) return;
         setImporting(true);
         setResult(null);
         try {
           const r = await postJson("/api-import/import", {
-            items, replace: replace === true, force: force === true, archiveSources: archiveSources === true, target,
+            items, replace: replace === true, force: force === true, archiveSources: archiveSources === true,
+            // dropped onto a sidebar workspace: always a DSH session, attached to that workspace
+            target: workspace && !String(target).startsWith("dsh") ? "dsh" : target,
+            ...(workspace ? { workspaceId: workspace.id } : {}),
           });
           if (!r.ok) {
             setResult(r.error || t("error.route"));
@@ -621,7 +658,8 @@
           const ignoredLine = ignored.length > 0
             ? t("toast.ignored", { n: ignored.length, reason: fmtIgnoreReasons(ignoreReasonsOf(data.results), t) })
             : "";
-          const toastText = [landed, skipLine, ignoredLine].filter(Boolean).join(t("result.separator"));
+          const dropLine = workspace ? t("drop.done", { name: workspace.name || "" }) : "";
+          const toastText = [dropLine, landed, skipLine, ignoredLine].filter(Boolean).join(t("result.separator"));
           const toastActions = [];
           if (skipped.length > 0) {
             toastActions.push({ label: t("toast.ignore"), onClick: () => doImport(skipped, { force: true }) });
@@ -646,16 +684,34 @@
 
       // 搜索：提交词 + 回到第一页；来源/搜索词变化由上方 effect 清空跨页选择
       const applySearch = () => {
+        if (contentMode) {
+          // content search keeps the list as is and searches inside it (no rescan)
+          setContentText(queryInput.trim());
+          setPage(0);
+          return;
+        }
         setQuery(queryInput.trim());
         setPage(0);
         setEpoch((n) => n + 1);
       };
       const clearSearch = () => {
         setQueryInput("");
-        setQuery("");
+        setContentText("");
         setPage(0);
-        setEpoch((n) => n + 1);
+        if (query) { setQuery(""); setEpoch((n) => n + 1); }
       };
+      const toggleContentMode = () => {
+        setContentMode((on) => !on);
+        setContentText("");
+        setPage(0);
+        if (query) { setQuery(""); setEpoch((n) => n + 1); }
+      };
+
+      // 行工具（预览 / 隐藏 / 删源 / 拖到侧栏工作区）：状态、请求与浮层都在 session-tools.js，
+      // 面板只交出列表、选择集与导入流程
+      const rowTools = useSessionRowTools({
+        selected, setItems, setSelected, setEpoch, doImport, terms, importing, t,
+      });
 
       // memo 行的回调：实现随每次渲染更新，但暴露给行的函数引用恒定（否则 memo 白做）
       const rowActions = useRef({});
@@ -685,10 +741,11 @@
       // 以下派生数据全部 memo：悬停 / 勾选引起的重渲染（每行一次）不再重算过滤、分组、排序。
       // 大档位（几百上千行）时这一步才是真正的热点。
       // 路径筛选（工作区）+ 时间筛选（最后活跃/创建时间落在窗口内）叠加
-      const filteredItems = useMemo(
-        () => filterByTime(filterByWorkspace(items, workspaceFilter), timeFilter, Date.now()),
-        [items, workspaceFilter, timeFilter],
-      );
+      const contentHits = contentMode && contentText ? search.hits : null;
+      const filteredItems = useMemo(() => {
+        const base = filterByTime(filterByWorkspace(items, workspaceFilter), timeFilter, Date.now());
+        return contentHits ? base.filter((s) => contentHits.has(itemKey(s))) : base;
+      }, [items, workspaceFilter, timeFilter, contentHits]);
       const allRows = pageSize === ALL_PAGE_SIZE;
       const totalPages = allRows ? 1 : Math.max(1, Math.ceil(filteredItems.length / pageSize));
       // 当前页窗口 = 工作区筛选后的缓冲切片（服务端不再分页；翻页零重扫）；「全部」档不分页
@@ -701,9 +758,14 @@
       const displayTotal = filteredItems.length;
       // 底部一条的状态文案：扫描中报进度，扫描完成报总数（合并掉原来列表上方那条独立状态行）
       const scanning = !error && stream.started && !stream.done;
+      const contentSearching = !!contentHits && !search.done;
       const barText = scanning
         ? t("scan.status.progress", { n: items.length })
-        : t("count.total", { n: displayTotal });
+        : contentHits
+          ? (contentSearching
+            ? t("search.content.progress", { scanned: search.scanned, total: search.total, n: displayTotal })
+            : t("search.content.done", { n: displayTotal }))
+          : t("count.total", { n: displayTotal });
       const groups = useMemo(() => groupSessions(sessions), [sessions]);
       // 有来源扫描失败（库被锁 / 无权限 / 读取器异常）：其余来源照常列出，只在列表上方点名，
       // 免得「没扫到」看起来像「没有会话」
@@ -762,17 +824,26 @@
           // 筛选层：搜索词（搜索按钮 / Enter 提交）
           h("div", { style: style.searchRow },
             h("input", {
-              style: style.searchInput, value: queryInput, placeholder: t("search.placeholder"),
+              style: style.searchInput, value: queryInput,
+              placeholder: contentMode ? t("search.content.placeholder") : t("search.placeholder"),
+              "aria-label": contentMode ? t("search.content.placeholder") : t("search.placeholder"),
               onChange: (e) => setQueryInput(e.target.value),
               onKeyDown: (e) => { if (e.key === "Enter") applySearch(); },
             }),
+            h("button", {
+              type: "button",
+              style: { ...style.toolBtn, ...(contentMode ? { borderColor: colors.accent, color: colors.accent } : null) },
+              "aria-pressed": contentMode,
+              onClick: toggleContentMode,
+              title: t("search.content.title"),
+            }, t("search.content")),
             h("button", {
               style: narrow ? style.searchIconBtn : style.searchBtn,
               onClick: applySearch, title: t("search"), "aria-label": t("search"),
             }, narrow ? h(Icon, { name: "search" }) : t("search")),
             h("button", {
               style: narrow ? style.iconBtn : style.toolBtn,
-              onClick: clearSearch, disabled: (!queryInput && !query) || importing,
+              onClick: clearSearch, disabled: (!queryInput && !query && !contentText) || importing,
               title: t("clearSearch"), "aria-label": t("clearSearch"),
             }, narrow ? h(Icon, { name: "x" }) : t("clearSearch"))),
           h(DiscoveryToolbar, {
@@ -792,7 +863,8 @@
           !stream.started && !error && h("div", { style: style.status }, t("scan.hint.start")),
           error && h("div", { style: style.error }, error),
           !error && scanNotice && h("div", { style: style.scanNotice, title: scanNotice.title, role: "status" }, scanNotice.text),
-          stream.done && !error && filteredItems.length === 0 && h("div", { style: style.status }, query || workspaceFilter ? t("noMatch") : t("noSessions")),
+          contentHits && search.error && h("div", { style: style.scanNotice, role: "status" }, search.error),
+          stream.done && !error && !contentSearching && filteredItems.length === 0 && h("div", { style: style.status }, query || workspaceFilter || contentHits ? t("noMatch") : t("noSessions")),
           // 列表容器**恒渲染**（flex:1 撑满剩余高度）：此前 items 为空时整个容器不存在，
           // 底部操作区（结果摘要 + 导入按钮）就会被内容顶到上面去；空列表时它只是没有行。
           !error && h("div", { ref: setListEl, style: style.list },
@@ -803,6 +875,7 @@
               hotKey: hot.key,
               groupLit: hot.group === entry.group.name,
               onCollapse, onToggle, onImport, onHot,
+              terms, hits: contentHits, tools: rowTools.tools,
             })) : null),
           items.length > 0 && h(PageBar, {
             t, page, totalPages, barText, displayTotal, pageSize, importing,
@@ -836,5 +909,6 @@
               onClick: () => doImport([...selected.values()].map(toItem)),
             }, importing ? t("importing") : t("import.selected", { n: selected.size }))));
       return h("div", { ref: rootRef, style: { display: "flex", flexDirection: "column", minHeight: 0, flex: 1, position: "relative" } },
-        body);
+        body,
+        rowTools.overlay);
     }

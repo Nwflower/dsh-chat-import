@@ -32,6 +32,7 @@ const IMPLEMENTATION = {
   cline: ['lib/convert/cline.mjs'],
   codex: ['lib/convert/codex.mjs'],
   continue: ['lib/convert/continue.mjs'],
+  'copilot-cli': ['lib/convert/copilot-cli.mjs'],
   crush: ['lib/convert/crush.mjs'],
   grokbuild: ['lib/convert/grokbuild.mjs'],
   kimi: ['lib/convert/kimi.mjs'],

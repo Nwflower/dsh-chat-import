@@ -251,7 +251,7 @@ test('三级探测：路径特征命中报 path-hint，未识别时给出每个�
 
   const junk = convertLocalJsonl('{"foo":1}\n{"bar":2}\n', { sourcePath: '/tmp/downloads/junk.jsonl' })
   assert.equal(junk.detectedFormat, null)
-  assert.equal(junk.failures.length, 12) // 12 个候选格式（含 generic）各给一条原因
+  assert.equal(junk.failures.length, 13) // 13 个候选格式（含 generic）各给一条原因
   assert.ok(junk.failures.every((f) => typeof f.format === 'string' && typeof f.reason === 'string'))
   assert.match(junk.skipReason, /未能识别/)
 })

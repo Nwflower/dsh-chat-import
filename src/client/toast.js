@@ -6,13 +6,22 @@
     // 插件声明支持 dsh ≥ 0.1.5-rc.1：旧宿主未必有该包（或换了 API），所以这里**缺包就
     // 退回自绘横幅**——一句「导入到哪了」的提示不值得把整个面板拖垮。这条 require 宿主
     // 客户端模块的例外记在 docs/architecture.md D17。
+    //
+    // 同一份探测也供 Modal / Button：子文件夹询问（file-import.js）与删源确认
+    // （session-tools.js）用的是同一通道、同一套降级，探测只写这一次。
     let HostToast = null;
+    let HostModal = null;
+    let HostButton = null;
     try {
       const primitives = require("@deepseek-ai/dsh-client-ui-primitives");
       HostToast = primitives && typeof primitives.Toast === "function" ? primitives.Toast : null;
+      HostModal = primitives && typeof primitives.Modal === "function" ? primitives.Modal : null;
+      HostButton = primitives && typeof primitives.Button === "function" ? primitives.Button : null;
     } catch {
-      // 旧宿主没有该包：HostToast 保持 null，走 FallbackToast
+      // 旧宿主没有该包：三者保持 null，各自走自绘兜底
       HostToast = null;
+      HostModal = null;
+      HostButton = null;
     }
 
     const TOAST_HOLD_MS = 6000;

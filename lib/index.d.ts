@@ -97,8 +97,8 @@ export interface ImportOptions {
   recursive?: boolean
   /** 期望的源文件 SHA-256（小写 hex）；不符时大声失败、不写任何东西。 */
   expectedHash?: string
-  /** true 时把导入的时间戳平移到当前（保留相对间隔）；默认保留源时间。 */
-  restamp?: boolean
+  /** true 时把导入的时间戳平移到当前（保留相对间隔）；'end' 让最后一个事件落在当前（拖到侧栏工作区用）；默认保留源时间。 */
+  restamp?: boolean | 'end'
   /** 归组方式：auto（默认）/ per-project / dedicated（全部导入进同一个工作区）。 */
   workspaceMode?: WorkspaceMode
   /** workspaceMode=dedicated 时的工作区目录。 */
@@ -108,7 +108,7 @@ export interface ImportOptions {
 }
 
 export type LocalJsonlFormat =
-  | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder' | 'vibe' | 'copilot-vscode'
+  | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder' | 'vibe' | 'copilot-vscode' | 'copilot-cli'
   /** interchange v1 会话文档（内容标记 "interchange":"dsh-chat-import"；长尾来源与 skill 路线的落点）。 */
   | 'generic'
 
@@ -117,7 +117,7 @@ export type ChatFormat =
   | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode'
   | 'mimocode' | 'kilocode' | 'teleagent' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'omp'
   | 'kimi' | 'qoder' | 'workbuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'continue' | 'cline' | 'goose'
-  | 'zed' | 'crush' | 'dsh' | 'dsh4' | 'local-jsonl' | 'copilot-vscode'
+  | 'zed' | 'crush' | 'dsh' | 'dsh4' | 'local-jsonl' | 'copilot-vscode' | 'copilot-cli'
 
 /** import_chat 参数：公共导入参数（ImportOptions）+ 源格式 + 源专属参数。 */
 export interface ImportChatOptions extends ImportOptions {
@@ -129,7 +129,7 @@ export interface ImportChatOptions extends ImportOptions {
   branch?: 'main' | 'all'
   /** 仅一库多会话来源（opencode / mimocode / kilocode / teleagent / trae / doubao / zcode / goose / zed / crush）：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
-  /** 仅压缩感知来源（claude / cline / codex / continue / crush / grokbuild / kimi / mimocode / kilocode / opencode / pi / omp / qoder / teleagent / zcode / zed）：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。omp 另受该开关影响：false 时按 reset_boundary（/clear）切掉清空点之前的内容。该开关进参数指纹，换值须重导。名单与 `import_chat` 的描述串同源（由 spec.fullHistory 派生）。 */
+  /** 仅压缩感知来源（claude / cline / codex / continue / copilot-cli / crush / grokbuild / kimi / mimocode / kilocode / opencode / pi / omp / qoder / teleagent / zcode / zed）：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。omp 另受该开关影响：false 时按 reset_boundary（/clear）切掉清空点之前的内容。该开关进参数指纹，换值须重导。名单与 `import_chat` 的描述串同源（由 spec.fullHistory 派生）。 */
   fullHistory?: boolean
   /** 仅 claude：true 时把结构化 toolUseResult sidecar（编辑 diff、问答、退出码等）以文本并入工具结果。进参数指纹，换值须 force。 */
   includeToolUseResult?: boolean
@@ -646,7 +646,7 @@ export type ScanFormat =
   | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'mimocode'
   | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'omp' | 'hermes' | 'kimi' | 'kilocode' | 'qoder'
   | 'chatgpt' | 'workbuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
-  | 'crush' | 'teleagent' | 'trae' | 'doubao' | 'vibe' | 'dsh' | 'copilot-vscode'
+  | 'crush' | 'teleagent' | 'trae' | 'doubao' | 'vibe' | 'dsh' | 'copilot-vscode' | 'copilot-cli'
 
 export type ImportStatusLabel = 'imported' | 'partial' | 'not-imported' | 'archived'
 
