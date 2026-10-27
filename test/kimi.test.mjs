@@ -393,6 +393,30 @@ test('convertKimiWire: 新 Kimi Code tool.call/tool.result 配对；turn.prompt 
   assertMessageOrderLegal(out.events)
 })
 
+test('convertKimiWire: 并行工具结果按源到达顺序发射（不重排缓存前缀）', () => {
+  const out = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '并行读取' }], origin: { kind: 'user' } }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: '并行读取' }], origin: { kind: 'user' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '读两个文件' } } }),
+    newEv('context.append_loop_event', { event: { type: 'tool.call', turnId: '0', step: 1, toolCallId: 'call_a', name: 'Read', args: { path: 'a' } } }),
+    newEv('context.append_loop_event', { event: { type: 'tool.call', turnId: '0', step: 1, toolCallId: 'call_b', name: 'Read', args: { path: 'b' } } }),
+    // 结果按完成顺序到达：b 先于 a
+    newEv('context.append_loop_event', { event: { type: 'tool.result', toolCallId: 'call_b', result: { output: 'B', is_error: false } } }),
+    newEv('context.append_loop_event', { event: { type: 'tool.result', toolCallId: 'call_a', result: { output: 'A', is_error: false } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'tool_use' } }),
+    newEv('turn.ended', { turnId: 0, reason: 'completed' }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+
+  const assistant = out.events.find((e) => e.type === 'assistant/message').data.message
+  assert.deepEqual(assistant.content.filter((b) => b.type === 'tool-call').map((b) => b.id), ['call_a', 'call_b'])
+  const results = out.events.filter((e) => e.type === 'tool/result')
+  assert.deepEqual(results.map((e) => e.data.message.content[0].toolCallId), ['call_b', 'call_a'])
+  assert.deepEqual(results.map((e) => e.data.message.content[0].content[0].text), ['B', 'A'])
+  assertToolPairing(out.events)
+  assertMessageOrderLegal(out.events)
+})
+
 test('convertKimiWire: 新 wire 无 turn.prompt 时 context.append_message 兜底建轮', () => {
   const out = convertKimiWire(newWire([
     newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: '只有 append_message' }], toolCalls: [], origin: { kind: 'user' }, id: 'msg_1' } }),
@@ -405,6 +429,73 @@ test('convertKimiWire: 新 wire 无 turn.prompt 时 context.append_message 兜�
   const users = out.events.filter((e) => e.type === 'user/message' && e.data.source.kind === 'user')
   assert.equal(users.length, 1)
   assert.equal(users[0].data.content[0].text, '只有 append_message')
+})
+
+test('convertKimiWire: append_message 的 injection / task / system_trigger 导入为插件上下文，不冒充用户', () => {
+  const out = convertKimiWire(newWire([
+    // 首个上下文注入发生在真人提问之前：不得成为标题，也不得算用户消息
+    newEv('context.append_message', {
+      message: { role: 'user', content: [{ type: 'text', text: '<system-reminder>\ndate stays current' }], origin: { kind: 'injection', variant: 'date_change' } },
+    }),
+    newEv('turn.prompt', { input: [{ type: 'text', text: '第一问' }], origin: { kind: 'user' } }),
+    newEv('context.append_message', {
+      message: { role: 'user', content: [{ type: 'text', text: '第一问' }], origin: { kind: 'user' }, id: 'msg_1' },
+    }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+    // 后台任务完成通知：源侧是工具结果，不是用户提问
+    newEv('context.append_message', {
+      message: { role: 'user', content: [{ type: 'text', text: '<notification id="task:1">done' }], origin: { kind: 'task', taskId: 'task:1', status: 'completed' } },
+    }),
+    newEv('context.append_message', {
+      message: { role: 'user', content: [{ type: 'text', text: 'subagent started' }], origin: { kind: 'system_trigger', name: 'subagent' } },
+    }),
+    newEv('turn.prompt', { input: [{ type: 'text', text: '第二问' }], origin: { kind: 'user' } }),
+    newEv('context.append_message', {
+      message: { role: 'user', content: [{ type: 'text', text: '第二问' }], origin: { kind: 'user' }, id: 'msg_2' },
+    }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '1', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '再答' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '1', step: 1, finishReason: 'end_turn' } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+
+  assert.equal(out.title, '第一问')
+  // 环境变更声明也是插件注入（id 以 :env 结尾），这里只看各轮提问
+  const users = out.events.filter((e) => e.type === 'user/message' && !e.data.id.endsWith(':env'))
+  assert.deepEqual(users.map((e) => e.data.source.kind), ['plugin', 'user', 'plugin', 'plugin', 'user'])
+  assert.deepEqual(users.map((e) => e.data.content[0].text), [
+    '<system-reminder>\ndate stays current',
+    '第一问',
+    '<notification id="task:1">done',
+    'subagent started',
+    '第二问',
+  ])
+  // 插件上下文是折叠行：不计入消息数（2 条真人提问 + 2 条 assistant）
+  assert.equal(out.messages, 4)
+  assertMessageOrderLegal(out.events)
+})
+
+test('convertKimiWire: 连续同文注入各成一轮；turn.prompt 的通知与 append_message 成对不重复', () => {
+  const reminder = '<system-reminder>\ntodo list stale'
+  const out = convertKimiWire(newWire([
+    newEv('turn.prompt', { input: [{ type: 'text', text: '做吧' }], origin: { kind: 'user' } }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: '做吧' }], origin: { kind: 'user' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.begin', turnId: '0', step: 1 } }),
+    newEv('context.append_loop_event', { event: { type: 'content.part', part: { type: 'text', text: '好' } } }),
+    newEv('context.append_loop_event', { event: { type: 'step.end', turnId: '0', step: 1, finishReason: 'end_turn' } }),
+    // 同一条提醒连续出现两次：源里是两条独立消息，不能合并
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: reminder }], origin: { kind: 'injection', variant: 'todo_list_reminder' } } }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: reminder }], origin: { kind: 'injection', variant: 'todo_list_reminder' } } }),
+    // 后台通知先以 turn.prompt 落盘，再以 append_message 落盘：只算一条
+    newEv('turn.prompt', { input: [{ type: 'text', text: '<notification id="task:9">done' }] }),
+    newEv('context.append_message', { message: { role: 'user', content: [{ type: 'text', text: '<notification id="task:9">done' }], origin: { kind: 'task', taskId: 'task:9', status: 'completed' } } }),
+  ]), { sourcePath: SRC, kimiId: 'sess-001' })
+
+  const prompts = out.events.filter((e) => e.type === 'user/message' && !e.data.id.endsWith(':env'))
+  assert.deepEqual(prompts.map((e) => e.data.source.kind), ['user', 'plugin', 'plugin', 'plugin'])
+  assert.deepEqual(prompts.slice(1).map((e) => e.data.content[0].text), [reminder, reminder, '<notification id="task:9">done'])
+  assert.equal(out.title, '做吧')
 })
 
 test('convertKimiWire: append_message 与 turn.prompt 同文本去重、不同文本开新轮（steer / 压缩后续聊）', () => {
