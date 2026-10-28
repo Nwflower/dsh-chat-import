@@ -76,7 +76,7 @@
 
 ## Install
 
-> Requires dsh 0.1.5-rc.1 or newer. Verified on the 0.1.x line and on 0.2.0-rc.1; dsh-tools must satisfy `>=0.1.0-rc.6 <0.3.0`.
+> Requires dsh 0.1.5-rc.1 or newer. Verified on the 0.1.x line and on the 0.2.x line; dsh-tools must satisfy `>=0.1.0-rc.6 <0.3.0`.
 
 1. Install from a terminal
 
