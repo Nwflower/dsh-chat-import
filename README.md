@@ -114,6 +114,8 @@ import_chat({ format: "chatgpt", path: "~/Downloads/chatgpt-export/conversations
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
+Cursor workspace grouping and imports prefer the local Cursor workspace registry by conversation id, accepting only existing directories. Imports always read fresh; discovery caches successful reads and invalidates on DB/WAL changes. Malformed JSON and filesystem failures are counted in diagnostic warnings. When no usable entry exists, they fall back to decoding the transcript's project directory name.
+
 ## Configuration
 
 To accommodate TUI users, the tools this plugin provides start out injected into context. In Settings you can switch them to **not injected**, or to a partial injection, which saves a fair number of tokens.

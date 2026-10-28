@@ -12,6 +12,8 @@ import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { setImmediate } from 'node:timers'
 import { makeDiscoveryHost } from '../lib/discovery-host.mjs'
+import { cursorWorkspaceFixture } from './_support/cursor.mjs'
+import { withTempDirAsync } from './_support/tmp-db.mjs'
 
 // 伪 fs：files 是 path → 文本；streamText 按 chunkSize 分块 yield（模拟宿主流式读）；
 // withRange 时提供 readByteRange（按 UTF-8 字节偏移取窗口），calls 记录各能力的调用次数。
@@ -51,6 +53,19 @@ function fakeCtx(files, { chunkSize = 64, withStream = true, withRange = false, 
   }
   return { fs, calls }
 }
+
+test('cursorComposerWorkspace：host 按 composerId 读取登记册，缺行返回 null', async () => {
+  await withTempDirAsync('cursor-host-', async (root) => {
+    const cwd = join(root, 'moved-project')
+    const { ctx } = cursorWorkspaceFixture(root, {
+      rows: [{ composerId: 'registered', value: JSON.stringify({ workspaceIdentifier: { uri: { fsPath: cwd } } }) }],
+      tree: { [cwd]: 'dir' },
+    })
+    const host = makeDiscoveryHost(ctx)
+    assert.equal(await host.cursorComposerWorkspace('registered'), cwd)
+    assert.equal(await host.cursorComposerWorkspace('missing'), null)
+  })
+})
 
 test('readTail：跨多块流式读取时返回末尾 maxBytes（滚动窗口不累积未淘汰块）', async () => {
   const text = Array.from({ length: 1000 }, (_, i) => String.fromCharCode(97 + (i % 26))).join('')

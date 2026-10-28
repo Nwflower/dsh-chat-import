@@ -60,6 +60,15 @@ parser trial) and `parseFormat` forces one parser when detection is wrong.
 so the local store only holds bodies for conversations the client has recently opened — sessions
 without a locally cached body are not listed and cannot be imported (nothing is fabricated).
 
+`cursor` uses the conversation id to look up an existing directory in Cursor's local
+`User/globalStorage/state.vscdb` workspace registry, with `workspaceStorage/<id>/workspace.json`
+as a folder fallback. Discovery caches successful reads for up to 30 seconds, invalidating on
+DB/WAL fingerprint changes; imports always read fresh. Failed reads are not cached.
+Malformed header/sidecar JSON and filesystem failures are counted in a diagnostic warning;
+missing tables and locked databases remain silent optional probes. Missing or unreadable entries
+fall back to the transcript's project slug; multi-root workspace files are not treated as
+directories. Already-imported session headers are not changed.
+
 Prefer discovery over guessing paths: the `scan_discover` tool lists what is importable under
 each source's default roots (optionally filtered by `path` / `format` / `query`), and the Import
 Sessions panel shows the same list. An import that names the wrong root fails with the expected

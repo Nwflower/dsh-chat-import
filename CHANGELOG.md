@@ -2,6 +2,18 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">问题修复</h3>
+
+- **Cursor 旧对话在项目移动后仍可恢复工作区**：发现、旧扫描书签与导入优先按 composerId 查询本机 Cursor 工作区登记册，只采用现存目录；导入始终重新读取，发现缓存随 DB/WAL 指纹变化失效，失败结果不缓存。畸形登记 JSON 与文件系统读取失败计数告警，缺表或锁库仍静默降级。缺登记、旧版库或库不可读时保留 slug 解码兜底，避免仅因旧目录名失效而落入「无工作区」。
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+- **Cursor conversations can recover their workspace after a project moves**: discovery, existing scan bookmarks and imports prefer the local Cursor workspace registry by composerId, accepting only existing directories. Imports always read fresh; discovery invalidates cached results on DB/WAL fingerprint changes and does not cache failures. Malformed registry JSON and filesystem failures produce counted diagnostic warnings, while missing tables and locked databases still degrade silently. Missing entries, older databases and unreadable registries retain slug decoding as a fallback, so a stale transcript directory name alone no longer leaves a conversation without a workspace.
+
 ## [0.26.3] - 2026-10-27
 
 [中文](#cn-0.26.3) | [English](#en-0.26.3)
