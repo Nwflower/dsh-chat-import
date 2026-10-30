@@ -6,9 +6,17 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 [中文](#cn-unreleased) | [English](#en-unreleased)
 
+<h3 id="cn-unreleased">新增功能</h3>
+
+- **新增 CodeArts Desktop 导入源**：`import_chat({ format: "codearts", path })` 与面板支持华为云码道 CodeArts 桌面客户端内置 agent 的会话目录 `~/.codearts/kernel/sessions/<启动桶>/<session-uuid>/`（`history.jsonl` + `meta.json`，可传 sessions 根、启动桶、单个会话目录或直传 `history.jsonl`；根被迁移过时用 `CODEARTS_HOME` 指向）。消息正文是 Rust serde 变体（`SinglePart` / `MultiPart` 下的 `Text` / `ToolCall` / `ToolResult`），转换器摊平成标准内容块：标题与 cwd 取 `meta.json`，推理走 `reasoning_content`，工具结果按 `tool_call_id` 跨轮回看配对（未配对的孤儿结果计数 `droppedToolResults`），`token_usage` 的 prompt / completion / reasoning / cached 四桶映射为逐步 usage，逐消息 RFC3339 时间戳透传成事件时间。宿主注入的上下文消息（`synthetic: true`，如 todowrite 快照）仍进日志保序，但来源标为插件注入——UI 折叠、不进消息计数、不作标题回退，计数上报 `injectedPrompts`。`local-jsonl` 自动识别新增该格式（`.codearts/kernel/sessions/` 路径特征或 `history.jsonl` 文件名）。本机实测 3 个真实会话 342 条消息：199 次工具调用与 199 条结果全部配对，零丢弃。
+
 <h3 id="cn-unreleased">问题修复</h3>
 
 - **Cursor 旧对话在项目移动后仍可恢复工作区**：发现、旧扫描书签与导入优先按 composerId 查询本机 Cursor 工作区登记册，只采用现存目录；导入始终重新读取，发现缓存随 DB/WAL 指纹变化失效，失败结果不缓存。畸形登记 JSON 与文件系统读取失败计数告警，缺表或锁库仍静默降级。缺登记、旧版库或库不可读时保留 slug 解码兜底，避免仅因旧目录名失效而落入「无工作区」。
+
+<h3 id="en-unreleased">New Features</h3>
+
+- **New import source: CodeArts Desktop**: `import_chat({ format: "codearts", path })` and the panel accept the built-in agent session directories of Huawei Cloud's CodeArts desktop client (码道 CodeArts) `~/.codearts/kernel/sessions/<bucket>/<session-uuid>/` (`history.jsonl` + `meta.json`) — pass the sessions root, a bucket, a session directory or a single `history.jsonl`; set `CODEARTS_HOME` when the `.codearts` root was moved. Message bodies are Rust serde variants (`Text` / `ToolCall` / `ToolResult` under `SinglePart` / `MultiPart`); the converter flattens them into standard content blocks: titles and cwd come from `meta.json`, reasoning from `reasoning_content`, tool results pair back to their call across turns by `tool_call_id` (unpaired orphans count as `droppedToolResults`), the prompt / completion / reasoning / cached buckets of `token_usage` map to per-step usage, and per-message RFC3339 timestamps become event times. Host-injected context messages (`synthetic: true`, e.g. todowrite snapshots) keep their place in the log but are attributed to the plugin — folded in the UI, excluded from message counts and title fallback, reported as `injectedPrompts`. `local-jsonl` auto-detection now also recognizes this format (the `.codearts/kernel/sessions/` path hint or a `history.jsonl` file name). Verified against three real local sessions (342 messages): all 199 tool calls paired with their 199 results, zero dropped.
 
 <h3 id="en-unreleased">Bug Fixes</h3>
 
