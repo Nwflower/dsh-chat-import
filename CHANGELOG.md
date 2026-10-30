@@ -8,7 +8,19 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 <h3 id="cn-unreleased">问题修复</h3>
 
+<h3 id="cn-unreleased">体验优化</h3>
+
+- **按会话时间命名的 cwd 不再产生日期名工作区**：cwd 末段是纯时间戳时（CodeArts Desktop 的 `codearts/2026-10-30-00-40-33`、WorkBuddy Desktop 的 `WorkBuddy AI/2026-10-27-13-46-52` 这类每会话新建的工作目录）按「不可用 cwd」处理，与主目录同级——`auto` 落专用导入工作区、`per-project` 进未分组，`ungroupedReason` 报 `cwd-ephemeral`。此前每个会话都会就地建出一个日期名工作区。识别只认末段且要求整段是时间戳形态，带后缀的项目目录（`proj/2026-10-30-release`）不受影响。
+
+<h3 id="cn-unreleased">问题修复</h3>
+
 - **Cursor 旧对话在项目移动后仍可恢复工作区**：发现、旧扫描书签与导入优先按 composerId 查询本机 Cursor 工作区登记册，只采用现存目录；导入始终重新读取，发现缓存随 DB/WAL 指纹变化失效，失败结果不缓存。畸形登记 JSON 与文件系统读取失败计数告警，缺表或锁库仍静默降级。缺登记、旧版库或库不可读时保留 slug 解码兜底，避免仅因旧目录名失效而落入「无工作区」。
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+<h3 id="en-unreleased">Improvements</h3>
+
+- **Session-timestamp-named cwds no longer produce date-named workspaces**: when a cwd's last segment is a bare timestamp (the per-session working directory CodeArts Desktop (`codearts/2026-10-30-00-40-33`) and WorkBuddy Desktop (`WorkBuddy AI/2026-10-27-13-46-52`) create), it counts as an unusable cwd, on par with the home directory — `auto` falls back to the dedicated import workspace, `per-project` leaves the session ungrouped and reports `ungroupedReason: "cwd-ephemeral"`. Previously every session created its own date-named workspace. Detection looks only at the last segment and requires it to be timestamp-shaped, so project directories carrying a date suffix (`proj/2026-10-30-release`) are unaffected.
 
 <h3 id="en-unreleased">Bug Fixes</h3>
 

@@ -84,7 +84,7 @@
 - `recursive` —— 目录模式下是否递归子目录，默认 `true`。
 - `expectedHash` —— 期望的源 SHA-256（小写十六进制）。不匹配时直接报错，什么都不写。
 - `restamp` —— 设为 `true` 时把导入的时间戳平移到当下，相对间隔保留；默认保留源时间。
-- `workspaceMode` —— 工作区分组方式：`auto` | `per-project` | `dedicated`，其中 `dedicated` 会把全部导入放进同一个工作区。
+- `workspaceMode` —— 工作区分组方式：`auto` | `per-project` | `dedicated`，其中 `dedicated` 会把全部导入放进同一个工作区。cwd 末段是纯时间戳时（CodeArts Desktop / WorkBuddy Desktop 每会话新建的日期名工作目录）按「不可用」处理而非项目：`auto` 让它落专用导入工作区，`per-project` 让它进未分组——两者都不建日期名工作区。
 - `workspaceDir` —— `workspaceMode=dedicated` 时使用的工作区目录。
 - `cwdRemap` —— 跨机器迁移时重写源 cwd 前缀，例如 `[{from:"D:/work",to:"/home/me/work"}]`。最长前缀优先；只对新导入生效，已经导入过的来源会被跳过，要重来请用 `force`。
 

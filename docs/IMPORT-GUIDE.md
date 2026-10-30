@@ -90,7 +90,7 @@ Every parameter is declared in the tool schema; this is what each one does.
 - `recursive` — recurse into subdirectories in directory mode (default `true`).
 - `expectedHash` — expected SHA-256 (lowercase hex) of the source; a mismatch fails loudly and writes nothing.
 - `restamp` — `true` shifts imported timestamps to now, keeping relative gaps; default keeps source times.
-- `workspaceMode` — workspace grouping: `auto` | `per-project` | `dedicated` (all imports into one workspace).
+- `workspaceMode` — workspace grouping: `auto` | `per-project` | `dedicated` (all imports into one workspace). A cwd whose last segment is a bare timestamp (the date-named working directory CodeArts Desktop / WorkBuddy Desktop create per session) counts as unusable rather than a project: `auto` sends it to the dedicated import workspace, `per-project` leaves it ungrouped — neither creates a date-named workspace.
 - `workspaceDir` — workspace directory when `workspaceMode=dedicated`.
 - `cwdRemap` — rewrite source cwd prefixes for cross-machine migration, e.g. `[{from:"D:/work",to:"/home/me/work"}]`. Longest prefix wins; applies to new imports only (already-imported sources are skipped — use `force` for a fresh copy).
 

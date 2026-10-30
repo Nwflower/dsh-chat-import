@@ -93,6 +93,27 @@ test('cwd = 主目录：不建主目录工作区，落点是专用导入工作�
   assert.deepEqual(h.created, [DEDICATED])
 })
 
+test('cwd = 一次性运行目录（按会话时间命名的目录）：不建日期名工作区', async () => {
+  // CodeArts Desktop / WorkBuddy Desktop 每会话在日期名目录下开工，目录通常是空的。
+  // 判为不可用后按 workspaceMode 处理，不再「一个会话一个日期名工作区」。
+  const ephemeral = 'C:\\Users\\u\\codearts\\2026-10-30-00-40-33'
+  const h = hostMock({ dirs: [ephemeral] })
+
+  // auto：不建日期名工作区，落点专用导入工作区（仍保证会话可见）
+  const auto = await planWorkspaceGroup(h.ctx, { cwd: ephemeral }, 'D:\\src\\ca.jsonl')
+  assert.equal(auto.mode, 'dedicated')
+  assert.equal(auto.fallbackFrom, 'cwd-ephemeral')
+  assert.deepEqual(h.created, [DEDICATED])
+
+  // per-project：不改写 cwd、不建工作区 → 会话进未分组
+  const h2 = hostMock({ dirs: [ephemeral] })
+  const pp = await planWorkspaceGroup(h2.ctx, { cwd: ephemeral }, 'D:\\src\\ca.jsonl', { workspaceMode: 'per-project' })
+  assert.equal(pp.mode, 'per-project')
+  assert.equal(pp.path, null)
+  assert.equal(pp.reason, 'cwd-ephemeral')
+  assert.deepEqual(h2.created, [])
+})
+
 test('cwd 不可达（跨机器）：宿主拒绝建工作区 → 落点专用导入工作区，且不碰源目录', async () => {
   const h = hostMock({ dirs: [] })
   const plan = await planWorkspaceGroup(h.ctx, { cwd: 'D:\\machine-a\\gone' }, 'C:\\Users\\b\\incoming\\x.jsonl')
