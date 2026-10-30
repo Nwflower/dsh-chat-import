@@ -8,9 +8,13 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 <h3 id="cn-unreleased">问题修复</h3>
 
+- **WorkBuddy Desktop 5.9.x 改数据根后会话扫不到（0 条）**：`~/.workbuddy` 只剩 `logs/`，会话移到 `~/.workbuddy-ai/projects/`；旧实现把根写死成 `~/.workbuddy/projects`，且扫描器按 `.workbuddy/projects` 路径签名自拒，因此即使显式传 `path` 也返回 0。现在 `roots` 同时返回两代数据根（老布局继续可用），路径签名、单文件判格式与 `layoutProject` 都认 `.workbuddy` 与 `.workbuddy-ai` 两种。本机实测同一批 11 个会话从 0 条恢复到全部可见。
+
 - **Cursor 旧对话在项目移动后仍可恢复工作区**：发现、旧扫描书签与导入优先按 composerId 查询本机 Cursor 工作区登记册，只采用现存目录；导入始终重新读取，发现缓存随 DB/WAL 指纹变化失效，失败结果不缓存。畸形登记 JSON 与文件系统读取失败计数告警，缺表或锁库仍静默降级。缺登记、旧版库或库不可读时保留 slug 解码兜底，避免仅因旧目录名失效而落入「无工作区」。
 
 <h3 id="en-unreleased">Bug Fixes</h3>
+
+- **WorkBuddy Desktop 5.9.x sessions invisible after the data-root rename (0 found)**: `~/.workbuddy` now holds only `logs/`; sessions moved to `~/.workbuddy-ai/projects/`. The old code hard-coded `~/.workbuddy/projects` and the scanner rejected any path not matching the `.workbuddy/projects` signature, so even an explicit `path` returned 0. `roots` now returns both data roots (the old layout keeps working), and the path signature, single-file format detection and `layoutProject` accept both `.workbuddy` and `.workbuddy-ai`. Verified locally: the same 11 sessions went from 0 to fully listed.
 
 - **Cursor conversations can recover their workspace after a project moves**: discovery, existing scan bookmarks and imports prefer the local Cursor workspace registry by composerId, accepting only existing directories. Imports always read fresh; discovery invalidates cached results on DB/WAL fingerprint changes and does not cache failures. Malformed registry JSON and filesystem failures produce counted diagnostic warnings, while missing tables and locked databases still degrade silently. Missing entries, older databases and unreadable registries retain slug decoding as a fallback, so a stale transcript directory name alone no longer leaves a conversation without a workspace.
 
