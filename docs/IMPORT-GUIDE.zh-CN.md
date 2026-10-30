@@ -38,6 +38,7 @@
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
 | `vibe` | Mistral Vibe CLI session directory (~/.vibe/logs/session) |
+| `codearts` | CodeArts Desktop session directory (~/.codearts/kernel/sessions) |
 | `continue` | Continue session JSON (~/.continue/sessions) |
 | `copilot-vscode` | GitHub Copilot VS Code session JSON (<User>/workspaceStorage/<hash>/chatSessions) |
 | `copilot-cli` | GitHub Copilot CLI session events.jsonl (~/.copilot/session-state/<id>) |
@@ -51,7 +52,7 @@
 
 `local-jsonl` 本身不是来源，而是没有来源认领这个文件时的兜底入口。它会自动识别 `dsh` /
 `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` /
-`copilot-vscode` / `copilot-cli` / `generic`，判据依次是内容标记、路径提示、解析器试跑；识别
+`codearts` / `copilot-vscode` / `copilot-cli` / `generic`，判据依次是内容标记、路径提示、解析器试跑；识别
 错了就用 `parseFormat` 强制指定。
 
 `doubao` 读的是豆包桌面版的 Chromium IndexedDB。它的会话列表在服务端，本地只为「客户端最近
@@ -84,7 +85,7 @@
 - `recursive` —— 目录模式下是否递归子目录，默认 `true`。
 - `expectedHash` —— 期望的源 SHA-256（小写十六进制）。不匹配时直接报错，什么都不写。
 - `restamp` —— 设为 `true` 时把导入的时间戳平移到当下，相对间隔保留；默认保留源时间。
-- `workspaceMode` —— 工作区分组方式：`auto` | `per-project` | `dedicated`，其中 `dedicated` 会把全部导入放进同一个工作区。
+- `workspaceMode` —— 工作区分组方式：`auto` | `per-project` | `dedicated`，其中 `dedicated` 会把全部导入放进同一个工作区。cwd 末段是纯时间戳时（如 CodeArts Desktop 的 `codearts/2026-10-30-00-40-33`）按「不可用」处理而非项目：`auto` 让它落专用导入工作区，`per-project` 让它进未分组——两者都不建日期名工作区。
 - `workspaceDir` —— `workspaceMode=dedicated` 时使用的工作区目录。
 - `cwdRemap` —— 跨机器迁移时重写源 cwd 前缀，例如 `[{from:"D:/work",to:"/home/me/work"}]`。最长前缀优先；只对新导入生效，已经导入过的来源会被跳过，要重来请用 `force`。
 

@@ -90,7 +90,7 @@ test('描述长度护栏：每个工具 description ≤ 500 字符，全量档�
   // 已下沉到指南，schema 只剩枚举、必填项与「调用必需」的一行说明（≈2.7k 字符）。
   const importChat = defs.find((d) => d.name === 'import_chat')
   const importChatSize = importChat.description.length + JSON.stringify(importChat.parameters).length
-  assert.ok(importChatSize <= 2800, `import_chat 常驻 ${importChatSize} 字符超过 2800 上限（下沉后基线 ≈2.7k）`)
+  assert.ok(importChatSize <= 2850, `import_chat 常驻 ${importChatSize} 字符超过 2850 上限（下沉后基线 ≈2.7k；34 来源 = 2820，新增一源只该多两行枚举 ≈24 字符）`)
   // 上限随来源数量走：新增来源只该多一行枚举（≈12 字符）与 spec 派生的名单，不该多一段说明。
   // 下沉前基线 ≈15.3k，下沉后 ≈11.3k；12k 给后续来源留了余量，同时挡住「说明回填 schema」。
   assert.ok(total <= 12000, `全量档 payload ${total} 字符超过 12000 上限（下沉后基线 ≈11.3k）`)
