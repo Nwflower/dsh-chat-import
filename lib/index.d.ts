@@ -236,7 +236,7 @@ export interface DecisionReport {
   workspaceCreated?: boolean
   /** 未归组的会话数（>0 才占键）：会话已导入，但停在侧栏「未分组」下。 */
   ungrouped?: number
-  /** 未归组的首个原因（no-registry / cwd-is-home / create-failed: … / attach-failed: …）。 */
+  /** 未归组的首个原因（no-registry / cwd-is-home / cwd-ephemeral / create-failed: … / attach-failed: …）。 */
   ungroupedReason?: string
   trimmed?: TrimReport | null
   /** 重导另铸副本：`previous` 原会话、`current` 新副本、`reason` 点名缘由。两个会话都保留。 */

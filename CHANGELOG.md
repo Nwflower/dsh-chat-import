@@ -6,11 +6,19 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 [中文](#cn-unreleased) | [English](#en-unreleased)
 
+<h3 id="cn-unreleased">体验优化</h3>
+
+- **按会话时间命名的 cwd 不再产生日期名工作区**：cwd 末段是纯时间戳时（CodeArts Desktop 的 `codearts/2026-10-30-00-40-33`、WorkBuddy Desktop 的 `WorkBuddy AI/2026-10-27-13-46-52` 这类每会话新建的工作目录）按「不可用 cwd」处理，与主目录同级——`auto` 落专用导入工作区、`per-project` 进未分组，`ungroupedReason` 报 `cwd-ephemeral`。此前每个会话都会就地建出一个日期名工作区。识别只认末段且要求整段是时间戳形态，带后缀的项目目录（`proj/2026-10-30-release`）不受影响。
+
 <h3 id="cn-unreleased">问题修复</h3>
 
 - **WorkBuddy Desktop 5.9.x 改数据根后会话扫不到（0 条）**：`~/.workbuddy` 只剩 `logs/`，会话移到 `~/.workbuddy-ai/projects/`；旧实现把根写死成 `~/.workbuddy/projects`，且扫描器按 `.workbuddy/projects` 路径签名自拒，因此即使显式传 `path` 也返回 0。现在 `roots` 同时返回两代数据根（老布局继续可用），路径签名、单文件判格式与 `layoutProject` 都认 `.workbuddy` 与 `.workbuddy-ai` 两种。本机实测同一批 11 个会话从 0 条恢复到全部可见。
 - **Cursor 旧对话在项目移动后仍可恢复工作区**：发现、旧扫描书签与导入优先按 composerId 查询本机 Cursor 工作区登记册，只采用现存目录；导入始终重新读取，发现缓存随 DB/WAL 指纹变化失效，失败结果不缓存。畸形登记 JSON 与文件系统读取失败计数告警，缺表或锁库仍静默降级。缺登记、旧版库或库不可读时保留 slug 解码兜底，避免仅因旧目录名失效而落入「无工作区」。
 - **显式预算不再能把导入会话写死：参数 / 环境变量给出的预算超过模型窗口时按窗口钳制，并用 `budgetClampedFrom` 回报原值**：`resolveImportBudget` 对参数与 `DSH_IMPORT_CONTEXT_BUDGET` 直接原值返回，只有动态分支才看模型窗口，于是调用方传一个比窗口大的数就会把所有保护同时关掉——整段历史全量落盘，恢复对话时每轮都 `CONTEXT_WINDOW_EXCEEDED`，而自动压缩自己要发一次超窗请求也发不出去，那条会话除了重导没有别的出路。现在两条分支都按动态分支同一条上限（窗口 − 输出上限 − max(25% 窗口, 40k)）钳制并回报原值，导入结果里明说「预算被钳制」、registry 落钳后值；宿主报不出窗口时按原值使用——钳制只在已知上限上生效，不用来拦导入。同一份源实测：显式 750000 落 10,040 事件、表面 7.2 万 token；显式 500000000 落 105,883 事件、表面 849 万 token，每轮 400。
+
+<h3 id="en-unreleased">Improvements</h3>
+
+- **Session-timestamp-named cwds no longer produce date-named workspaces**: when a cwd's last segment is a bare timestamp (the per-session working directory CodeArts Desktop (`codearts/2026-10-30-00-40-33`) and WorkBuddy Desktop (`WorkBuddy AI/2026-10-27-13-46-52`) create), it counts as an unusable cwd, on par with the home directory — `auto` falls back to the dedicated import workspace, `per-project` leaves the session ungrouped and reports `ungroupedReason: "cwd-ephemeral"`. Previously every session created its own date-named workspace. Detection looks only at the last segment and requires it to be timestamp-shaped, so project directories carrying a date suffix (`proj/2026-10-30-release`) are unaffected.
 
 <h3 id="en-unreleased">Bug Fixes</h3>
 
