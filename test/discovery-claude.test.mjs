@@ -4,7 +4,7 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { discoverSessions, clearScanCache, clearInflightScans } from '../lib/discovery.mjs'
+import { discoverSessions, clearScanCache, clearInflightScans, layoutProject } from '../lib/discovery.mjs'
 import { memoryHost, withDirs } from './_support/discovery-host.mjs'
 import { FAKE_HOME as HOME, j } from './_support/discovery-host.mjs'
 
@@ -271,6 +271,36 @@ test('workbuddy：~/.workbuddy/projects 发现、user_query 标题、cwd 项目�
   // 路径自拒：指向其它目录的同一批文件，workbuddy 扫描器返回空
   const other = await discoverSessions({ path: join(HOME, 'elsewhere'), format: 'workbuddy', host, imports: {} })
   assert.equal(other.total, 0)
+})
+
+test('workbuddy：Desktop 5.9.x 的 ~/.workbuddy-ai/projects 同样发现（.workbuddy 只剩 logs）', async () => {
+  // 老根与新根共存时的两种情形都要工作：数据根改名不该让已装用户扫不到自己的历史
+  const root = join(HOME, '.workbuddy-ai', 'projects')
+  const proj = join(root, 'c-Users-u-WorkBuddy AI-2026-10-27-13-46-52')
+  const s1 = join(proj, 'wb-sess-9001.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [proj, { type: 'dir' }],
+    [s1, {
+      type: 'file', mtimeMs: 1786000002000, text: [
+        j({ id: 'u', timestamp: 1787131157250, type: 'message', role: 'user', content: [{ type: 'input_text', text: '<user_query>查一下缓存</user_query>' }], sessionId: 'wb-sess-9001', cwd: '/home/u/demo' }),
+        j({ id: 'a', timestamp: 1787131157252, type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '好的' }], sessionId: 'wb-sess-9001', cwd: '/home/u/demo' }),
+      ].join('\n'),
+    }],
+  ])
+  const host = memoryHost(files)
+
+  const { sessions, total } = await discoverSessions({ path: root, format: 'workbuddy', host, imports: {} })
+  assert.equal(total, 1)
+  const s = sessions[0]
+  assert.equal(s.sessionId, 'wb-sess-9001')
+  assert.equal(s.title, '查一下缓存')
+  assert.equal(s.cwd, '/home/u/demo')
+  // layoutProject 也要认新根（记录内无 cwd 时的回退；入参是 .jsonl 文件路径）
+  assert.equal(
+    layoutProject(join(root, 'c-Users-u-x-2026-10-27', 'wb-sess-9001.jsonl'), 'workbuddy'),
+    'c-Users-u-x-2026-10-27',
+  )
 })
 
 test('qwen：~/.qwenworkcn/projects 发现、humanInput 首问、workspace-directories 项目、双 slug 去重、路径自拒', async () => {
