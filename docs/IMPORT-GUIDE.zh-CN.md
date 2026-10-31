@@ -76,7 +76,7 @@
 
 - `path`（必填）—— 来源的转录、数据库、会话目录或数据根，形状按 format 查上表。
 - `force` —— 即使已经导入过，也另存一份完整副本（`import-<src>-<n>`）。
-- `budget` —— 三层裁剪使用的上下文预算，单位是 token。默认 550k，取值顺序是：参数 > 环境变量 `DSH_IMPORT_CONTEXT_BUDGET` > 模型窗口。
+- `budget` —— 三层裁剪使用的上下文预算，单位是 token。默认 550k，取值顺序是：参数 > 环境变量 `DSH_IMPORT_CONTEXT_BUDGET` > 模型窗口。显式给出的值（参数或环境变量）若超过模型窗口可用上限（窗口 − 输出上限 − max(25% 窗口, 40k)），会被钳到该上限并用 `budgetClampedFrom` 回报原值——预算大于窗口时所有保护会同时失效：整段历史全量落盘、恢复对话时每轮都超模型上限，自动压缩自己也发不出请求。宿主报不出窗口时按原值使用。
 - `storeImages` —— 默认 `true`，来源里的图片会落成宿主附件（`ctx.attachments`），在 DSH 里长期可用。设为 `false` 时只保留 `[image]` 文本占位；环境变量 `DSH_IMPORT_STORE_IMAGES=0` 效果相同。
 - `preview` —— 设为 `true` 时零副作用预演：什么都不写，只返回将要导入的清单。
 - `dryRun` —— `preview` 的别名。
