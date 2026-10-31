@@ -35,7 +35,7 @@ database → one session; a directory → batch. Root shapes:
 | `omp` | oh-my-pi session JSONL (~/.omp/agent/sessions) |
 | `kimi` | Kimi CLI / Kimi Code session directory (wire.jsonl + state.json) |
 | `qoder` | Qoder CLI session JSONL (~/.qoder/projects / ~/.qoder-cn/projects) |
-| `workbuddy` | WorkBuddy session JSONL (~/.workbuddy/projects) |
+| `workbuddy` | WorkBuddy session JSONL (~/.workbuddy/projects, Desktop 5.9.x: ~/.workbuddy-ai/projects) |
 | `qwen` | Qwen Work CN (千问办公) session JSONL (~/.qwenworkcn/projects) |
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
@@ -83,7 +83,7 @@ Every parameter is declared in the tool schema; this is what each one does.
 
 - `path` (required) — source transcript, database, session directory or data root. Shape per format (table above).
 - `force` — import as a fresh copy (`import-<src>-<n>`) even when the source was already imported.
-- `budget` — context budget in tokens for the three-layer crop. Default 550k; resolution order is parameter > env `DSH_IMPORT_CONTEXT_BUDGET` > the model's window.
+- `budget` — context budget in tokens for the three-layer crop. Default 550k; resolution order is parameter > env `DSH_IMPORT_CONTEXT_BUDGET` > the model's window. An explicit value (parameter or env) above the model-window ceiling (window − output cap − max(25% of window, 40k)) is clamped to that ceiling and echoed back as `budgetClampedFrom`: a budget larger than the window disables every protection at once — the whole history is written out, every recovered turn exceeds the model limit, and auto-compaction cannot run either. When the host cannot report the window, the value is used as-is.
 - `storeImages` — default `true`: images in the source become host attachments (`ctx.attachments`) so they survive in DSH. `false` keeps `[image]` text placeholders only; env `DSH_IMPORT_STORE_IMAGES=0` does the same.
 - `preview` — `true` dry-runs: zero writes, returns only the would-import list.
 - `dryRun` — alias of `preview`.
@@ -91,7 +91,7 @@ Every parameter is declared in the tool schema; this is what each one does.
 - `recursive` — recurse into subdirectories in directory mode (default `true`).
 - `expectedHash` — expected SHA-256 (lowercase hex) of the source; a mismatch fails loudly and writes nothing.
 - `restamp` — `true` shifts imported timestamps to now, keeping relative gaps; default keeps source times.
-- `workspaceMode` — workspace grouping: `auto` | `per-project` | `dedicated` (all imports into one workspace). A cwd whose last segment is a bare timestamp (e.g. CodeArts Desktop's `codearts/2026-10-30-00-40-33`) counts as unusable rather than a project: `auto` sends it to the dedicated import workspace, `per-project` leaves it ungrouped — neither creates a date-named workspace.
+- `workspaceMode` — workspace grouping: `auto` | `per-project` | `dedicated` (all imports into one workspace). A cwd whose last segment is a bare timestamp (the date-named working directory CodeArts Desktop / WorkBuddy Desktop create per session) counts as unusable rather than a project: `auto` sends it to the dedicated import workspace, `per-project` leaves it ungrouped — neither creates a date-named workspace.
 - `workspaceDir` — workspace directory when `workspaceMode=dedicated`.
 - `cwdRemap` — rewrite source cwd prefixes for cross-machine migration, e.g. `[{from:"D:/work",to:"/home/me/work"}]`. Longest prefix wins; applies to new imports only (already-imported sources are skipped — use `force` for a fresh copy).
 

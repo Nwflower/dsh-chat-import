@@ -33,7 +33,7 @@
 | `omp` | oh-my-pi session JSONL (~/.omp/agent/sessions) |
 | `kimi` | Kimi CLI / Kimi Code session directory (wire.jsonl + state.json) |
 | `qoder` | Qoder CLI session JSONL (~/.qoder/projects / ~/.qoder-cn/projects) |
-| `workbuddy` | WorkBuddy session JSONL (~/.workbuddy/projects) |
+| `workbuddy` | WorkBuddy session JSONL (~/.workbuddy/projects, Desktop 5.9.x: ~/.workbuddy-ai/projects) |
 | `qwen` | Qwen Work CN (千问办公) session JSONL (~/.qwenworkcn/projects) |
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
@@ -77,7 +77,7 @@
 
 - `path`（必填）—— 来源的转录、数据库、会话目录或数据根，形状按 format 查上表。
 - `force` —— 即使已经导入过，也另存一份完整副本（`import-<src>-<n>`）。
-- `budget` —— 三层裁剪使用的上下文预算，单位是 token。默认 550k，取值顺序是：参数 > 环境变量 `DSH_IMPORT_CONTEXT_BUDGET` > 模型窗口。
+- `budget` —— 三层裁剪使用的上下文预算，单位是 token。默认 550k，取值顺序是：参数 > 环境变量 `DSH_IMPORT_CONTEXT_BUDGET` > 模型窗口。显式给出的值（参数或环境变量）若超过模型窗口可用上限（窗口 − 输出上限 − max(25% 窗口, 40k)），会被钳到该上限并用 `budgetClampedFrom` 回报原值——预算大于窗口时所有保护会同时失效：整段历史全量落盘、恢复对话时每轮都超模型上限，自动压缩自己也发不出请求。宿主报不出窗口时按原值使用。
 - `storeImages` —— 默认 `true`，来源里的图片会落成宿主附件（`ctx.attachments`），在 DSH 里长期可用。设为 `false` 时只保留 `[image]` 文本占位；环境变量 `DSH_IMPORT_STORE_IMAGES=0` 效果相同。
 - `preview` —— 设为 `true` 时零副作用预演：什么都不写，只返回将要导入的清单。
 - `dryRun` —— `preview` 的别名。
@@ -85,7 +85,7 @@
 - `recursive` —— 目录模式下是否递归子目录，默认 `true`。
 - `expectedHash` —— 期望的源 SHA-256（小写十六进制）。不匹配时直接报错，什么都不写。
 - `restamp` —— 设为 `true` 时把导入的时间戳平移到当下，相对间隔保留；默认保留源时间。
-- `workspaceMode` —— 工作区分组方式：`auto` | `per-project` | `dedicated`，其中 `dedicated` 会把全部导入放进同一个工作区。cwd 末段是纯时间戳时（如 CodeArts Desktop 的 `codearts/2026-10-30-00-40-33`）按「不可用」处理而非项目：`auto` 让它落专用导入工作区，`per-project` 让它进未分组——两者都不建日期名工作区。
+- `workspaceMode` —— 工作区分组方式：`auto` | `per-project` | `dedicated`，其中 `dedicated` 会把全部导入放进同一个工作区。cwd 末段是纯时间戳时（CodeArts Desktop / WorkBuddy Desktop 每会话新建的日期名工作目录）按「不可用」处理而非项目：`auto` 让它落专用导入工作区，`per-project` 让它进未分组——两者都不建日期名工作区。
 - `workspaceDir` —— `workspaceMode=dedicated` 时使用的工作区目录。
 - `cwdRemap` —— 跨机器迁移时重写源 cwd 前缀，例如 `[{from:"D:/work",to:"/home/me/work"}]`。最长前缀优先；只对新导入生效，已经导入过的来源会被跳过，要重来请用 `force`。
 

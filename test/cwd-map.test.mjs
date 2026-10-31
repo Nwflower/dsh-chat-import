@@ -4,7 +4,7 @@ import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { homedir } from 'node:os'
 import { join } from 'node:path'
-import { slugifyClaudeCwd, decodeClaudeSlug, isHomePath, resolveClaudeCwd, greedyDecodeSlugPath, encodeCursorSlug, resolveCursorSlugPath, greedyDecodeCursorSlugPath, parseCursorEmbeddedTimestamp, stripCursorTitleDecorations, isCursorNonRepoSlug, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
+import { slugifyClaudeCwd, decodeClaudeSlug, isHomePath, isEphemeralRunDir, resolveClaudeCwd, greedyDecodeSlugPath, encodeCursorSlug, resolveCursorSlugPath, greedyDecodeCursorSlugPath, parseCursorEmbeddedTimestamp, stripCursorTitleDecorations, isCursorNonRepoSlug, clearWorkspacePathCache } from '../lib/cwd-map.mjs'
 import { makeFs } from './_support/fake-host.mjs'
 
 test('slugifyClaudeCwd / decodeClaudeSlug: 编码往返 + 中文路径 + 盘符边界', () => {
@@ -17,6 +17,33 @@ test('slugifyClaudeCwd / decodeClaudeSlug: 编码往返 + 中文路径 + 盘符�
   // 无盘符形态
   assert.equal(decodeClaudeSlug('users-name'), 'users\\name')
   assert.equal(decodeClaudeSlug(''), null)
+})
+
+test('isEphemeralRunDir: 末段是纯时间戳的一次性运行目录识别（桌面客户端每会话开一个新工作目录）', () => {
+  // 应识别：CodeArts Desktop (<root>/2026-10-30-00-40-33) 与 WorkBuddy Desktop
+  //（<root>/2026-10-27-13-46-52）每会话都在日期名目录下开工，末段整段是时间戳。
+  for (const p of [
+    'C:\\Users\\u\\codearts\\2026-10-30-00-40-33',
+    'C:\\Users\\u\\WorkBuddy AI\\2026-10-27-13-46-52',
+    '/tmp/run/2026-10-30',
+    '/tmp/run/20261030',
+    '/tmp/run/2026-10-30T00-40-33',
+    '/tmp/run/2026_10_30',
+    '/tmp/run/1793392449945',
+  ]) assert.equal(isEphemeralRunDir(p), true, p)
+
+  // 不应识别：真实项目路径、客户端按会话命名但非日期的目录，以及末段不是纯时间戳的日期目录
+  for (const p of [
+    'S:\\apps\\llm\\agentwork',
+    'C:\\Users\\u\\WorkBuddy AI\\Claw',
+    'S:\\proj\\2026-10-30-release',
+    'S:\\proj\\release-2026-10-30',
+    'C:\\Users\\takomi\\codearts',
+    '/home/u/repo',
+    '',
+  ]) assert.equal(isEphemeralRunDir(p), false, p)
+  assert.equal(isEphemeralRunDir(null), false)
+  assert.equal(isEphemeralRunDir(undefined), false)
 })
 
 test('isHomePath: 主目录（含尾斜杠/大小写变体）判定，非主目录排除', () => {
