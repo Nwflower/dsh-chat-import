@@ -13,6 +13,7 @@ import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
 import { freshDshHome } from './_support/tmp-db.mjs'
+import { hostAbs } from './_support/host-path.mjs'
 
 beforeEach(() => {
   process.env.DSH_HOME = freshDshHome('dsh-home-')
@@ -24,7 +25,7 @@ function cb(recs) {
 }
 
 const SID = '0016c4c9-2098-4372-ac81-86cdf5d3fb07'
-const CWD = 'H:/CodexProjects/my-project'
+const CWD = hostAbs('H:/CodexProjects/my-project')
 const TS = 1787131157250
 
 function userRec(innerText) {
@@ -105,7 +106,7 @@ test('标题来源：只有 topic 时用 topic；custom 后到覆盖 ai', () => 
 // ---- import_codebuddy 集成 ----
 
 test('import_codebuddy 单文件导入：落盘、标题带 CodeBuddy 前缀、返回值符合 schema', async () => {
-  const src = 'D:\\demo\\codebuddy\\' + SID + '.jsonl'
+  const src = hostAbs('D:/demo/codebuddy/') + SID + '.jsonl'
   const { ctx, persistence } = makeCtx({ [src]: cb([
     userRec('<user_query>帮我看看这个项目</user_query>'),
     assistantRec('好的，我先读一下结构。'),
