@@ -116,7 +116,7 @@ export type LocalJsonlFormat =
 export type ChatFormat =
   | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode'
   | 'mimocode' | 'kilocode' | 'teleagent' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'omp'
-  | 'kimi' | 'qoder' | 'workbuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'continue' | 'cline' | 'goose'
+  | 'kimi' | 'qoder' | 'workbuddy' | 'codebuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'continue' | 'cline' | 'goose'
   | 'zed' | 'crush' | 'dsh' | 'dsh4' | 'local-jsonl' | 'copilot-vscode' | 'copilot-cli'
 
 /** import_chat 参数：公共导入参数（ImportOptions）+ 源格式 + 源专属参数。 */
@@ -645,7 +645,7 @@ export interface RetractResult {
 export type ScanFormat =
   | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'mimocode'
   | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'omp' | 'hermes' | 'kimi' | 'kilocode' | 'qoder'
-  | 'chatgpt' | 'workbuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
+  | 'chatgpt' | 'workbuddy' | 'codebuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
   | 'crush' | 'teleagent' | 'trae' | 'doubao' | 'vibe' | 'dsh' | 'copilot-vscode' | 'copilot-cli'
 
 export type ImportStatusLabel = 'imported' | 'partial' | 'not-imported' | 'archived'
