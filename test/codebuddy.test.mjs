@@ -5,7 +5,7 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { join } from 'node:path'
-import { convertCodebuddyJsonl } from '../lib/convert/workbuddy.mjs'
+import { convertCodebuddyJsonl, convertWorkbuddyJsonl } from '../lib/convert/workbuddy.mjs'
 import { SOURCES } from '../lib/discovery/registry.mjs'
 import { SESSION_FORMAT_VERSION } from '../lib/convert/core.mjs'
 import { clearScanCache, clearInflightScans, discoverSessions } from '../lib/discovery.mjs'
@@ -200,4 +200,38 @@ test('发现层：无显式标题时回退首问；路径自拒对非 codebuddy 
   assert.equal(ok.sessions[0].title, '只有首问') // 占位标题不算，回退首问
   const other = await discoverSessions({ path: join(HOME, 'elsewhere'), format: 'codebuddy', host, imports: {} })
   assert.equal(other.total, 0)
+})
+
+// ---- 同引擎交叉影响：WorkBuddy AI 的 ai-title ----
+
+test('WorkBuddy AI 转写里的 ai-title 同样生效（转换 + 面板标题同口径，回退首问）', async () => {
+  // 本机真实 ~/.workbuddy-ai 转写实测带 19 条 ai-title；老版 ~/.workbuddy 没有。
+  const raw = cb([
+    userRec('<user_query>首问内容</user_query>'),
+    assistantRec('回复。'),
+    { id: 't1', timestamp: TS + 1, type: 'ai-title', aiTitle: '检查内网113 Linux磁盘占用', sessionId: SID, cwd: CWD },
+  ])
+  const converted = convertWorkbuddyJsonl(raw, { workbuddyId: SID })
+  assert.equal(converted.title, '检查内网113 Linux磁盘占用')
+
+  // 面板列表（发现层）与导入标题一致
+  const root = join(HOME, '.workbuddy-ai', 'projects')
+  const proj = join(root, 'c-Users-u-WorkBuddy AI-2026-10-27')
+  const s1 = join(proj, SID + '.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [proj, { type: 'dir' }],
+    [s1, { type: 'file', mtimeMs: 1786000002000, text: raw }],
+  ])
+  const { sessions } = await discoverSessions({
+    path: root, format: 'workbuddy', host: memoryHost(files), imports: {},
+  })
+  assert.equal(sessions[0].title, '检查内网113 Linux磁盘占用')
+
+  // 没有标题记录的旧转写仍回退首问
+  const legacy = convertWorkbuddyJsonl(cb([
+    userRec('<user_query>只有首问</user_query>'),
+    assistantRec('回复。'),
+  ]), { workbuddyId: SID })
+  assert.equal(legacy.title, '只有首问')
 })

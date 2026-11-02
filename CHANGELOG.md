@@ -12,6 +12,8 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 <h3 id="cn-unreleased">体验优化</h3>
 
+- **WorkBuddy 会话标题改用工具自生成的标题**：WorkBuddy AI 的转写带 `ai-title` 记录（本机真实转写实测同一会话 19 条），此前导入与面板列表都只按首问兜底；现在与 CodeBuddy 同一口径，优先取显式标题（`custom-title` > `ai-title` > `topic`，同类后到者胜、占位符跳过），面板与导入结果不再各显示一个标题。没有标题记录的旧版 `~/.workbuddy` 转写仍回退首个提问。
+
 - **按会话时间命名的 cwd 不再产生日期名工作区**：cwd 末段是纯时间戳时（CodeArts Desktop 的 `codearts/2026-10-30-00-40-33`、WorkBuddy Desktop 的 `WorkBuddy AI/2026-10-27-13-46-52` 这类每会话新建的工作目录）按「不可用 cwd」处理，与主目录同级——`auto` 落专用导入工作区、`per-project` 进未分组，`ungroupedReason` 报 `cwd-ephemeral`。此前每个会话都会就地建出一个日期名工作区。识别只认末段且要求整段是时间戳形态，带后缀的项目目录（`proj/2026-10-30-release`）不受影响。
 
 <h3 id="cn-unreleased">问题修复</h3>
@@ -25,6 +27,8 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 - **New CodeBuddy Code import source**: `import_chat({ format: "codebuddy", path })` and the panel now import Tencent CodeBuddy Code sessions (`~/.codebuddy/projects/<project>/<session-uuid>.jsonl`; `CODEBUDDY_CONFIG_DIR` relocates the data root). CodeBuddy and the already-supported WorkBuddy are the same engine under different product names with an identical transcript vocabulary, so the converter reuses the WorkBuddy implementation and adds CodeBuddy's explicit title records: `custom-title` / `ai-title` / `topic`, precedence custom > ai > topic with the newest of a kind winning; placeholder titles (empty, `(No content)`, `/compact`, `<image_local_path>` shells) count as absent and fall back to the first question. Closes #100.
 
 <h3 id="en-unreleased">Improvements</h3>
+
+- **WorkBuddy sessions now use the tool's own generated title**: WorkBuddy AI transcripts carry `ai-title` records (19 in one real local transcript), but both the importer and the panel list fell back to the first question. They now share CodeBuddy's rule — explicit titles win (`custom-title` > `ai-title` > `topic`, newest of a kind, placeholders skipped) — so the panel row and the imported session no longer show two different titles. Older `~/.workbuddy` transcripts without title records still fall back to the first question.
 
 - **Session-timestamp-named cwds no longer produce date-named workspaces**: when a cwd's last segment is a bare timestamp (the per-session working directory CodeArts Desktop (`codearts/2026-10-30-00-40-33`) and WorkBuddy Desktop (`WorkBuddy AI/2026-10-27-13-46-52`) create), it counts as an unusable cwd, on par with the home directory — `auto` falls back to the dedicated import workspace, `per-project` leaves the session ungrouped and reports `ungroupedReason: "cwd-ephemeral"`. Previously every session created its own date-named workspace. Detection looks only at the last segment and requires it to be timestamp-shaped, so project directories carrying a date suffix (`proj/2026-10-30-release`) are unaffected.
 
