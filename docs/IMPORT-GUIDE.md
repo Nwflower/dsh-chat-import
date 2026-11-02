@@ -36,7 +36,7 @@ database → one session; a directory → batch. Root shapes:
 | `kimi` | Kimi CLI / Kimi Code session directory (wire.jsonl + state.json) |
 | `qoder` | Qoder CLI session JSONL (~/.qoder/projects / ~/.qoder-cn/projects) |
 | `workbuddy` | WorkBuddy session JSONL (~/.workbuddy/projects / ~/.workbuddy-ai/projects) |
-| `codebuddy` | CodeBuddy Code session JSONL (~/.codebuddy/projects) |
+| `codebuddy` | CodeBuddy Code session JSONL (~/.codebuddy/projects; $CODEBUDDY_CONFIG_DIR relocates) |
 | `qwen` | Qwen Work CN (千问办公) session JSONL (~/.qwenworkcn/projects) |
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
