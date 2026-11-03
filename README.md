@@ -67,6 +67,7 @@
     <td align="center" width="20%"><a href="https://www.doubao.com/download/desktop"><img src="./assets/agents/doubao.svg" width="56" height="56" alt="Doubao" /><br /><b>Doubao</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/mistralai/mistral-vibe"><img src="./assets/agents/vibe.svg" width="56" height="56" alt="Mistral Vibe" /><br /><b>Mistral Vibe</b></a></td>
     <td align="center" width="20%"><a href="https://codearts.huaweicloud.com/"><img src="./assets/agents/codearts.svg" width="56" height="56" alt="CodeArts Desktop" /><br /><b>CodeArts Desktop</b></a></td>
+    <td align="center" width="20%"><a href="https://copilot.tencent.com/"><img src="./assets/agents/codebuddy.svg" width="56" height="56" alt="CodeBuddy Code" /><br /><b>CodeBuddy Code</b></a></td>
   </tr>
   <tr>
     <td align="center" width="20%"><a href="#usage"><img src="./assets/agents/local-jsonl.svg" width="56" height="56" alt="Local JSONL" /><br /><b>Local JSONL</b></a></td>

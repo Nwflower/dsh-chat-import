@@ -1,4 +1,4 @@
-// discovery-claude.test.mjs — Claude 系（claude / qoder / workbuddy / qwen）的发现
+// discovery-claude.test.mjs — Claude 系（claude / qoder / workbuddy / codebuddy / qwen）的发现
 // 标题注入过滤、cwd 项目名、主 transcript 判定、usage token、slug 解码。
 // 由 test/discovery.test.mjs 按 lib/discovery/ 的实现族拆出（纯移动：用例与断言未改）。
 import { test, beforeEach } from 'node:test'
@@ -301,6 +301,78 @@ test('workbuddy：Desktop 5.9.x 的 ~/.workbuddy-ai/projects 同样发现（.wor
     layoutProject(join(root, 'c-Users-u-x-2026-10-27', 'wb-sess-9001.jsonl'), 'workbuddy'),
     'c-Users-u-x-2026-10-27',
   )
+})
+
+test('codebuddy：~/.codebuddy/projects 发现、首问标题、cwd 项目名、路径自拒、子代理跳过', async () => {
+  const root = join(HOME, '.codebuddy', 'projects')
+  // projectKey 是 cwd 的压缩形式（/ \ : → -）
+  const proj = join(root, 'home-u-demo')
+  const s1 = join(proj, 'cb-sess-0001.jsonl')
+  const sub = join(proj, 'cb-sess-0001', 'subagents', 'agent-child.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [proj, { type: 'dir' }],
+    [s1, {
+      type: 'file', mtimeMs: 1786000002000, text: [
+        j({ id: 'u', timestamp: 1787131157250, type: 'message', role: 'user', content: '帮我看看这个项目', sessionId: 'cb-sess-0001', cwd: '/home/u/demo' }),
+        j({ id: 'r', timestamp: 1787131157251, type: 'reasoning', content: [{ type: 'reasoning_text', text: '思考' }], sessionId: 'cb-sess-0001', cwd: '/home/u/demo' }),
+        j({ id: 'a', timestamp: 1787131157252, type: 'message', role: 'assistant', content: '好的', sessionId: 'cb-sess-0001', cwd: '/home/u/demo' }),
+        // custom-title 后到者胜
+        j({ type: 'custom-title', customTitle: '我改的名字', sessionId: 'cb-sess-0001', timestamp: 1787131157260 }),
+      ].join('\n'),
+    }],
+    [sub, {
+      type: 'file', mtimeMs: 1786000003000, text: [
+        j({ id: 'u', timestamp: 1787131157250, type: 'message', role: 'user', content: '子代理内部提问', sessionId: 'agent-child', cwd: '/home/u/demo' }),
+        j({ id: 'a', timestamp: 1787131157252, type: 'message', role: 'assistant', content: '子代理回答', sessionId: 'agent-child', cwd: '/home/u/demo' }),
+      ].join('\n'),
+    }],
+  ])
+  const host = memoryHost(files)
+
+  const { sessions, total } = await discoverSessions({ path: root, format: 'codebuddy', host, imports: {} })
+  assert.equal(total, 1) // 子代理会话不计入
+  const s = sessions[0]
+  assert.equal(s.format, 'codebuddy')
+  assert.equal(s.sessionId, 'cb-sess-0001')
+  assert.equal(s.title, '我改的名字') // custom-title 权威
+  assert.equal(s.project, 'demo') // 记录内 cwd basename
+  assert.equal(s.cwd, '/home/u/demo')
+  assert.equal(s.createdAt, 1787131157250)
+  assert.equal(s.lastActiveAt, 1786000002000)
+
+  // 路径自拒：指向其它目录的同一批文件，codebuddy 扫描器返回空
+  const other = await discoverSessions({ path: join(HOME, 'elsewhere'), format: 'codebuddy', host, imports: {} })
+  assert.equal(other.total, 0)
+
+  // layoutProject：记录内无 cwd 时回退到 projectKey 目录名
+  assert.equal(
+    layoutProject(join(root, 'home-u-demo', 'cb-sess-0001.jsonl'), 'codebuddy'),
+    'home-u-demo',
+  )
+})
+
+test('codebuddy：无 custom-title 时标题回退首条真人提问（注入不开轮）', async () => {
+  const root = join(HOME, '.codebuddy', 'projects')
+  const proj = join(root, 'home-u-demo')
+  const s1 = join(proj, 'cb-sess-0002.jsonl')
+  const files = new Map([
+    [root, { type: 'dir' }],
+    [proj, { type: 'dir' }],
+    [s1, {
+      type: 'file', mtimeMs: 1786000002000, text: [
+        j({ id: 'u0', timestamp: 1787131157250, type: 'message', role: 'user', content: '<system-reminder>上下文</system-reminder>', sessionId: 'cb-sess-0002', cwd: '/home/u/demo', isMeta: true }),
+        j({ id: 'u1', timestamp: 1787131157251, type: 'message', role: 'user', content: '真实提问', sessionId: 'cb-sess-0002', cwd: '/home/u/demo' }),
+        j({ id: 'a', timestamp: 1787131157252, type: 'message', role: 'assistant', content: '答', sessionId: 'cb-sess-0002', cwd: '/home/u/demo' }),
+      ].join('\n'),
+    }],
+  ])
+  const host = memoryHost(files)
+
+  const { sessions } = await discoverSessions({ path: root, format: 'codebuddy', host, imports: {} })
+  assert.equal(sessions.length, 1)
+  // 注入内容不该被当成标题
+  assert.equal(sessions[0].title, '真实提问')
 })
 
 test('qwen：~/.qwenworkcn/projects 发现、humanInput 首问、workspace-directories 项目、双 slug 去重、路径自拒', async () => {

@@ -36,6 +36,7 @@ database → one session; a directory → batch. Root shapes:
 | `kimi` | Kimi CLI / Kimi Code session directory (wire.jsonl + state.json) |
 | `qoder` | Qoder CLI session JSONL (~/.qoder/projects / ~/.qoder-cn/projects) |
 | `workbuddy` | WorkBuddy session JSONL (~/.workbuddy/projects, Desktop 5.9.x: ~/.workbuddy-ai/projects) |
+| `codebuddy` | CodeBuddy Code CLI session JSONL (~/.codebuddy/projects) |
 | `qwen` | Qwen Work CN (千问办公) session JSONL (~/.qwenworkcn/projects) |
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
@@ -54,7 +55,7 @@ database → one session; a directory → batch. Root shapes:
 
 `local-jsonl` is not a source of its own: it is the fallback entry for a file no source claimed.
 It auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes`
-/ `qoder` / `vibe` / `codearts` / `copilot-vscode` / `copilot-cli` / `generic` (content marker > path hint >
+/ `qoder` / `vibe` / `codearts` / `codebuddy` / `copilot-vscode` / `copilot-cli` / `generic` (content marker > path hint >
 parser trial) and `parseFormat` forces one parser when detection is wrong.
 
 `doubao` reads the Chromium IndexedDB store of Doubao Desktop. Its conversation list is server-side,

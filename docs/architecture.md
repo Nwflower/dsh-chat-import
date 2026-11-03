@@ -26,7 +26,7 @@
 
 ## D3. 纯函数转换层与 host 面严格分层
 
-- **背景**：来源有三十二种（含 DSH 自己的两代会话日志），这些解析逻辑是 bug 的重灾区，必须能脱离宿主单独测试。
+- **背景**：来源有三十三种（含 DSH 自己的两代会话日志），这些解析逻辑是 bug 的重灾区，必须能脱离宿主单独测试。
 - **决定**：`lib/convert/*` 与 `lib/export/*` 是纯函数层：不读磁盘，不 import 宿主服务，文件头写清存储契约。host 面（发现、IO、调用宿主服务）放在 `lib/*.mjs`。其中按来源命名的适配器——SQLite 读取、来源专属编排——收在 `lib/sources/<src>.mjs`，与 `lib/convert/<src>.mjs` 一一对应（2026-09 从 `lib/<src>.mjs` 平移过来，只是换了路径）。新增来源固定走 `AGENTS.md` 里的「新增一个来源」六步。
 - **代价**：同一个来源有时要拆成 `convert/<src>.mjs` 和 `lib/<src>.mjs` 两个文件，层与层之间的数据形状也得显式约定。
 - **重审条件**：无。这是测试能力的根基。
@@ -331,7 +331,7 @@
      - host 面：`lib/sources/sqlite.mjs`（只读打开、列自适应）、`lib/import-state.mjs`（已知记录加源未变短路径，含 WAL 与选择性补导守卫）、`lib/import-batch.mjs`（文件收集加批量计数）、`lib/atomic-write.mjs`。
      - 测试：`test/_support/`。
      
-     来源如果确实有不同语义，就**参数化**共用件，不复制。设计同源的来源共用一个转换引擎、各自只留差异描述（pi 与 omp 共用 `lib/convert/pi-family.mjs`）。
+     来源如果确实有不同语义，就**参数化**共用件，不复制。设计同源的来源共用一个转换引擎、各自只留差异描述（pi 与 omp 共用 `lib/convert/pi-family.mjs`；CodeBuddy Code 与 WorkBuddy 共用 `lib/convert/buddy-family.mjs`）。
   2. **清单派生，不手写**。发现层每个来源一个描述符（`lib/discovery/registry.mjs`），FORMATS、默认根、扫描器、单文件判格式都由它派生。`import_chat` 的格式表（`lib/toolkit.mjs` 的 `CHAT_FORMATS`）派生 `/import` 的别名，也是 `docs/IMPORT-GUIDE.md` 来源表的对账对象。导入 spec 里的 `multiSession` 标记派生面板与工具 `sessionIds` 的适用范围。`index.d.ts` 的格式联合类型由一致性测试对照运行时清单。
   3. **边界由测试与门禁守住，不靠自觉**。转换层与导出层的 import 边界有测试（越界即失败，见 D3）。`build-check` 会从发布入口沿模块图走一遍，可达模块不在 `files` 白名单就失败——新子目录忘登记时，`lib/tools/` 与 `lib/discovery/` 曾经差点没发出去。
 - **代价**：模块变多，追一个调用要多跳一层。改一个共用件会同时影响所有来源——这正是目的，回归由各来源的测试兜住。

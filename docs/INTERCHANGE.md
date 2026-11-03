@@ -105,6 +105,7 @@
 | pi | ✅ | ✅ | ✅（带字节的 image 块） | ✅ | ✅（树形） | — | ✅ | — | — |
 | kimi | ✅ | ✅ | —（只有自有 blob 存储的 `blobref:` 引用，插件取不到字节 → 占位 + 计数） | ✅ | — | — | — | ✅（逐行） | — |
 | workbuddy | ✅ | ✅ | — | ✅ | — | — | — | ✅（逐行） | — |
+| codebuddy | ✅ | ✅ | — | ✅ | — | — | — | ✅（逐条 `timestamp`） | ✅（`providerData.usage` / `rawUsage` 的 input / output / cacheRead / reasoning 四桶） |
 | continue | ✅ | ✅ | — | ✅ | — | — | ✅（history 不裁剪，摘要挂 reasoning 块） | —（history 项无时间戳） | — |
 | copilot-vscode | ✅（仅源文件保存的结果；缺失计数） | ✅ | — | ✅（workingDirectory / workspace.json） | — | — | — | ✅ | ✅（每个 request 的 token 合计） |
 | cline | ✅ | ✅ | — | ✅ | — | — | ✅（compaction 侧车不改写主转写） | ✅（仅 assistant 的 `ts`） | — |

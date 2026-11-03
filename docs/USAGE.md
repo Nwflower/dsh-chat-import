@@ -59,7 +59,7 @@ import_chat({ format: "copilot-cli", path: "C:\Users\<you>\.copilot\session-stat
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
-`format: "local-jsonl"` accepts local session files (or a JSONL directory): it auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `codearts` / `generic` / `copilot-vscode` / `copilot-cli`, and the `parseFormat` parameter forces one parser when detection is wrong:
+`format: "local-jsonl"` accepts local session files (or a JSONL directory): it auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `codearts` / `codebuddy` / `generic` / `copilot-vscode` / `copilot-cli`, and the `parseFormat` parameter forces one parser when detection is wrong:
 
 ```
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })

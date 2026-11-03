@@ -108,7 +108,7 @@ export interface ImportOptions {
 }
 
 export type LocalJsonlFormat =
-  | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder' | 'vibe' | 'codearts' | 'copilot-vscode' | 'copilot-cli'
+  | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder' | 'vibe' | 'codearts' | 'codebuddy' | 'copilot-vscode' | 'copilot-cli'
   /** interchange v1 会话文档（内容标记 "interchange":"dsh-chat-import"；长尾来源与 skill 路线的落点）。 */
   | 'generic'
 
@@ -116,7 +116,7 @@ export type LocalJsonlFormat =
 export type ChatFormat =
   | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode'
   | 'mimocode' | 'kilocode' | 'teleagent' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'omp'
-  | 'kimi' | 'qoder' | 'workbuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'continue' | 'cline' | 'goose'
+  | 'kimi' | 'qoder' | 'workbuddy' | 'codebuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'continue' | 'cline' | 'goose'
   | 'zed' | 'crush' | 'dsh' | 'dsh4' | 'local-jsonl' | 'copilot-vscode' | 'copilot-cli'
 
 /** import_chat 参数：公共导入参数（ImportOptions）+ 源格式 + 源专属参数。 */
@@ -645,7 +645,7 @@ export interface RetractResult {
 export type ScanFormat =
   | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'mimocode'
   | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'omp' | 'hermes' | 'kimi' | 'kilocode' | 'qoder'
-  | 'chatgpt' | 'workbuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
+  | 'chatgpt' | 'workbuddy' | 'codebuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
   | 'crush' | 'teleagent' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'dsh' | 'copilot-vscode' | 'copilot-cli'
 
 export type ImportStatusLabel = 'imported' | 'partial' | 'not-imported' | 'archived'
