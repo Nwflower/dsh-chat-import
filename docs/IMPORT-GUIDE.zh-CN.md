@@ -38,6 +38,7 @@
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
 | `vibe` | Mistral Vibe CLI session directory (~/.vibe/logs/session) |
+| `codearts` | CodeArts Desktop session directory (~/.codearts/kernel/sessions) |
 | `continue` | Continue session JSON (~/.continue/sessions) |
 | `copilot-vscode` | GitHub Copilot VS Code session JSON (<User>/workspaceStorage/<hash>/chatSessions) |
 | `copilot-cli` | GitHub Copilot CLI session events.jsonl (~/.copilot/session-state/<id>) |
@@ -51,7 +52,7 @@
 
 `local-jsonl` 本身不是来源，而是没有来源认领这个文件时的兜底入口。它会自动识别 `dsh` /
 `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` /
-`copilot-vscode` / `copilot-cli` / `generic`，判据依次是内容标记、路径提示、解析器试跑；识别
+`codearts` / `copilot-vscode` / `copilot-cli` / `generic`，判据依次是内容标记、路径提示、解析器试跑；识别
 错了就用 `parseFormat` 强制指定。
 
 `doubao` 读的是豆包桌面版的 Chromium IndexedDB。它的会话列表在服务端，本地只为「客户端最近

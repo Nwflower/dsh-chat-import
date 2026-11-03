@@ -40,6 +40,7 @@ database → one session; a directory → batch. Root shapes:
 | `trae` | Trae Work state.vscdb (Trae/User/workspaceStorage or globalStorage) |
 | `doubao` | Doubao Desktop chat IndexedDB (<User Data>/<profile>/IndexedDB/chrome_doubao-chat_0.indexeddb.leveldb) |
 | `vibe` | Mistral Vibe CLI session directory (~/.vibe/logs/session) |
+| `codearts` | CodeArts Desktop session directory (~/.codearts/kernel/sessions) |
 | `continue` | Continue session JSON (~/.continue/sessions) |
 | `copilot-vscode` | GitHub Copilot VS Code session JSON (<User>/workspaceStorage/<hash>/chatSessions) |
 | `copilot-cli` | GitHub Copilot CLI session events.jsonl (~/.copilot/session-state/<id>) |
@@ -53,7 +54,7 @@ database → one session; a directory → batch. Root shapes:
 
 `local-jsonl` is not a source of its own: it is the fallback entry for a file no source claimed.
 It auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes`
-/ `qoder` / `vibe` / `copilot-vscode` / `copilot-cli` / `generic` (content marker > path hint >
+/ `qoder` / `vibe` / `codearts` / `copilot-vscode` / `copilot-cli` / `generic` (content marker > path hint >
 parser trial) and `parseFormat` forces one parser when detection is wrong.
 
 `doubao` reads the Chromium IndexedDB store of Doubao Desktop. Its conversation list is server-side,

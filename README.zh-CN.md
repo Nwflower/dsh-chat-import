@@ -66,6 +66,7 @@
     <td align="center" width="20%"><a href="https://www.trae.ai/"><img src="./assets/agents/trae.svg" width="56" height="56" alt="Trae Work" /><br /><b>Trae Work</b></a></td>
     <td align="center" width="20%"><a href="https://www.doubao.com/download/desktop"><img src="./assets/agents/doubao.svg" width="56" height="56" alt="豆包" /><br /><b>豆包</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/mistralai/mistral-vibe"><img src="./assets/agents/vibe.svg" width="56" height="56" alt="Mistral Vibe" /><br /><b>Mistral Vibe</b></a></td>
+    <td align="center" width="20%"><a href="https://codearts.huaweicloud.com/"><img src="./assets/agents/codearts.svg" width="56" height="56" alt="CodeArts Desktop" /><br /><b>CodeArts Desktop</b></a></td>
   </tr>
   <tr>
     <td align="center" width="20%"><a href="#使用"><img src="./assets/agents/local-jsonl.svg" width="56" height="56" alt="本地 JSONL" /><br /><b>本地 JSONL</b></a></td>

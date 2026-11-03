@@ -50,12 +50,13 @@ import_chat({ format: "teleagent", path: "C:\Users\<you>\.local\share\TeleAgent\
 import_chat({ format: "trae", path: "C:\Users\<you>\AppData\Roaming\Trae\User\workspaceStorage" })
 import_chat({ format: "doubao", path: "C:\Users\<you>\AppData\Local\Doubao\User Data" })
 import_chat({ format: "vibe", path: "C:\Users\<you>\.vibe\logs\session" })
+import_chat({ format: "codearts", path: "C:\Users\<you>\.codearts\kernel\sessions" })
 import_chat({ format: "copilot-vscode", path: "C:\Users\<you>\AppData\Roaming\Code\User\workspaceStorage" })
 import_chat({ format: "copilot-cli", path: "C:\Users\<you>\.copilot\session-state" })
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
 ```
 
-`format: "local-jsonl"` 接受本地会话文件或 JSONL 目录。它会自动识别 `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `generic` / `copilot-vscode` / `copilot-cli`；识别不准时用 `parseFormat` 强制指定：
+`format: "local-jsonl"` 接受本地会话文件或 JSONL 目录。它会自动识别 `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` / `codearts` / `generic` / `copilot-vscode` / `copilot-cli`；识别不准时用 `parseFormat` 强制指定：
 
 ```
 import_chat({ format: "local-jsonl", path: "D:\downloads\session.jsonl" })
