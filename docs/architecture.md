@@ -86,8 +86,8 @@
 ## D9. 导入会话自带空 system head：surface 首事件必须是 system/message（2026-09 定）
 
 - **背景**：宿主 v3→v4 的迁移器把 surface 上的第一个 `system/message` 记为 protected head，此后每一步写系统提示词都以它为替换锚点。如果 surface 里已经有别的 surface 事件、而 head 还没建立，迁移器会 fail-closed 拒载整份日志（`system/message requires a protected first surface head`）。导入会话此前从 `user/message` 开始，宿主续聊、要写自己的系统提示词时就撞上这条规则；由它 seed 出来的续聊会话同样打不开。原生会话不受影响，因为它创建时就写了 head。
-- **决定**：`synthesizeSession` 在首个 `step/start` 之后、任何其他 surface 事件之前写一条 `system/message`，带 `surfaceOp: 'append'`、`content: []`、`source.plugin = 'chat-import'`。位置和内容都对齐宿主自己的 v2→v3 迁移器——它同样在第一个 step/start 处插一条空 head。空内容只占住 surface 的第 0 个节点，真正的系统提示词由宿主在下一步替换或归一化，导入这边不虚构提示词。
-- **代价**：导入会话多出一条事件（`storedEvents` 基线因此加 1）。首轮没有 step 时，补一个只装 head 的空 step。`SESSION_EVENT_TYPES` 和 surface 集合要加入 `system/message` 与 `developer/message`。`verify_session` 新增 `system-head-missing` 来点名存量旧形状——head 必须是 surface 的首事件，旧日志只能 force 重导，没法原地补写。
+- **决定**：`synthesizeSession` 在首个 `step/start` 之后、任何其他 surface 事件之前写一条 `system/message`，带 `surfaceOp: 'append'`、`content: []`、`source.plugin = 'chat-import'`。位置和内容都对齐宿主自己的 v2→v3 迁移器——它同样在第一个 step/start 处插一条空 head。空内容只占住 surface 的第 0 个节点，真正的系统提示词由宿主在下一步替换或归一化，导入这边不虚构提示词。DSH 源自灌不经过 `synthesizeSession`（`convert/dsh.mjs` 直接透传事件），同样在首个 `step/start` 处补一条空 head——源日志自带的 `system/message` 属运行时头状态，照旧丢弃；同一套 seq 重排里，`session/title.messageSeqs` 也必须和 `sourceEventSeqs` 一样重映射，否则宿主 v3→v4 迁移会以 `title messageSeqs must name an earlier event` 拒载。
+- **代价**：导入会话多出一条事件（`storedEvents` 基线因此加 1）。首轮没有 step 时，补一个只装 head 的空 step。`SESSION_EVENT_TYPES` 和 surface 集合要加入 `system/message` 与 `developer/message`。`verify_session` 新增 `system-head-missing`（surface 首事件不是 head）与 `title-message-seqs`（标题引用不再指向更早的人类 user/message）来点名存量旧形状——head 必须是 surface 的首事件，旧日志只能 force 重导，没法原地补写。
 - **重审条件**：宿主迁移器改成「缺 head 时自己插入」（v2→v3 就是这种语义）时，这段插桩可以退化为可选。
 
 

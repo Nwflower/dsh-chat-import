@@ -41,9 +41,9 @@ const hintKinds = (out) => new Set(out.repairHints.map((h) => h.kind))
 
 test('verify: 干净日志不报迁移风险', async () => {
   const out = await verifySession(ctxFor(baseLog()), { sessionId: 's' })
-  assert.equal(out.ok, true)
+  // 该夹具只覆盖工具生命周期（无 surface head，属另一维形状检查，见文件末用例）
   const kinds = kindsOf(out)
-  for (const k of ['unadvertised-tool-call', 'cross-step-result', 'duplicate-tool-result', 'orphan-tool-result', 'call-without-result']) {
+  for (const k of ['unadvertised-tool-call', 'cross-step-result', 'duplicate-tool-result', 'orphan-tool-result', 'call-without-result', 'title-message-seqs']) {
     assert.equal(kinds.has(k), false, k + ' 不应误报')
   }
 })
@@ -160,6 +160,32 @@ test('verify: head 在最前（导入会话的新形状）不报 system-head-mis
   ]
   const out = await verifySession(ctxFor(events), { sessionId: 's' })
   assert.equal(kindsOf(out).has('system-head-missing'), false)
+})
+
+test('verify: 没有 head 的日志（旧版本导入产物）也报 system-head-missing + 重导提示', async () => {
+  const events = [
+    { type: 'turn/start', seq: 0, time: MS, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: MS, data: { turn: 1, step: 1 } },
+    userEvent(2),
+  ]
+  const out = await verifySession(ctxFor(events), { sessionId: 's' })
+  assert.equal(kindsOf(out).has('system-head-missing'), true)
+  assert.equal(hintKinds(out).has('system-head-missing'), true)
+})
+
+test('verify: session/title 引用错位 → title-message-seqs + 重导提示；合法引用不报', async () => {
+  const withTitle = (messageSeqs) => [
+    { type: 'turn/start', seq: 0, time: MS, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: MS, data: { turn: 1, step: 1 } },
+    headEvent(2),
+    userEvent(3),
+    { type: 'session/title', seq: 4, time: MS, data: { title: 'T', messageSeqs, source: { kind: 'fallback' } } },
+  ]
+  const bad = await verifySession(ctxFor(withTitle([99])), { sessionId: 's' })
+  assert.equal(kindsOf(bad).has('title-message-seqs'), true)
+  assert.equal(hintKinds(bad).has('title-message-seqs'), true)
+  const good = await verifySession(ctxFor(withTitle([3])), { sessionId: 's' })
+  assert.equal(kindsOf(good).has('title-message-seqs'), false)
 })
 
 // ---- 存量旧形状：Codex Desktop 外部导入的展平工具信封（docs/architecture.md D18）----

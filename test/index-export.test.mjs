@@ -464,9 +464,12 @@ test('REQ-23 verify_session：平衡会话 ok、不平衡会话定位问题 + re
   // 平衡会话
   await seedSession(persistence, 'sess-ok', { version: 0, id: 'sess-ok', createdAt: 1786000000000, cwd: hostAbs('D:/demo/proj') }, [
     mkEvent('turn/start', 0, 1786000000000, { turn: 1 }),
-    mkEvent('user/message', 1, 1786000000000, { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }),
-    mkEvent('assistant/message', 2, 1786000000000, { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'dsh' } } }, { surfaceOp: 'append' }),
-    mkEvent('turn/end', 3, 1786000000000, { turn: 1, reason: { kind: 'completed' } }),
+    mkEvent('step/start', 1, 1786000000000, { turn: 1, step: 1 }),
+    mkEvent('system/message', 2, 1786000000000, { turn: 1, step: 1, message: { id: 'sys', role: 'system', content: [], source: { kind: 'plugin', plugin: '@deepseek-ai/dsh-system-prompt' } } }, { surfaceOp: 'append' }),
+    mkEvent('user/message', 3, 1786000000000, { id: 'u1', role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } }, { surfaceOp: 'append' }),
+    mkEvent('assistant/message', 4, 1786000000000, { turn: 1, step: 1, message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: 'hi' }], source: { kind: 'model', provider: 'dsh' } } }, { surfaceOp: 'append' }),
+    mkEvent('step/end', 5, 1786000000000, { turn: 1, step: 1 }),
+    mkEvent('turn/end', 6, 1786000000000, { turn: 1, reason: { kind: 'completed' } }),
   ])
   // 不平衡会话：turn 无 end + call 无 result + surface 缺 surfaceOp
   await seedSession(persistence, 'sess-broken', { version: 0, id: 'sess-broken', createdAt: 1786000000000, cwd: hostAbs('D:/demo/proj') }, [
