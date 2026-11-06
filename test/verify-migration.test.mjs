@@ -14,16 +14,28 @@ const MS = 1700000000000
 // no-undef：本仓库 eslint 配置的运行时全局表未含它）
 const clone = (x) => JSON.parse(JSON.stringify(x))
 
-// 干净的 V3 形状最小日志：广告 → tool/call → 同 step 内 tool/result → 闭合。
+// protected head：surface 的第一个事件（宿主 v3→v4 的硬不变量，见 docs/architecture.md D9）。
+const headEvent = (seq, turn = 1, step = 1) => ({
+  type: 'system/message', seq, time: MS, surfaceOp: 'append',
+  data: { turn, step, message: { id: 'sys' + seq, role: 'system', content: [], source: { kind: 'plugin', plugin: 'chat-import' } } },
+})
+// 人类 user/message（session/title 的 messageSeqs 只认 source.kind='user' 的这种）。
+const userEvent = (seq) => ({
+  type: 'user/message', seq, time: MS, surfaceOp: 'append',
+  data: { id: 'u' + seq, role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
+})
+
+// 干净的 V3 形状最小日志：protected head → 广告 → tool/call → 同 step 内 tool/result → 闭合。
 function baseLog() {
   return [
     { type: 'turn/start', seq: 0, time: MS, data: { turn: 1 } },
     { type: 'step/start', seq: 1, time: MS, data: { turn: 1, step: 1 } },
-    { type: 'assistant/message', seq: 2, time: MS, surfaceOp: 'append', data: { turn: 1, step: 1, stream: [], message: { id: 'a1', role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'Bash', arguments: '{}' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
-    { type: 'tool/call', seq: 3, time: MS, data: { turn: 1, step: 1, callId: 'c1', name: 'Bash', arguments: '{}' } },
-    { type: 'tool/result', seq: 4, time: MS, surfaceOp: 'append', sourceEventSeqs: [3], data: { turn: 1, step: 1, message: { id: 't1', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }], source: { kind: 'tool', callId: 'c1' } } } },
-    { type: 'step/end', seq: 5, time: MS, data: { turn: 1, step: 1 } },
-    { type: 'turn/end', seq: 6, time: MS, data: { turn: 1, reason: { kind: 'completed' } } },
+    headEvent(2),
+    { type: 'assistant/message', seq: 3, time: MS, surfaceOp: 'append', data: { turn: 1, step: 1, stream: [], message: { id: 'a1', role: 'assistant', content: [{ type: 'tool-call', id: 'c1', name: 'Bash', arguments: '{}' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+    { type: 'tool/call', seq: 4, time: MS, data: { turn: 1, step: 1, callId: 'c1', name: 'Bash', arguments: '{}' } },
+    { type: 'tool/result', seq: 5, time: MS, surfaceOp: 'append', sourceEventSeqs: [4], data: { turn: 1, step: 1, message: { id: 't1', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [] }], source: { kind: 'tool', callId: 'c1' } } } },
+    { type: 'step/end', seq: 6, time: MS, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 7, time: MS, data: { turn: 1, reason: { kind: 'completed' } } },
   ]
 }
 
@@ -41,9 +53,9 @@ const hintKinds = (out) => new Set(out.repairHints.map((h) => h.kind))
 
 test('verify: 干净日志不报迁移风险', async () => {
   const out = await verifySession(ctxFor(baseLog()), { sessionId: 's' })
-  // 该夹具只覆盖工具生命周期（无 surface head，属另一维形状检查，见文件末用例）
+  assert.equal(out.ok, true)
   const kinds = kindsOf(out)
-  for (const k of ['unadvertised-tool-call', 'cross-step-result', 'duplicate-tool-result', 'orphan-tool-result', 'call-without-result', 'title-message-seqs']) {
+  for (const k of ['unadvertised-tool-call', 'cross-step-result', 'duplicate-tool-result', 'orphan-tool-result', 'call-without-result', 'system-head-missing', 'title-message-seqs']) {
     assert.equal(kinds.has(k), false, k + ' 不应误报')
   }
 })
@@ -71,13 +83,14 @@ test('verify: 结果闭合在调用所在 step 之外 → cross-step-result', as
     next.data.step = 2 // 调用在 step 1，结果记在 step 2（异步工具跨 step）
     return next
   })
-  // 结果挂在第二个 step 里：补 step/end(1) + step/start(2) 让日志结构完整
-  events.splice(5, 0,
-    { type: 'step/end', seq: 5, time: MS, data: { turn: 1, step: 1 } },
-    { type: 'step/start', seq: 6, time: MS, data: { turn: 1, step: 2 } },
+  // 结果挂在第二个 step 里：在 step/end 之前补 step/end(1) + step/start(2) 让日志结构完整
+  const endAt = events.findIndex((ev) => ev.type === 'step/end')
+  events.splice(endAt, 0,
+    { type: 'step/end', seq: endAt, time: MS, data: { turn: 1, step: 1 } },
+    { type: 'step/start', seq: endAt + 1, time: MS, data: { turn: 1, step: 2 } },
   )
-  events[7] = { ...events[7], seq: 7 } // 原 step/end 变成 step 2 的闭合
-  for (let i = 8; i < events.length; i++) events[i] = { ...events[i], seq: i }
+  // 原 step/end（及之后的 turn/end）顺延，保持 seq 连续
+  for (let i = endAt + 2; i < events.length; i++) events[i] = { ...events[i], seq: i }
   const out = await verifySession(ctxFor(events), { sessionId: 's' })
   assert.equal(kindsOf(out).has('cross-step-result'), true)
   assert.equal(hintKinds(out).has('cross-step-result'), true)
@@ -88,11 +101,12 @@ test('verify: 结果闭合在调用所在 step 之外 → cross-step-result', as
 
 test('verify: 同一调用多条结果 → duplicate-tool-result', async () => {
   const events = baseLog()
-  events.splice(5, 0, {
-    type: 'tool/result', seq: 5, time: MS, surfaceOp: 'append', sourceEventSeqs: [3],
+  const endAt = events.findIndex((ev) => ev.type === 'step/end')
+  events.splice(endAt, 0, {
+    type: 'tool/result', seq: endAt, time: MS, surfaceOp: 'append', sourceEventSeqs: [4],
     data: { turn: 1, step: 1, message: { id: 't1b', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'again' }] }], source: { kind: 'tool', callId: 'c1' } } },
   })
-  for (let i = 6; i < events.length; i++) events[i] = { ...events[i], seq: i }
+  for (let i = endAt + 1; i < events.length; i++) events[i] = { ...events[i], seq: i }
   const out = await verifySession(ctxFor(events), { sessionId: 's' })
   assert.equal(kindsOf(out).has('duplicate-tool-result'), true)
   assert.match(out.problems.find((p) => p.kind === 'duplicate-tool-result').message, /1 个/)
@@ -127,18 +141,7 @@ test('attachConversionDetails: 工具结果丢弃计数非零才附加', async (
   assert.equal('duplicateToolResults' in withoutCounts, false)
 })
 
-// ---- system head（宿主 v3→v4 迁移的另一条硬不变量）----
-// surface 的第一个事件必须是 system/message（protected head）；否则宿主续聊写自己的
-// system/message 时迁移器拒载整份日志，由它 seed 出来的续聊会话同样打不开。
-
-const headEvent = (seq, turn = 1, step = 1) => ({
-  type: 'system/message', seq, time: MS, surfaceOp: 'append',
-  data: { turn, step, message: { id: 'sys' + seq, role: 'system', content: [], source: { kind: 'plugin', plugin: 'chat-import' } } },
-})
-const userEvent = (seq) => ({
-  type: 'user/message', seq, time: MS, surfaceOp: 'append',
-  data: { id: 'u' + seq, role: 'user', content: [{ type: 'text', text: 'hi' }], source: { kind: 'user' } },
-})
+// ---- system head（宿主 v3→v4 迁移的另一条硬不变量；headEvent 定义在文件顶部）----
 
 test('verify: surface 先于 system/message 且无 protected head → system-head-missing', async () => {
   const events = [
