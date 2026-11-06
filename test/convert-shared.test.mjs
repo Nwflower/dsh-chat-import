@@ -435,12 +435,14 @@ test('validateSessionEvents：合法会话 0 告警', () => {
   const events = [
     ev(0, 'session/imported', { ignorable: true }),
     ev(1, 'turn/start'),
-    ev(2, 'user/message', { surfaceOp: 'append' }),
-    ev(3, 'assistant/message', { surfaceOp: 'append' }),
-    ev(4, 'tool/call'),
-    ev(5, 'tool/result', { surfaceOp: 'append', sourceEventSeqs: [4] }),
-    ev(6, 'step/end'),
-    ev(7, 'turn/end'),
+    ev(2, 'step/start'),
+    ev(3, 'system/message', { surfaceOp: 'append' }),
+    ev(4, 'user/message', { surfaceOp: 'append' }),
+    ev(5, 'assistant/message', { surfaceOp: 'append' }),
+    ev(6, 'tool/call'),
+    ev(7, 'tool/result', { surfaceOp: 'append', sourceEventSeqs: [6] }),
+    ev(8, 'step/end'),
+    ev(9, 'turn/end'),
   ]
   const r = validateSessionEvents(events)
   assert.equal(r.ok, true)
@@ -606,13 +608,13 @@ test('validateSessionEvents：原生会话 sourceEventSeqs/surfaceOp 语义不�
     ev(0, 'assistant/chunk'),
     ev(1, 'assistant/message', { surfaceOp: 'append', sourceEventSeqs: [0] }),
   ])
-  assert.equal(assistantRef.ok, true)
+  assert.equal(assistantRef.problems.some((p) => p.kind === 'source-event-seqs-not-call'), false)
 
   // compaction 的 replace surfaceOp 是合法形态，不应判 missing-surface-op
   const replaceOp = validateSessionEvents([
     ev(0, 'assistant/message', { surfaceOp: { op: 'replace', start: 0, end: 0 } }),
   ])
-  assert.equal(replaceOp.ok, true)
+  assert.equal(replaceOp.problems.some((p) => p.kind === 'missing-surface-op'), false)
 
   // tool/result 指向非 tool/call 仍报 source-event-seqs-not-call（回归不变）
   const toolResultBadRef = validateSessionEvents([
@@ -629,7 +631,9 @@ test('validateSessionEvents：指向集合外的 sourceEventSeqs 合法（append
     ev(11, 'tool/result', { surfaceOp: 'append', sourceEventSeqs: [3] }),
   ]
   const r = validateSessionEvents(tail)
-  assert.equal(r.ok, true)
+  assert.equal(r.problems.some((p) => p.kind.startsWith('source-event-seqs')), false)
+  // 尾片模式：不含会话头部（system head / session/title），跨事件检查跳过，不误报
+  assert.equal(validateSessionEvents(tail, { tail: true }).ok, true)
 })
 
 test('validateSessionEvents：非数组 / 畸形条目报告且封顶', () => {
@@ -657,25 +661,29 @@ test('validateSessionEvents：首个 step/start 之前的 surface 事件被点�
   ]
   const r = validateSessionEvents(legacy)
   assert.equal(r.ok, false)
-  assert.deepEqual(r.problems.map((p) => p.kind), ['surface-before-first-step'])
+  // 首个 surface 不是 system head，因此同时命中两条 fail-closed 形状检查
+  assert.deepEqual(r.problems.map((p) => p.kind), ['system-head-missing', 'surface-before-first-step'])
   assert.equal(r.problems[0].seq, 0)
-  // 新注入位（step/start 之后）同形状不报
+  // 新注入位（step/start 之后、system head 之后）同形状不报
   const fixed = validateSessionEvents([
     ev(0, 'turn/start'),
     ev(1, 'step/start'),
-    ev(2, 'user/message', { surfaceOp: 'append' }),
-    ev(3, 'assistant/message', { surfaceOp: 'append' }),
-    ev(4, 'step/end'),
-    ev(5, 'turn/end'),
+    ev(2, 'system/message', { surfaceOp: 'append' }),
+    ev(3, 'user/message', { surfaceOp: 'append' }),
+    ev(4, 'assistant/message', { surfaceOp: 'append' }),
+    ev(5, 'step/end'),
+    ev(6, 'turn/end'),
   ])
   assert.equal(fixed.ok, true)
-  // 无任何 step/start（只有提问没有回复）时不适用该约束
+  // 无任何 step/start（只有提问没有回复）时不适用 surface-before-first-step，
+  // 但缺 protected head 仍会被点名——续聊后宿主写 system/message 时迁移会拒载。
   const noStep = validateSessionEvents([
     ev(0, 'turn/start'),
     ev(1, 'user/message', { surfaceOp: 'append' }),
     ev(2, 'turn/end'),
   ])
-  assert.equal(noStep.ok, true)
+  assert.equal(noStep.problems.some((p) => p.kind === 'surface-before-first-step'), false)
+  assert.equal(noStep.problems.some((p) => p.kind === 'system-head-missing'), true)
 })
 
 test('所有源的 assistant/message 都带 settlement 字段 stream（issue #41）', () => {
