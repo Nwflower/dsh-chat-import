@@ -2,6 +2,18 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">问题修复</h3>
+
+- **DSH 自身会话日志导入后重启打不开：补 protected system head 并重映射标题引用**：`format: "dsh"` 转换时整类丢弃源日志的 `system/message`（运行时头状态），却没有补回 protected head——宿主续聊写系统提示词时 v3→v4 迁移以 `system/message requires a protected first surface head` 拒载整份日志；同时 `session/title` 的 `messageSeqs` 仍是源日志编号，事件重排后命中 `title messageSeqs must name an earlier event`。现在转换器在首个 `step/start` 之后、任何 surface 事件之前补一条空 head（整份日志没有 step 时补一个只装 head 的空 step；旧版注入声明排在首个 step 之前时把它挪进该 step），并把 `session/title.messageSeqs` 与 `sourceEventSeqs` 一起做两段 seq 重映射：`user` 标题的引用置空，非 user 标题的引用全部悬空时丢弃该条标题（标题文本仍保留，由导入层的来源标题覆盖）。`verify_session` 新增 `system-head-missing`（surface 首事件不是 protected head）与 `title-message-seqs`（标题引用不再指向更早、互不重复的人类 user/message）两类检查，存量旧形状给出 `force: true` 重导提示；增量续写的尾片校验跳过这两条跨事件检查，避免每次续写误报。
+
+<h3 id="en-unreleased">Bug Fixes</h3>
+
+- **DSH session logs no longer fail to reopen after import: restore the protected system head and remap title references**: converting `format: "dsh"` dropped the source log's `system/message` events (runtime head state) without writing a replacement protected head, so when the host continued the conversation and wrote its own system prompt, the v3→v4 migration rejected the whole log with `system/message requires a protected first surface head`. At the same time `session/title.messageSeqs` still carried source-log sequence numbers, and once events were reordered the log hit `title messageSeqs must name an earlier event`. The converter now inserts an empty head after the first `step/start` and before any surface event (an empty step that carries only the head when the log has no step at all, and the legacy injected declaration is moved into that step when it originally preceded it), and remaps `session/title.messageSeqs` together with `sourceEventSeqs`: `user` titles get empty references, and a non-user title whose references all dangle is dropped while its text is kept for the import layer's source-title override. `verify_session` gains `system-head-missing` (the first surface event is not the protected head) and `title-message-seqs` (a title reference no longer names an earlier, distinct human user/message), suggesting `force: true` re-import for the legacy shape; tail validation during an incremental append skips both cross-event checks so ongoing continuation does not raise false alarms.
+
 ## [0.26.4] - 2026-11-02
 
 [中文](#cn-0.26.4) | [English](#en-0.26.4)
