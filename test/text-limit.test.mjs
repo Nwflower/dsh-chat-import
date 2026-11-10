@@ -2,8 +2,9 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { constants } from 'node:buffer'
-import { importTranscript, previewTranscript, previewDirectory } from '../lib/import-core.mjs'
+import { importTranscript, previewTranscript, previewDirectory, assertTextReadLimit } from '../lib/import-core.mjs'
 import { previewFileTarget, importFileTarget } from '../lib/file-import.mjs'
+import { importCodexChain, importCodexFile, previewCodexFile } from '../lib/sources/codex.mjs'
 import { makeCtx } from './_support/fake-host.mjs'
 import { freshDshHome } from './_support/tmp-db.mjs'
 
@@ -73,4 +74,57 @@ test('从文件导入的 bundle 判型读头之前也执行上限检查', async 
   host.ctx.fs.stat = async () => ({ type: 'file', size: LIMIT + 1, version: 'oversized' })
   await assert.rejects(importFileTarget(host.ctx, { path: jsonPath }), assertFriendlyLimit)
   assert.equal(host.reads.count, 0)
+})
+
+test('上限检查允许边界值与未知大小，只拒绝明确超限的文件', () => {
+  assert.doesNotThrow(() => assertTextReadLimit({ type: 'file', size: LIMIT }, path))
+  assert.doesNotThrow(() => assertTextReadLimit({ type: 'file', size: Number.NaN }, path))
+  assert.doesNotThrow(() => assertTextReadLimit(undefined, path))
+  assert.throws(() => assertTextReadLimit({ type: 'file', size: LIMIT + 1 }, path), assertFriendlyLimit)
+})
+
+const codexPath = 'D:/demo/rollout-2026-11-07T01-02-03-12345678-1234-1234-1234-123456789abc.jsonl'
+
+function codexCtx(sizes) {
+  process.env.DSH_HOME = freshDshHome('dsh-home-')
+  const paths = Object.keys(sizes)
+  const host = makeCtx(Object.fromEntries(paths.map((p) => [p, '{"type":"user"}\n'])), { real: false })
+  const stat = host.ctx.fs.stat
+  host.ctx.fs.stat = async (candidate) => {
+    const base = await stat(candidate)
+    return Object.hasOwn(sizes, candidate.targetKey) ? { ...base, type: 'file', size: sizes[candidate.targetKey] } : base
+  }
+  return host
+}
+
+test('Codex 单页链在读取前拒绝超限 rollout', async () => {
+  const { ctx, reads } = codexCtx({ [codexPath]: LIMIT + 1 })
+  await assert.rejects(importCodexChain(ctx, [{ path: codexPath, name: codexPath.split('/').pop() }], {}, {
+    registryDir: process.env.DSH_HOME,
+  }), assertFriendlyLimit)
+  assert.equal(reads.count, 0)
+})
+
+test('Codex 多页各自合规但 join 后超限时，在任何读取前拒绝', async () => {
+  const second = codexPath.replace('.jsonl', '_87654321-4321-4321-4321-cba987654321.jsonl')
+  const { ctx, reads } = codexCtx({ [codexPath]: LIMIT, [second]: 1 })
+  await assert.rejects(importCodexChain(ctx, [
+    { path: codexPath, name: codexPath.split('/').pop() },
+    { path: second, name: second.split('/').pop() },
+  ], {}, { registryDir: process.env.DSH_HOME }), assertFriendlyLimit)
+  assert.equal(reads.count, 0, '逐页检查之后还必须检查换行分隔符在内的总预算')
+})
+
+test('Codex 无 UUID 文件的单文件预览 fallback 也先检查大小', async () => {
+  const { ctx, reads } = oversizedCtx()
+  await assert.rejects(previewCodexFile(ctx, target, {}), assertFriendlyLimit)
+  assert.equal(reads.count, 0)
+})
+
+test('Codex 无 streamText 的读头回退不会先整读超限文件', async () => {
+  const { ctx, reads } = codexCtx({ [codexPath]: LIMIT + 1 })
+  await assert.rejects(importCodexFile(ctx, { targetKey: codexPath, displayPath: codexPath }, {}, {
+    registryDir: process.env.DSH_HOME,
+  }), assertFriendlyLimit)
+  assert.equal(reads.count, 0)
 })
