@@ -15,12 +15,15 @@ import { memoryHost, FAKE_HOME as HOME } from './_support/discovery-host.mjs'
 import { withTempDir, withTempDirAsync, writeSqliteFixture, insertRows, freshDshHome } from './_support/tmp-db.mjs'
 import { assertToolPairing } from './_support/session-invariants.mjs'
 import { assertEnvelopeHygiene } from './_support/envelope.mjs'
+import { hostAbs } from './_support/host-path.mjs'
 
 const CREATED = 1768000000000
 const UPDATED = 1768000123000
 const LEGACY_ID = 'legacy-1'
 const NEXT_ID = 'next-1'
-const LEGACY_CWD = join('D:', 'work', 'legacy-project')
+// cwd 必须是**宿主平台**的绝对路径：写死 `D:/…` 在 Linux CI 会被 prepareHostMeta 剔除，
+// 断言拿到 undefined（本地 Windows 永远绿）。hostAbs 在两端给出本平台等价路径。
+const LEGACY_CWD = hostAbs('D:/work/legacy-project')
 const NEXT_CWD = '/home/u/next-project'
 
 const LEGACY_CREATE = `
