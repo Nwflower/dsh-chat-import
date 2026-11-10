@@ -37,6 +37,7 @@
     <td align="center" width="20%"><a href="https://github.com/MoonshotAI/kimi-code"><img src="./assets/agents/kimi.svg" width="56" height="56" alt="Kimi Code" /><br /><b>Kimi Code</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/esengine/DeepSeek-Reasonix"><img src="./assets/agents/reasonix.svg" width="56" height="56" alt="Reasonix" /><br /><b>Reasonix</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/anomalyco/opencode"><img src="./assets/agents/opencode.svg" width="56" height="56" alt="OpenCode" /><br /><b>OpenCode</b></a></td>
+    <td align="center" width="20%"><a href="https://github.com/AIDotNet/NextCoWork"><img src="./assets/agents/opencowork.svg" width="56" height="56" alt="openCoWork / NextCoWork" /><br /><b>openCoWork</b></a></td>
   </tr>
   <tr>
     <td align="center" width="20%"><a href="https://github.com/XiaomiMiMo/MiMo-Code"><img src="./assets/agents/mimocode.svg" width="56" height="56" alt="MiMo Code" /><br /><b>MiMo Code</b></a></td>
@@ -141,6 +142,8 @@ Codex 的会话标题优先取 `session_index.jsonl` 里保存的标题（`threa
 Codex 的活动时间取日志头尾有界窗口里最新的有效时间戳，并合并所有 rollout 分页的结果。只有日志里完全没有时间时才回退文件修改时间，所以宿主文件服务不提供修改时间也能取到活动时间。被窗口截断的记录里的时间戳可能漏掉。
 
 Claude Code 的 fork 会话（新版桌面端会话菜单与 `--fork-session`）同样会被发现并导入。fork 转录把父会话的记录逐字拷贝在文件开头，自己的记录从 fork 点开始追加。所以判定主转录时看文件的两端：文件名 stem 出现在头部或尾部，就算这个文件自己的会话。会话身份取转录里最后出现的 `sessionId`。以前这类文件被整类当成子代理辅助转录跳过，一条都扫不到。拷贝过来的父会话历史会留在日志里，因为 fork 的上下文本来就有它，于是父会话与 fork 会话会重叠一段历史。
+
+`opencowork` 按 SQLite schema 自动识别旧 openCoWork（`~/.open-cowork/data.db`）与 NextCoWork（`~/.next-cowork/data/nextcowork.db`），保留正文、thinking、工具调用与结果、标题、工作目录和时间；NextCoWork 子代理会话不单独导入。未知或畸形块、无法配对的工具结果分别计入 `unknownEvents` 与 `orphanResults`。需要旁读附件文件的图片引用与原生压缩元数据暂不还原。
 
 Hermes 在 Windows 上默认扫描 `%LOCALAPPDATA%\hermes` 与 `~/.hermes`；`LOCALAPPDATA` 没有设置时，回退到 `~/AppData/Local/hermes`。macOS 与 Linux 默认扫描 `~/.hermes`。
 

@@ -61,7 +61,7 @@ test('defaultRoots：env 注入（不读 process.env）——DSH_HOME / GROK_HOM
 
 test('FORMATS 顺序固定（工具 schema enum 与默认扫描 / 流式产出顺序）', () => {
   assert.deepEqual(FORMATS, [
-    'claude', 'codex', 'cursor', 'gemini', 'antigravity', 'reasonix', 'opencode', 'mimocode',
+    'claude', 'codex', 'cursor', 'gemini', 'antigravity', 'reasonix', 'opencode', 'opencowork', 'mimocode',
     'zcode', 'grokbuild', 'openclaw', 'pi', 'omp', 'hermes', 'kimi', 'kilocode', 'qoder', 'chatgpt', 'workbuddy', 'qwen', 'codebuddy',
     'continue', 'cline', 'goose', 'dsh4', 'zed', 'crush', 'teleagent', 'trae', 'doubao', 'vibe', 'codearts', 'dsh', 'copilot-vscode', 'copilot-cli',
   ])
@@ -124,7 +124,7 @@ test('fileFormatsForPath：独占 / 多候选 / 扩展名兜底', () => {
     ['/tmp/random/export.json', ['gemini', 'chatgpt', 'copilot-vscode']],
     ['/vscode/one/chatSessions/session.json', ['copilot-vscode']],
     ['C:\\Code\\one\\chatSessions\\session.json', ['copilot-vscode']],
-    ['/tmp/random/other.db', ['opencode', 'zcode', 'hermes']],
+    ['/tmp/random/other.db', ['opencode', 'opencowork', 'zcode', 'hermes']],
     ['/tmp/random/notes.txt', []],
     // codearts：只认 .codearts 目录段，不靠裸文件名（否则同族 grokbuild 的
     // chat_history.jsonl 会被 codearts 抢走）。chat_history.jsonl 本身走扩展名兜底候选。

@@ -6,10 +6,18 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 [中文](#cn-unreleased) | [English](#en-unreleased)
 
+<h3 id="cn-unreleased">新增功能</h3>
+
+- **新增 openCoWork / NextCoWork 导入源**：`import_chat({ format: "opencowork", path })` 与面板按 SQLite schema 自动识别旧 openCoWork 的 `~/.open-cowork/data.db`（`content` + `sort_order`）和 NextCoWork 的 `~/.next-cowork/data/nextcowork.db`（`parts` + `ordinal`），可直接传库文件、应用根或 NextCoWork 的 `data/` 子目录。保留正文、thinking、工具调用与结果、标题、cwd 和源时间；旧版 `content` 兼容 JSON 字符串、block 数组与普通文本，新版只含工具结果的 user 消息不会误开新回合，`parent_session_id` 非空的 NextCoWork 子代理会话不单独导入。未知或畸形块计入 `unknownEvents`，未配对工具结果计入 `orphanResults`，无法还原的图片引用计入 `imagesDegraded`。一库多会话支持 `sessionIds`、WAL 增量、幂等重导和零副作用预览；需要旁读附件文件的图片与原生压缩检查点暂不还原。
+
 <h3 id="cn-unreleased">问题修复</h3>
 
 - **超过约 512 MiB 的整读文本在读取前给出明确错误**：标准单文件导入、单文件 / 目录预览、面板「从文件导入」及 Codex 自有读取链现在先按 Node.js `MAX_STRING_LENGTH` 检查源文件字节数，超限返回带路径、实际大小与拆分建议的 `TRANSCRIPT_TOO_LARGE`，不再把 V8 的 `Cannot create a string longer than 0x1fffffe8 characters` 内部错误直接暴露给用户；Codex 分页 rollout 除逐页检查外还把页间换行计入合并后的总预算，多页各自合规但拼接后超限同样会在读取前拒绝。检查发生在 `readText` 之前，未变化来源的幂等短路径不受影响。
 - **DSH 自身会话日志导入后重启打不开：补 protected system head 并重映射标题引用**：`format: "dsh"` 转换时整类丢弃源日志的 `system/message`（运行时头状态），却没有补回 protected head——宿主续聊写系统提示词时 v3→v4 迁移以 `system/message requires a protected first surface head` 拒载整份日志；同时 `session/title` 的 `messageSeqs` 仍是源日志编号，事件重排后命中 `title messageSeqs must name an earlier event`。现在转换器在首个 `step/start` 之后、任何 surface 事件之前补一条空 head（整份日志没有 step 时补一个只装 head 的空 step；旧版注入声明排在首个 step 之前时把它挪进该 step），并把 `session/title.messageSeqs` 与 `sourceEventSeqs` 一起做两段 seq 重映射：`user` 标题的引用置空，非 user 标题的引用全部悬空时丢弃该条标题（标题文本仍保留，由导入层的来源标题覆盖）。`verify_session` 新增 `system-head-missing`（surface 首事件不是 protected head）与 `title-message-seqs`（标题引用不再指向更早、互不重复的人类 user/message）两类检查，存量旧形状给出 `force: true` 重导提示；增量续写的尾片校验跳过这两条跨事件检查，避免每次续写误报。
+
+<h3 id="en-unreleased">New Features</h3>
+
+- **New import source: openCoWork / NextCoWork**: `import_chat({ format: "opencowork", path })` and the panel detect legacy openCoWork's `~/.open-cowork/data.db` (`content` + `sort_order`) and NextCoWork's `~/.next-cowork/data/nextcowork.db` (`parts` + `ordinal`) by SQLite schema, accepting the database file, application root, or NextCoWork's `data/` subdirectory. Text, thinking, tool calls and results, titles, cwd and source timestamps are preserved. Legacy `content` accepts JSON strings, block arrays and plain text; NextCoWork user messages containing only tool results do not open a spurious turn, and sessions with `parent_session_id` are excluded as sub-agent transcripts. Unknown or malformed blocks are reported as `unknownEvents`, unpaired tool results as `orphanResults`, and unrestorable image references as `imagesDegraded`. Both databases support `sessionIds`, WAL-aware incremental imports, idempotent re-import and zero-side-effect previews. Image references requiring sidecar attachment files and native compaction checkpoints are not reconstructed yet.
 
 <h3 id="en-unreleased">Bug Fixes</h3>
 

@@ -114,7 +114,7 @@ export type LocalJsonlFormat =
 
 /** import_chat 的源格式枚举（值 = 来源短名；除 local-jsonl 外与 discovery 的 ScanFormat 一致）。 */
 export type ChatFormat =
-  | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode'
+  | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'opencowork'
   | 'mimocode' | 'kilocode' | 'teleagent' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'omp'
   | 'kimi' | 'qoder' | 'workbuddy' | 'codebuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'continue' | 'cline' | 'goose'
   | 'zed' | 'crush' | 'dsh' | 'dsh4' | 'local-jsonl' | 'copilot-vscode' | 'copilot-cli'
@@ -127,7 +127,7 @@ export interface ImportChatOptions extends ImportOptions {
   compacted?: boolean
   /** 仅 chatgpt：'main'（默认）只重建主线程；'all' 枚举全部分支会话。 */
   branch?: 'main' | 'all'
-  /** 仅一库多会话来源（opencode / mimocode / kilocode / teleagent / trae / doubao / zcode / goose / zed / crush）：只导入指定源会话 id（缺省导入全部）。 */
+  /** 仅一库多会话来源（opencode / opencowork / mimocode / kilocode / teleagent / trae / doubao / zcode / goose / zed / crush）：只导入指定源会话 id（缺省导入全部）。 */
   sessionIds?: string[]
   /** 仅压缩感知来源（claude / cline / codex / continue / copilot-cli / crush / grokbuild / kimi / mimocode / kilocode / opencode / pi / omp / qoder / teleagent / zcode / zed）：true 时导入全量历史并**不发**压缩检查点（模型看到全量）；默认 false 尊重压缩（日志保全量、模型只见摘要 + 压缩点之后）。omp 另受该开关影响：false 时按 reset_boundary（/clear）切掉清空点之前的内容。该开关进参数指纹，换值须重导。名单与 `import_chat` 的描述串同源（由 spec.fullHistory 派生）。 */
   fullHistory?: boolean
@@ -643,7 +643,7 @@ export interface RetractResult {
 
 /** 发现层可扫描的格式（= lib/discovery.mjs 的 FORMATS；比 ChatFormat 少 local-jsonl）。 */
 export type ScanFormat =
-  | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'mimocode'
+  | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'opencowork' | 'mimocode'
   | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'omp' | 'hermes' | 'kimi' | 'kilocode' | 'qoder'
   | 'chatgpt' | 'workbuddy' | 'codebuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
   | 'crush' | 'teleagent' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'dsh' | 'copilot-vscode' | 'copilot-cli'

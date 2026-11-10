@@ -22,6 +22,7 @@
 | `antigravity` | Antigravity session transcript (~/.gemini/antigravity / antigravity-cli) |
 | `reasonix` | Reasonix session JSONL (~/.reasonix/sessions) |
 | `opencode` | opencode db opencode.db — V1 or V2 schema (~/.local/share/opencode) |
+| `opencowork` | openCoWork data.db (~/.open-cowork) or NextCoWork nextcowork.db (~/.next-cowork/data) |
 | `mimocode` | mimocode db mimocode.db (~/.local/share/mimocode) |
 | `kilocode` | Kilo Code db kilo.db (~/.local/share/kilo) |
 | `teleagent` | TeleAgent db teleagent.db (TeleAgent/users/<account>) |
@@ -59,6 +60,12 @@
 `doubao` 读的是豆包桌面版的 Chromium IndexedDB。它的会话列表在服务端，本地只为「客户端最近
 打开过」的会话保留正文，所以没有本地正文的会话不会被列出、也无法导入（不会凭空伪造会话）。
 
+`opencowork` 可以直接传数据库文件，也可以传 `.open-cowork` / `.next-cowork` 根（含 NextCoWork 的
+`data/` 子目录）。读取器按 schema 选择 legacy `content/sort_order` 或 next `parts/ordinal`，不按应用
+版本猜测。保留正文、thinking、工具调用与结果、标题、cwd 和源时间；NextCoWork 带 `parent_session_id`
+的子会话不单独导入。未知或畸形块计入 `unknownEvents`，未配对工具结果计入 `orphanResults`。
+需要旁读附件文件的图片引用与原生压缩检查点不在首版范围内。
+
 `cursor` 按对话 id 查询 Cursor 本机 `User/globalStorage/state.vscdb` 工作区登记册，
 并以 `workspaceStorage/<id>/workspace.json` 的单文件夹路径兜底，只采用现存目录。
 发现缓存成功结果最多 30 秒，DB/WAL 指纹变化即失效；导入始终重新读取，失败结果不缓存。
@@ -94,7 +101,7 @@
 
 - `compacted`（claude，历史别名）—— 现在导入压缩摘要本来就是默认行为（原生 compaction 检查点），这个别名只为旧调用方保留。
 - `branch`（chatgpt）—— `main`（默认）只导入主线程；`all` 按分支路径各写一个会话。
-- `sessionIds`（一库多会话的来源：chatgpt / opencode / mimocode / kilocode / teleagent / zcode / trae / doubao / goose / zed / crush）—— 只导入这些源会话 id。
+- `sessionIds`（一库多会话的来源：chatgpt / opencode / opencowork / mimocode / kilocode / teleagent / zcode / trae / doubao / goose / zed / crush）—— 只导入这些源会话 id。
 - `fullHistory`（支持压缩的来源）—— 设为 `true` 时导入全量历史，不写原生 compaction 检查点；默认 `false` 尊重压缩，模型看到的是「摘要检查点 + 其后的内容」。
 - `includeToolUseResult`（claude）—— 把结构化的 `toolUseResult` 附属件也附到每条工具结果后面，包括经 `structuredPatch` / `bashEditDiff` 得到的编辑 diff、问答，以及退出码这类标量元数据。默认 `false`。它会让转录明显变大，而且这个参数属于参数指纹的一部分，改了要重导（`force`）。
 - `lineage`（hermes）—— `tail` 表示只导入 lineage 的叶子会话。

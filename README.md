@@ -37,6 +37,7 @@
     <td align="center" width="20%"><a href="https://github.com/MoonshotAI/kimi-code"><img src="./assets/agents/kimi.svg" width="56" height="56" alt="Kimi Code" /><br /><b>Kimi Code</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/esengine/DeepSeek-Reasonix"><img src="./assets/agents/reasonix.svg" width="56" height="56" alt="Reasonix" /><br /><b>Reasonix</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/anomalyco/opencode"><img src="./assets/agents/opencode.svg" width="56" height="56" alt="OpenCode" /><br /><b>OpenCode</b></a></td>
+    <td align="center" width="20%"><a href="https://github.com/AIDotNet/NextCoWork"><img src="./assets/agents/opencowork.svg" width="56" height="56" alt="openCoWork / NextCoWork" /><br /><b>openCoWork</b></a></td>
   </tr>
   <tr>
     <td align="center" width="20%"><a href="https://github.com/XiaomiMiMo/MiMo-Code"><img src="./assets/agents/mimocode.svg" width="56" height="56" alt="MiMo Code" /><br /><b>MiMo Code</b></a></td>
@@ -141,6 +142,8 @@ Codex discovery prefers the session title saved in `session_index.jsonl` (`threa
 For activity time, Codex discovery takes the latest valid timestamp found within bounded head and tail windows of the transcript and combines the results across rollout pages. File modification time is the fallback when the transcript carries no timestamp at all, so activity times still come back when the host file service does not expose modification times. A timestamp inside a truncated record can be missed.
 
 Claude Code fork sessions (from the newer desktop session menu and from `--fork-session`) are discovered and imported too. A fork transcript opens with a verbatim copy of the parent's records and appends its own from the fork point, so the main-transcript test looks at **both ends** of the file: if the file name's stem appears at either end, the file owns that session. Session identity is the **last** `sessionId` in the transcript. Before this rule, such files were classified as subagent auxiliary transcripts and skipped wholesale. The copied prefix, which is the parent's history, stays in the log, because a fork's context really does contain it; the parent and the fork therefore overlap by one stretch of history.
+
+The `opencowork` format detects legacy openCoWork (`~/.open-cowork/data.db`) and NextCoWork (`~/.next-cowork/data/nextcowork.db`) by their SQLite schemas. It preserves text, thinking, tool calls and results, titles, working directories and timestamps; NextCoWork sub-agent sessions are excluded. Unknown or malformed blocks and orphaned tool results are reported as `unknownEvents` and `orphanResults`. Attachment references that require sidecar files and native compaction metadata are not reconstructed.
 
 On Windows, Hermes discovery scans `%LOCALAPPDATA%\hermes` and `~/.hermes`, falling back to `~/AppData/Local/hermes` when `LOCALAPPDATA` is unset. On macOS and Linux it scans `~/.hermes`.
 

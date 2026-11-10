@@ -24,6 +24,7 @@ database → one session; a directory → batch. Root shapes:
 | `antigravity` | Antigravity session transcript (~/.gemini/antigravity / antigravity-cli) |
 | `reasonix` | Reasonix session JSONL (~/.reasonix/sessions) |
 | `opencode` | opencode db opencode.db — V1 or V2 schema (~/.local/share/opencode) |
+| `opencowork` | openCoWork data.db (~/.open-cowork) or NextCoWork nextcowork.db (~/.next-cowork/data) |
 | `mimocode` | mimocode db mimocode.db (~/.local/share/mimocode) |
 | `kilocode` | Kilo Code db kilo.db (~/.local/share/kilo) |
 | `teleagent` | TeleAgent db teleagent.db (TeleAgent/users/<account>) |
@@ -61,6 +62,13 @@ parser trial) and `parseFormat` forces one parser when detection is wrong.
 `doubao` reads the Chromium IndexedDB store of Doubao Desktop. Its conversation list is server-side,
 so the local store only holds bodies for conversations the client has recently opened — sessions
 without a locally cached body are not listed and cannot be imported (nothing is fabricated).
+
+`opencowork` accepts either database file directly, or the `.open-cowork` / `.next-cowork` root (including
+NextCoWork's `data/` subdirectory). It selects the legacy `content/sort_order` or next `parts/ordinal`
+reader by schema, not by application version. Text, thinking, tool calls and results, titles, cwd and
+source timestamps are preserved; NextCoWork `parent_session_id` sessions are excluded. Unknown or
+malformed blocks count as `unknownEvents`, unpaired tool results as `orphanResults`. Image references
+that need sidecar attachment files and native compaction checkpoints are outside the initial scope.
 
 `cursor` uses the conversation id to look up an existing directory in Cursor's local
 `User/globalStorage/state.vscdb` workspace registry, with `workspaceStorage/<id>/workspace.json`
@@ -100,7 +108,7 @@ Every parameter is declared in the tool schema; this is what each one does.
 
 - `compacted` (claude, legacy alias) — importing the compaction summary is the default behavior now (native compaction checkpoints); the alias only exists for older callers.
 - `branch` (chatgpt) — `main` (default) imports the main thread only; `all` writes one session per branch path.
-- `sessionIds` (multi-session sources: chatgpt / opencode / mimocode / kilocode / teleagent / zcode / trae / doubao / goose / zed / crush) — import only these source session ids.
+- `sessionIds` (multi-session sources: chatgpt / opencode / opencowork / mimocode / kilocode / teleagent / zcode / trae / doubao / goose / zed / crush) — import only these source session ids.
 - `fullHistory` (compaction-aware sources) — `true` imports the full history without native compaction checkpoints; default `false` respects compaction, so the model sees the summary checkpoint plus what follows.
 - `includeToolUseResult` (claude) — also import the structured `toolUseResult` sidecar (edit diffs via `structuredPatch` / `bashEditDiff`, questions/answers, exit codes and other scalar metadata) as text appended to each tool result. Default `false`; it grows large transcripts noticeably, and the flag is part of the argument fingerprint (changing it requires `force`).
 - `lineage` (hermes) — `tail` imports only lineage leaf sessions.
