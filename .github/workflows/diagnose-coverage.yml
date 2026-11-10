@@ -1,0 +1,23 @@
+name: diagnose-coverage
+# 临时诊断用（拿 CI 失败用例名）：跑 coverage 并保留 node --test 的完整报告到日志。
+# 用完即删，不属于发布流程。
+on:
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci --no-audit --no-fund
+      - name: coverage full report
+        shell: bash
+        run: |
+          set -o pipefail
+          npm run coverage 2>&1 | tee /tmp/cov.log || true
+          echo "=== failing cases (✖ / not ok) ==="
+          grep -nE "✖|not ok|failing tests|ℹ fail|# fail|AssertionError|Error:|code: |errno" /tmp/cov.log || true
