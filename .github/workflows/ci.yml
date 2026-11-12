@@ -73,16 +73,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # smoke 的 node 版本对齐「最新 dsh」的 engines，而不是插件自己的下限（>=22.13）：
+      # dsh 0.2.2-rc.1 起要求 node >= 24.9。留在 node 22 时 npm 会在裸装（`*`）解析阶段把
+      # 唯一候选过滤掉——该包所有版本都是 -rc 预发布，`*` 不匹配预发布，只剩 dist-tag 一条
+      # 路，而 dist-tag 命中的版本又不满足 engines——于是报出与真实原因无关的误导性错误
+      # `ETARGET: No matching version found for @deepseek-ai/dsh@*`（2026-11-05 起 CI 全红
+      # 即此故）。显式 @latest / 固定版本能绕过 engines 检查装上，但那样的 CLI 在 node 22
+      # 上跑不起来，冒烟也就失去意义。
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 24
           cache: npm
       # dsh plugin 子命令在 profile 目录内转发 pnpm；ubuntu 镜像不自带 pnpm，显式安装。
       # @deepseek-ai/dsh 装 npm latest（当前 0.2.x）——冒烟对象就是"最新发布的 dsh"。
       - name: Install dsh CLI (latest) and pnpm
         run: |
-          npm i -g @deepseek-ai/dsh
-          npm i -g pnpm@11
+          npm i -g @deepseek-ai/dsh --no-audit --no-fund
+          npm i -g pnpm@11 --no-audit --no-fund
+          # 装上不等于跑得起来：dsh 的 engines 再往上走时，让它在这一步以可读的报错失败，
+          # 而不是等到后面的 boot 步骤给出难定位的堆栈。
+          dsh --version
       # 插件 peer（@deepseek-ai/dsh-tools）按插件真实路径（checkout）解析，缺 checkout
       # 自己的 node_modules 会 ERR_MODULE_NOT_FOUND——先 npm ci（本仓库零运行时依赖，很快）
       - name: Install checkout deps (peer @deepseek-ai/dsh-tools)
