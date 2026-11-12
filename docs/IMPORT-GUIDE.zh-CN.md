@@ -15,7 +15,7 @@
 | format | path 形状 |
 | --- | --- |
 | `claude` | Claude Code JSONL (~/.claude/projects) |
-| `codex` | Codex / ChatGPT CLI rollout JSONL (~/.codex) |
+| `codex` | Codex / ChatGPT CLI rollout JSONL or compressed rollout (.jsonl / .jsonl.zst, ~/.codex) |
 | `chatgpt` | ChatGPT web export conversations.json (one file, all sessions) |
 | `cursor` | Cursor agent transcript JSONL (~/.cursor/projects) |
 | `gemini` | Gemini CLI session JSON (~/.gemini/history) |
@@ -118,6 +118,13 @@
 - **`force: true`** —— 恒另建副本。
 
 会话日志是 append-only 的：导入只做 `create` + `append`，不改写历史。
+
+## Codex 压缩 rollout
+
+Codex 0.167+ 把已结束的历史会话压缩为 `rollout-*.jsonl.zst`，只有少数进行中的会话仍是明文
+`.jsonl`。`codex` 来源两种形态都能发现与导入，`.zst` 先解压再交给同一个转换器。同一页两种
+形态并存时按 mtime 保留较新的文件；rollout 之后从明文改存为 `.zst` 时沿用既有导入记录，
+重导报告 `already-imported`，不会另建重复会话。
 
 ## Copilot VS Code
 

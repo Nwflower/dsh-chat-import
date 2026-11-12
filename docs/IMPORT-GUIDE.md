@@ -17,7 +17,7 @@ database → one session; a directory → batch. Root shapes:
 | format | path shape |
 | --- | --- |
 | `claude` | Claude Code JSONL (~/.claude/projects) |
-| `codex` | Codex / ChatGPT CLI rollout JSONL (~/.codex) |
+| `codex` | Codex / ChatGPT CLI rollout JSONL or compressed rollout (.jsonl / .jsonl.zst, ~/.codex) |
 | `chatgpt` | ChatGPT web export conversations.json (one file, all sessions) |
 | `cursor` | Cursor agent transcript JSONL (~/.cursor/projects) |
 | `gemini` | Gemini CLI session JSON (~/.gemini/history) |
@@ -125,6 +125,14 @@ Importing the same source twice is idempotent by design:
 - **`force: true`** → always a fresh copy.
 
 Session logs are append-only: imports only `create` + `append`, never rewrite history.
+
+## Codex compressed rollouts
+
+Codex 0.167+ archives finished sessions as `rollout-*.jsonl.zst`; only the few in-progress
+sessions stay plain `.jsonl`. The `codex` source discovers and imports both forms, decompressing
+`.zst` before conversion. When a page exists in both forms discovery keeps the newer file, and a
+rollout that later switches form keeps its existing import record — re-importing it reports
+`already-imported` instead of creating a duplicate session.
 
 ## Copilot VS Code
 
