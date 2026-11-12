@@ -187,6 +187,38 @@ test('convertDshJsonl 非 user 标题引用全悬空时丢弃该条标题，不�
   assert.equal(out.title, '坏标题', '标题文本仍保留在转换结果上（pinSourcedSessionTitle 会重新写一条合法标题）')
 })
 
+test('convertDshJsonl 标题引用重映射后仍需是人类 user/message：非人类目标丢弃（已损坏源日志的隔代传染）', () => {
+  // 源日志本身已损坏：标题指向 session-reference 注入的 user/message（更早，但不是
+  // 人类输入）。纯位置映射会把 [3] 忠实继承成新坐标，宿主读取时报
+  // "title messageSeqs must cite distinct earlier human user/message events"。
+  // 重导这种导入会话时坏引用会隔代传染，因此映射后必须再过一道语义过滤。
+  const lines = [
+    { type: 'session', id: 'session-title-corrupt', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 0, time: 1700000000000, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'user/message', seq: 2, time: 1700000000000, surfaceOp: 'append', data: { id: 'ref', role: 'user', content: [{ type: 'text', text: '会话引用注入' }], source: { kind: 'session-reference' } } },
+    { type: 'user/message', seq: 3, time: 1700000000000, surfaceOp: 'append', data: { id: 'u1', role: 'user', content: [{ type: 'text', text: '真实提问' }], source: { kind: 'user' } } },
+    // 混合引用：一个非人类 + 一个人类 → 只保留人类那条
+    { type: 'session/title', seq: 4, time: 1700000000000, data: { title: '混合引用', messageSeqs: [2, 3], source: { kind: 'fallback' } } },
+    // 全非人类引用 → 丢弃该条标题
+    { type: 'session/title', seq: 7, time: 1700000000000, data: { title: '坏标题', messageSeqs: [2], source: { kind: 'provider', provider: 'first-prompt-llm' } } },
+    { type: 'assistant/message', seq: 8, time: 1700000000000, surfaceOp: 'append', data: { turn: 1, step: 1, stream: [], message: { id: 'a1', role: 'assistant', content: [{ type: 'text', text: '好' }], source: { kind: 'model', provider: 'p', model: 'm' } } } },
+    { type: 'step/end', seq: 9, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 10, time: 1700000000000, data: { turn: 1, reason: { kind: 'completed' } } },
+  ]
+  const out = convertDshJsonl(lines.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/session-title-corrupt.jsonl' })
+  const human = out.events.find((e) => e.type === 'user/message' && e.data.source.kind === 'user')
+  const titles = out.events.filter((e) => e.type === 'session/title')
+  assert.equal(titles.length, 1, '全非人类引用的标题被丢弃，混合引用保留')
+  assert.equal(titles[0].data.title, '混合引用')
+  assert.deepEqual(titles[0].data.messageSeqs, [human.seq])
+  const target = out.events.find((e) => e.seq === titles[0].data.messageSeqs[0])
+  assert.equal(target.type, 'user/message')
+  assert.equal(target.data.source.kind, 'user')
+  assert.equal(validateSessionEvents(out.events).ok, true)
+  assert.equal(out.title, '坏标题', '标题文本仍保留（pinSourcedSessionTitle 会重新写一条合法标题）')
+})
+
 test('convertDshJsonl sourceEventSeqs 区间对展开 + 悬空引用丢弃（issue #38 主场景）', () => {
   // 新版 DSH 形态：assistant/message 用区间对 [[1,5]] 聚合引用，其中 1-3 是
   // assistant/chunk（非 DURABLE，转换丢弃）、4-5 是 tool/call（保留）。
