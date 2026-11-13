@@ -49,19 +49,33 @@ test('与 Response annotations 块共存时两者都保留', () => {
   assert.ok(prompt.endsWith('按批注改'), '请求正文应保留且在最后')
 })
 
-test('stripIdeSetupPreamble 的三种输入形态', () => {
+test('stripIdeSetupPreamble 的输入形态', () => {
   assert.equal(stripIdeSetupPreamble(wrap('问题')), '问题')
   assert.equal(stripIdeSetupPreamble('# Context from my IDE setup:\n\n## Open tabs:\n- a'), '')
   assert.equal(stripIdeSetupPreamble('普通文本'), '普通文本')
   // 大小写不敏感的前缀匹配，但请求段标记必须是行首的 '## My request:'
   assert.equal(stripIdeSetupPreamble('# CONTEXT FROM MY IDE SETUP:\n## My request:\n大小写'), '大小写')
+  // CRLF：真实 rollout 里确有 '\r\n' 的消息，行尾锚点必须容忍 '\r'
+  assert.equal(stripIdeSetupPreamble('# Context from my IDE setup:\r\n\r\n## My request:\r\nCRLF 提问\r\n'), 'CRLF 提问')
+  // 请求正文自带 '##' 标题时，只按行首的 '## My request:' 切一刀，后续标题原样保留
+  assert.equal(
+    stripIdeSetupPreamble('# Context from my IDE setup:\n\n## My request:\n填模板\n\n## Description\nx\n'),
+    '填模板\n\n## Description\nx',
+  )
 })
 
-test('端到端：两条包装提问 → 两轮，prompt 为请求正文', () => {
-  // 夹具全合成（test/fixtures/codex-ide-context.jsonl），与其它 codex-* 夹具同口径
+test('端到端：夹具里的包装提问 → 每轮一个 prompt，顺序与正文都对', () => {
+  // 夹具全合成（test/fixtures/codex-ide-context.jsonl），与其它 codex-* 夹具同口径。
+  // 覆盖本机真实 rollout 里出现的三种形态：带 Active file、无 Active file、CRLF、
+  // 以及请求正文自带 '##' 标题。
   const out = convertCodexJsonl(loadFixture('codex-ide-context.jsonl'), {})
-  assert.equal(out.turns.length, 2, '两条包装提问应开两轮')
+  assert.equal(out.turns.length, 5, '五条包装提问应开五轮')
   assert.equal(out.turns[0].prompt, '先看一下入口函数')
   assert.equal(out.turns[1].prompt, '再改成 RAII')
+  assert.equal(out.turns[2].prompt, '没有活动文件时的包装')
+  assert.equal(out.turns[3].prompt, 'CRLF 换行也要认')
+  assert.ok(out.turns[4].prompt.startsWith('帮我把这段填一下'), '模板提问被保留')
+  assert.ok(out.turns[4].prompt.includes('## Description'), '正文里的 ## 标题不能被当成包装分隔')
+  assert.ok(out.turns[4].prompt.includes('### Validation'), '正文里的 ### 标题同样保留')
   assert.equal(out.title, '先看一下入口函数', '标题取首个真实提问，而不是注入块')
 })
