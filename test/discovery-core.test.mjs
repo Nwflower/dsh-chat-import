@@ -490,11 +490,28 @@ test('issue #16：并发同 key 扫描共享进行中 Promise（不叠加全量�
 })
 
 test('defaultRoots：codex 同时给出 sessions 与 archived_sessions 两个根', () => {
-  const roots = defaultRoots({ home: HOME }).codex
+  // env 显式给空：本机若设了 CODEX_HOME，不能让它渗进这条默认根的断言
+  const roots = defaultRoots({ home: HOME, env: {} }).codex
   assert.deepEqual(roots, [
     join(HOME, '.codex', 'sessions'),
     join(HOME, '.codex', 'archived_sessions'),
   ])
+})
+
+test('defaultRoots：CODEX_HOME 为绝对路径时整体替代 ~/.codex，两个根随迁', () => {
+  const moved = join(HOME, 'codex-data')
+  const roots = defaultRoots({ home: HOME, env: { CODEX_HOME: moved } }).codex
+  assert.deepEqual(roots, [join(moved, 'sessions'), join(moved, 'archived_sessions')])
+})
+
+test('defaultRoots：CODEX_HOME 的空白串与相对路径一律忽略，回退 ~/.codex', () => {
+  for (const bad of ['', '   ', 'codex-data', './codex', '.']) {
+    const roots = defaultRoots({ home: HOME, env: { CODEX_HOME: bad } }).codex
+    assert.deepEqual(roots, [
+      join(HOME, '.codex', 'sessions'),
+      join(HOME, '.codex', 'archived_sessions'),
+    ], 'CODEX_HOME=' + JSON.stringify(bad) + ' 应回退默认根')
+  }
 })
 
 test('layoutProject(dsh)：~XXXX 转义按 code unit 还原，不再解成控制字符', () => {

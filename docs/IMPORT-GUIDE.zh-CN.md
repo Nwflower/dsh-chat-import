@@ -15,7 +15,7 @@
 | format | path 形状 |
 | --- | --- |
 | `claude` | Claude Code JSONL (~/.claude/projects) |
-| `codex` | Codex / ChatGPT CLI rollout JSONL or compressed rollout (.jsonl / .jsonl.zst, ~/.codex) |
+| `codex` | Codex / ChatGPT CLI rollout JSONL or compressed rollout (.jsonl / .jsonl.zst, ~/.codex or $CODEX_HOME) |
 | `chatgpt` | ChatGPT web export conversations.json (one file, all sessions) |
 | `cursor` | Cursor agent transcript JSONL (~/.cursor/projects) |
 | `gemini` | Gemini CLI session JSON (~/.gemini/history) |
