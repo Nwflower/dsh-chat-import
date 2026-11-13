@@ -11,6 +11,7 @@
 import { test } from 'node:test'
 import assert from 'node:assert/strict'
 import { codexUserPrompt, stripIdeSetupPreamble, convertCodexJsonl } from '../lib/convert/codex.mjs'
+import { loadFixture } from './_support/fixtures.mjs'
 
 const wrap = (request, activeFile = 'src/main.cpp') => (
   '# Context from my IDE setup:\n\n'
@@ -57,21 +58,10 @@ test('stripIdeSetupPreamble 的三种输入形态', () => {
 })
 
 test('端到端：两条包装提问 → 两轮，prompt 为请求正文', () => {
-  const T0 = '2026-10-19T10:29:00.000Z'
-  const line = (o) => JSON.stringify(o)
-  const raw = [
-    line({ timestamp: T0, type: 'session_meta', payload: { id: 'ide-ctx', timestamp: T0, cwd: 'D:\\demo\\proj' } }),
-    line({ timestamp: T0, type: 'turn_context', payload: { turn_id: 't1', model: 'gpt-6.1-sol' } }),
-    line({ timestamp: T0, type: 'response_item', payload: { type: 'message', role: 'user', content: [txt(wrap('第一条真实提问'))] } }),
-    line({ timestamp: T0, type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '收到' }] } }),
-    line({ timestamp: T0, type: 'turn_context', payload: { turn_id: 't2', model: 'gpt-6.1-sol' } }),
-    line({ timestamp: T0, type: 'response_item', payload: { type: 'message', role: 'user', content: [txt(wrap('第二条真实提问'))] } }),
-    line({ timestamp: T0, type: 'response_item', payload: { type: 'message', role: 'assistant', content: [{ type: 'output_text', text: '好的' }] } }),
-  ].join('\n')
-
-  const out = convertCodexJsonl(raw, {})
+  // 夹具全合成（test/fixtures/codex-ide-context.jsonl），与其它 codex-* 夹具同口径
+  const out = convertCodexJsonl(loadFixture('codex-ide-context.jsonl'), {})
   assert.equal(out.turns.length, 2, '两条包装提问应开两轮')
-  assert.equal(out.turns[0].prompt, '第一条真实提问')
-  assert.equal(out.turns[1].prompt, '第二条真实提问')
-  assert.equal(out.title, '第一条真实提问', '标题取首个真实提问，而不是注入块')
+  assert.equal(out.turns[0].prompt, '先看一下入口函数')
+  assert.equal(out.turns[1].prompt, '再改成 RAII')
+  assert.equal(out.title, '先看一下入口函数', '标题取首个真实提问，而不是注入块')
 })
