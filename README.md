@@ -80,6 +80,7 @@
 ## Install
 
 > Requires dsh 0.1.5-rc.1 or newer. Verified on the 0.1.x line and on the 0.2.x line; dsh-tools must satisfy `>=0.1.0-rc.6 <0.3.0`.
+> By default, imports use the host's native session format, including when the DSH session store is empty.
 
 1. Install from a terminal
 

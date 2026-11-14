@@ -547,7 +547,7 @@ test('REQ-41 /api-import/import handler：target dsh3 / dsh4 显式指定会话�
   assert.equal(bad.res.status, 400)
 })
 
-test('REQ-41 面板显式目标代次 = 宿主原生代次 → 走 agents.create（会话即时进列表，无需刷新）', async () => {
+test('面板首次扫描识别空库的原生代次，按默认目标走 agents.create', async () => {
   // 面板「导入到」的默认目标取自扫描到的 dshVersion（= 宿主原生代次）。此时代次覆盖与
   // 原生一致，必须走 agents.create：它会 enter + announce 会话，宿主 api-session-controller
   // 据此转发 api-session/added，客户端会话列表无需刷新即出现新会话。sessionPersistence.create
@@ -564,6 +564,7 @@ test('REQ-41 面板显式目标代次 = 宿主原生代次 → 走 agents.create
   const tree = { [root]: 'dir', [root + '\\proj-v4']: 'dir', [root + '\\proj-v3']: 'dir', [src4]: mk('sess-v4'), [src3]: mk('sess-v3') }
   const agentsCalls = []
   const services = {
+    sessions: { prepare: () => ({ header: { version: 4 } }) },
     agents: {
       async create({ sessionId, meta, seed }) {
         agentsCalls.push({ sessionId, meta, seed })
@@ -573,13 +574,15 @@ test('REQ-41 面板显式目标代次 = 宿主原生代次 → 走 agents.create
     },
   }
   const { ctx, persistence, webRoutes } = makeCtx(tree, { services })
-  // 宿主原生代次由存量会话 header 推断（插件不 import 宿主包）：空库时默认常量是 V3，
-  // 会掩盖「原生 = 4」的分支。先落一条 V4 存量会话，模拟真实的 V4 宿主。
-  persistence.sessions.set('host-existing-v4', { meta: { id: 'host-existing-v4', version: 4, createdAt: 1, isSeeded: false, delegationDepth: 0 }, events: [] })
   apply(ctx)
+  const scanRoute = webRoutes.find((r) => r.path === '/api-import/sessions')
+  const scan = await invokeImportRoute(scanRoute, { source: 'claude-code', path: root, after: 0 })
+  assert.equal(scan.data.ok, true, JSON.stringify(scan.data))
+  assert.equal(scan.data.dshVersion, 4)
+  assert.equal(persistence.sessions.size, 0)
   const route = webRoutes.find((r) => r.path === '/api-import/import')
 
-  const v4 = await invokeImportRoute(route, { items: [{ source: 'claude-code', sourcePath: src4 }], target: 'dsh4' })
+  const v4 = await invokeImportRoute(route, { items: [{ source: 'claude-code', sourcePath: src4 }], target: 'dsh' + scan.data.dshVersion })
   assert.equal(v4.data.ok, true, JSON.stringify(v4.data))
   assert.equal(agentsCalls.length, 1, '目标代次 = 原生代次必须走 agents.create（发 session/created）')
   assert.equal(agentsCalls[0].meta.version, 4)
