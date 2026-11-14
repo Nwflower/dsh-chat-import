@@ -4,13 +4,14 @@
 // content 是 Rust serde 变体（SinglePart / MultiPart，元素是 Text / ToolCall / ToolResult）。
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { tmpdir } from 'node:os'
 import { convertCodeartsJson, parseCodeartsTime } from '../lib/convert/codearts.mjs'
 import {
   codeartsUserDataDirs,
   listCodeartsSessions,
+  codeartsSubSessionMarker,
   readCodeartsSessionSummary,
   previewCodeartsDirectory,
   previewCodeartsFile,
@@ -484,6 +485,70 @@ test('listCodeartsSessions & readCodeartsSessionSummary 下钻两层目录并抽
     assert.equal(disc.total, 1)
     assert.equal(disc.sessions[0].format, 'codearts')
     assert.equal(disc.sessions[0].title, 'Discovered Session')
+  } finally {
+    rmSync(tmp, { recursive: true, force: true })
+  }
+})
+
+test('listCodeartsSessions: 子代理会话（parent / metadata.subagent）跳过，不留碎片会话', async () => {
+  // 与 #17 的 Codex 子代理跳过同语义：CodeArts 的子会话（explore 等）是独立目录，但导入时
+  // 只应成为「父会话 sub_agent 工具结果里的结论」的载体，不应再额外生成一个无上下文碎片会话。
+  // 命中 meta.parent 或 metadata.subagent 时整条剔除，只列主会话。
+  // （澄清：早先误以为父会话只留 stub、子代理内容会丢；实测父会话 25/25 持有子代理的完整
+  //  formatted_output 结论，故剔除子会话文件不丢信息——丢的只是子代理自己的过程回合。）
+  const tmp = mkdtempSync(join(tmpdir(), 'dsh-codearts-sub-'))
+  try {
+    const bucket = join(tmp, '2026-11-06-10-22-54-f9eab060ec9d5b5e')
+
+    // 主会话：完整 meta，无 parent / subagent
+    const main = join(bucket, '82012d5e-3124-4d0f-af7d-5de5a1c881b0')
+    mkdirSync(main, { recursive: true })
+    writeFileSync(join(main, 'meta.json'), JSON.stringify(syntheticMeta({ title: '主会话' })))
+    writeFileSync(join(main, 'history.jsonl'), syntheticJsonl())
+
+    // 子会话 A：meta.parent 标记
+    const childA = join(bucket, '19ddbe58-b38a-4d76-aafc-fbcd9021cab2')
+    mkdirSync(childA, { recursive: true })
+    writeFileSync(join(childA, 'meta.json'), JSON.stringify(syntheticMeta({ parent: { id: '82012d5e-3124-4d0f-af7d-5de5a1c881b0', at_message_index: 0 }, metadata: { subagent: true } })))
+    writeFileSync(join(childA, 'history.jsonl'), syntheticJsonl())
+
+    // 子会话 B：只 metadata.subagent=true（无 parent）
+    const childB = join(bucket, '1d2c7633-9a3c-4ec4-bd63-bce516f31cca')
+    mkdirSync(childB, { recursive: true })
+    writeFileSync(join(childB, 'meta.json'), JSON.stringify(syntheticMeta({ metadata: { subagent: true } })))
+    writeFileSync(join(childB, 'history.jsonl'), syntheticJsonl())
+
+    const host = {
+      async stat(p) {
+        for (const d of [main, childA, childB]) {
+          if (p === join(d, 'meta.json')) return { type: 'file', size: 1, mtimeMs: 1 }
+          if (p === join(d, 'history.jsonl')) return { type: 'file', size: 1, mtimeMs: 1 }
+        }
+        return null
+      },
+      async readDir(p) {
+        if (p === tmp) return [{ name: '2026-11-06-10-22-54-f9eab060ec9d5b5e', type: 'directory', path: bucket }]
+        if (p === bucket) return [
+          { name: '82012d5e-3124-4d0f-af7d-5de5a1c881b0', type: 'directory', path: main },
+          { name: '19ddbe58-b38a-4d76-aafc-fbcd9021cab2', type: 'directory', path: childA },
+          { name: '1d2c7633-9a3c-4ec4-bd63-bce516f31cca', type: 'directory', path: childB },
+        ]
+        return []
+      },
+      async readText(p) {
+        for (const d of [main, childA, childB]) {
+          if (p === join(d, 'meta.json')) return readFileSync(join(d, 'meta.json'), 'utf8')
+        }
+        throw new Error('readText unexpected: ' + p)
+      },
+    }
+
+    const listed = await listCodeartsSessions(host, tmp)
+    assert.deepEqual(listed, [main], '子代理会话 A/B 跳过，只剩主会话')
+    // 判定函数本身：两个标记都命中，无标记返回 null
+    assert.equal(codeartsSubSessionMarker(JSON.parse(await host.readText(join(main, 'meta.json')))), null)
+    assert.ok(codeartsSubSessionMarker(JSON.parse(await host.readText(join(childA, 'meta.json')))).startsWith('parent.id'))
+    assert.equal(codeartsSubSessionMarker(JSON.parse(await host.readText(join(childB, 'meta.json')))), 'metadata.subagent')
   } finally {
     rmSync(tmp, { recursive: true, force: true })
   }
