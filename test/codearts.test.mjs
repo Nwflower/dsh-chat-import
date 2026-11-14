@@ -359,6 +359,42 @@ test('convertCodeartsJson: 同一 callId 的重复调用塌缩为首次（折叠
   assert.equal(results[0].toolCallId, 'call_dup')
 })
 
+test('convertCodeartsJson: 会话中途切换模型——消息级 model_ref 优先，会话级 current_model 兜底', () => {
+  // 转换器 stepModel = m.model_ref.model_id || meta.current_model.model_id。
+  // 本机真实样本 848 处切模型：meta 的 current_model 只是「最后一次」的模型，
+  // 逐消息回退才不失真——这条用例固化回退链（原本无覆盖）。
+  const MODEL_A = 'deepseek-v4.1-flash-1017'
+  const MODEL_B = 'qwen3-235b-a22b'
+  const MODEL_META = 'glm-4.6'
+  const meta = syntheticMeta({ current_model: { provider_id: 'p', model_id: MODEL_META } })
+
+  const user = (id, text) => ({
+    id, role: 'User', content: { SinglePart: { Text: { id: 'prt_' + id, text } } },
+    timestamp: '2026-10-29T21:47:28.000000000Z',
+  })
+  const assistant = (id, modelId, text) => ({
+    id, role: 'Assistant',
+    content: { SinglePart: { Text: { id: 'prt_' + id, text } } },
+    timestamp: '2026-10-29T21:47:33.000000000Z',
+    ...(modelId ? { model_ref: { provider_id: 'p', model_id: modelId } } : {}),
+  })
+
+  const messages = [
+    user('u1', '第一轮'),
+    assistant('a1', MODEL_A, '模型 A 答'),
+    user('u2', '第二轮'),
+    assistant('a2', MODEL_B, '模型 B 答'),
+    user('u3', '第三轮'),
+    assistant('a3', null, '无 model_ref，回退会话级模型'),
+  ]
+  const out = convertCodeartsJson(syntheticJsonl(messages), { meta })
+
+  assert.equal(out.turns.length, 3)
+  assert.equal(out.turns[0].steps[0].model, MODEL_A, '消息级 A 优先')
+  assert.equal(out.turns[1].steps[0].model, MODEL_B, '消息级 B 优先，不被 meta 盖掉')
+  assert.equal(out.turns[2].steps[0].model, MODEL_META, '无 model_ref 时回退 meta.current_model')
+})
+
 test('convertCodeartsJson: 首条是注入时标题跳过注入取首条真人提问', () => {
   const inject = (text) => ({
     id: 'msg_inj', role: 'User',
