@@ -287,6 +287,37 @@ test('convertCodeartsJson: 失败工具结果标 isError', () => {
   assert.equal(result.content[0].text, 'Cancelled')
 })
 
+test('convertCodeartsJson: 空字符串 tool_output/error 不做 JSON 序列化（不产出字面 ""）', () => {
+  // 修复前：tool_output:'' 跳过字符串分支后掉进 JSON.stringify('') 兜底，
+  // 结果正文变成字面 '""'。正确行为：空串继续往 error → title 回退，全空则留空正文。
+  const one = (tool_result) => {
+    const messages = [
+      syntheticMessages()[0],
+      {
+        id: 'msg_a', role: 'Assistant',
+        content: { MultiPart: [{ ToolCall: { internal_id: 'i', id: 'call_e', name: 'bash', arguments: { command: 'x' } } }] },
+        timestamp: '2026-10-29T21:47:33.000000000Z',
+      },
+      {
+        id: 'msg_r', role: 'Tool',
+        content: { MultiPart: [{ ToolResult: { id: 'prt_r', tool_call_id: 'call_e', tool_result } }] },
+        timestamp: '2026-10-29T21:47:34.000000000Z',
+      },
+    ]
+    const out = convertCodeartsJson(syntheticJsonl(messages), { meta: syntheticMeta() })
+    return out.turns[0].steps[0].toolResults[0].content[0].text
+  }
+
+  // tool_output 空串 → 回退到 error 文本
+  assert.equal(one({ tool_name: 'bash', success: false, tool_output: '', error: 'Cancelled', attachments: null }), 'Cancelled')
+  // tool_output 空串且无 error/title → 空正文（不是 '""'）
+  assert.equal(one({ tool_name: 'bash', success: true, tool_output: '', error: null, attachments: null }), '')
+  // error 空串 → 回退到 title
+  assert.equal(one({ tool_name: 'bash', success: false, tool_output: null, error: '', title: 'bash', attachments: null }), 'bash')
+  // 非字符串 tool_output 仍走 JSON 序列化（不受本修复影响）
+  assert.equal(one({ tool_name: 'bash', success: true, tool_output: { files: 2 }, attachments: null }), '{"files":2}')
+})
+
 test('convertCodeartsJson: 同一 callId 的重复调用塌缩为首次（折叠器 invariant 守护）', () => {
   // 源里同一 callId 出现两次 tool-call（畸形 / 重发）：DSH 会话折叠器对第二次同 id start
   // 会硬异常并吞掉整段轨迹，共用件 dropDuplicateCalls 只留首次，计数 droppedDuplicateCalls。
@@ -625,6 +656,36 @@ test('role 大小写宽容：小写 user/assistant/tool 同样识别（对齐 vi
   assert.equal(out.turns[0].steps[0].toolResults.length, 1)
 })
 
+test('readCodeartsSessionSummary: 标题回退首问——assistant / synthetic / 空白 / 截断行都跳过', async () => {
+  // firstUserPromptTitle 的直接覆盖：meta 无标题时从 history 头部 4KB 找第一条真人提问。
+  // 头部按字节截断，末行常是半截 JSON，逐行解析时必须跳过解析不了的行。
+  const meta = syntheticMeta({ title: '' })
+  const lines = [
+    JSON.stringify({ role: 'assistant', content: { SinglePart: { Text: { id: 'a', text: '开场白' } } } }),
+    JSON.stringify({ role: 'user', synthetic: true, content: { SinglePart: { Text: { id: 's', text: 'todowrite 快照' } } } }),
+    JSON.stringify({ role: 'user', content: { SinglePart: { Text: { id: 'w', text: '   ' } } } }),
+    '{"role":"user","content":{', // 头部截断的半截 JSON
+    JSON.stringify({ role: 'User', content: { SinglePart: { Text: { id: 'u', text: '  帮我修一下构建  ' } } } }),
+  ]
+  const host = {
+    async readText(p) { assert.match(String(p), /meta\.json$/); return JSON.stringify(meta) },
+    async readHead() { return lines.join('\n') },
+  }
+  const summary = await readCodeartsSessionSummary(host, 'C:/sessions/s1')
+  assert.equal(summary.title, '帮我修一下构建')
+})
+
+test('readCodeartsSessionSummary: history 不可读且 meta 缺失 → 标题留空，会话照常列出', async () => {
+  // readHead 抛错（权限 / 并发删除）不致命：没有兜底标题而已
+  const host = {
+    async readText() { throw new Error('no meta') },
+    async readHead() { throw new Error('EACCES') },
+  }
+  const summary = await readCodeartsSessionSummary(host, 'C:/sessions/s1')
+  assert.equal(summary.title, '')
+  assert.equal(summary.id, 's1') // id 回退会话目录名
+})
+
 test('伴生索引：messages.index.jsonl 不当作会话（否则同一会话被导入两次）', async () => {
   // CodeArts 会话目录 = history.jsonl（主转录）+ messages.index.jsonl（字节区间索引）+ meta.json。
   // local-jsonl 兜底通道按 .jsonl 递归收集时若把索引也收下，同一会话会落成两份
@@ -635,6 +696,11 @@ test('伴生索引：messages.index.jsonl 不当作会话（否则同一会话�
   for (const n of ['x.events.jsonl', 'x.conflicts.jsonl', 'x.guardian.jsonl']) {
     assert.equal(isSidecarJsonl(n), true, n) // 既有伴生类型仍排除
   }
+  // .zstd 变体与 file-import 的 isImportableName 同口径（修复前 isSidecarJsonl 漏过）
+  for (const n of ['messages.index.jsonl.zstd', 'x.events.jsonl.zstd']) {
+    assert.equal(isSidecarJsonl(n), true, n)
+  }
+  assert.equal(isSidecarJsonl('history.jsonl.zstd'), false) // 压缩转录本身不是伴生
 })
 
 test('previewCodeartsFile & previewCodeartsDirectory: 只读预览目录与单文件', async () => {
