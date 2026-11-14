@@ -9,7 +9,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { shapeToolResults, toolResultOf, validateSessionEvents } from '../lib/convert/index.mjs'
-import { prepareHostEvents } from '../lib/import-core.mjs'
+import { hostNativeFormatVersion, prepareHostEvents } from '../lib/import-core.mjs'
 import { convertCodexJsonl } from '../lib/convert/codex.mjs'
 import { codexCompactedRollout } from './_support/codex-compacted.mjs'
 
@@ -45,6 +45,33 @@ function v4Event() {
 }
 
 const msgOf = (list) => list[0].data.message
+
+test('宿主代次：服务可用后替换空库默认值，优先使用宿主声明', async () => {
+  const services = { sessionPersistence: { list: async () => [] } }
+  const ctx = { get: (name) => services[name] }
+  assert.equal(await hostNativeFormatVersion(ctx), 3)
+
+  let prepared = 0
+  services.sessions = {
+    prepare() {
+      prepared += 1
+      return { header: { version: 4 } }
+    },
+  }
+  assert.equal(await hostNativeFormatVersion(ctx), 4)
+  assert.equal(await hostNativeFormatVersion(ctx), 4)
+  assert.equal(prepared, 1, '同一宿主只需准备一次分离的会话')
+  services.sessionPersistence.currentVersion = 3
+  assert.equal(await hostNativeFormatVersion(ctx), 3)
+})
+
+test('宿主代次：准备分离会话失败时仍可按已保存的 header 探测', async () => {
+  const services = {
+    sessionPersistence: { list: async () => [{ header: { version: 4 } }] },
+    sessions: { prepare() { throw new Error('detached preparation unavailable') } },
+  }
+  assert.equal(await hostNativeFormatVersion({ get: (name) => services[name] }), 4)
+})
 
 test('shapeToolResults：V3 输入 → V4 宿主形状（去 wrapper、role=tool、一级 toolCallId）', () => {
   const [ev] = shapeToolResults([v3Event()], 4)

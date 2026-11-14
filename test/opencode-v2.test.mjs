@@ -253,3 +253,36 @@ test('import_chat(format: opencode)：V2 库重复导入幂等', async () => {
   assert.equal(second.alreadyImported, 3)
   assert.equal(persistence.sessions.size, 3)
 })
+
+for (const useAgents of [true, false]) {
+  const path = useAgents ? 'agents.create' : 'sessionPersistence'
+  test('import_chat：空的 V4 宿主首次从 OpenCode V2 导入走 ' + path, async () => {
+    const dbPath = makeMixedDb({ withLegacy: false })
+    const agentCalls = []
+    const services = {
+      sessions: { prepare: () => ({ header: { version: 4 } }) },
+    }
+    if (useAgents) {
+      services.agents = {
+        async create({ sessionId, meta, seed }) {
+          agentCalls.push(sessionId)
+          await persistence.create(meta)
+          await persistence.append(sessionId, seed)
+        },
+      }
+    }
+    const { ctx, persistence } = makeCtx({}, { services })
+    apply(ctx)
+    const value = await chatDef(ctx, 'opencode').execute({ path: dbPath, sessionIds: ['ses_v2-a'] })
+
+    assert.equal(value.imported, 1)
+    assert.deepEqual([...persistence.sessions.keys()], ['import-ses_v2-a'])
+    assert.deepEqual(agentCalls, useAgents ? ['import-ses_v2-a'] : [])
+    const saved = persistence.sessions.get('import-ses_v2-a')
+    assert.equal(saved.meta.version, 4)
+    assert.equal(saved.events.find((e) => e.type === 'system/message').data.message.source.kind, 'system-prompt')
+    const tool = saved.events.find((e) => e.type === 'tool/result')
+    assert.equal(tool.data.message.role, 'tool')
+    assert.equal(tool.data.message.toolCallId, 'call_1')
+  })
+}
