@@ -3,7 +3,9 @@
 import { test, beforeEach } from 'node:test'
 import assert from 'node:assert/strict'
 import { convertCherrystudioJsonl, collapseCherryStudioSnapshots } from '../lib/convert/cherrystudio.mjs'
-import { cherrystudioSource } from '../lib/discovery/claude.mjs'
+import { convertLocalJsonl } from '../lib/convert/local-jsonl.mjs'
+import { joinForPlatform } from '../lib/convert/util.mjs'
+import { cherrystudioSource, cherryStudioRoots } from '../lib/discovery/claude.mjs'
 import { apply } from '../lib/index.mjs'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
@@ -106,4 +108,75 @@ test('import_chat 集成：cherrystudio format 能导入折叠后的会话', asy
   assert.ok(importTool, 'import_chat 工具已注册')
   const result = await importTool.execute({ path: file })
   assert.equal(result.status, 'imported')
+})
+
+// 同一条回复的流式快照：message.id 各不相同，只有 requestId 相同。
+function requestSnapshots(requestId, texts) {
+  return texts.map((text, i) => rec({
+    type: 'assistant',
+    requestId,
+    message: { id: 'msg_' + i, type: 'message', role: 'assistant', content: [{ type: 'text', text }] },
+    uuid: 'a-' + i,
+  }))
+}
+
+test('local-jsonl：Cherry Studio 路径按 path-hint 只试 cherrystudio，同回复快照折叠成 1 条', () => {
+  const texts = ['正在查', '正在查，看官方', '正在查，看官方资料']
+  const raw = jsonl([
+    rec({ message: { role: 'user', content: '资料哪里找' } }),
+    ...requestSnapshots('req-1', texts),
+  ])
+  const cherryPath = hostAbs('C:/Users/u/AppData/Roaming/CherryStudio/Data/Agents/.claude/projects/S--apps-llm-agentwork/' + SID + '.jsonl')
+  const out = convertLocalJsonl(raw, { sourcePath: cherryPath })
+  assert.equal(out.detectedFormat, 'cherrystudio', 'Cherry Studio 路径不被通用 .claude 规则先截走')
+  assert.equal(out.detectedBy, 'path-hint', '路径特征唯一 → path-hint')
+  const assistantTexts = (out.events || [])
+    .filter((e) => e.type === 'assistant/message')
+    .flatMap((e) => (e.data?.message?.content || []).map((c) => c.text || '').filter(Boolean))
+  assert.equal(assistantTexts.length, 1, '同一条回复只有一条 assistant/message')
+  assert.deepEqual(assistantTexts, [texts[texts.length - 1]], '正文是最长那份快照')
+
+  // 同一份内容放在用户自己的 ~/.claude/projects 下仍判 claude：新规则没有放宽口径。
+  const plain = convertLocalJsonl(raw, { sourcePath: hostAbs('/home/u/.claude/projects/x.jsonl') })
+  assert.equal(plain.detectedFormat, 'claude', '普通 Claude Code 转录的识别不变')
+})
+
+test('发现层：cherryStudioRoots 按平台取 app data（win32 / darwin / linux）', () => {
+  const rootsFor = (platform, base) => {
+    const app = joinForPlatform(platform, base, 'CherryStudio')
+    return [
+      joinForPlatform(platform, app, 'Data', 'Agents', '.claude', 'projects'),
+      joinForPlatform(platform, app, '.claude', 'projects'),
+    ]
+  }
+  assert.deepEqual(
+    cherryStudioRoots('C:/Users/u', { APPDATA: 'C:/Users/u/AppData/Roaming' }, 'win32'),
+    rootsFor('win32', 'C:/Users/u/AppData/Roaming'),
+    'win32 认 %APPDATA%',
+  )
+  assert.deepEqual(
+    cherryStudioRoots('C:/Users/u', {}, 'win32'),
+    rootsFor('win32', joinForPlatform('win32', 'C:/Users/u', 'AppData', 'Roaming')),
+    'win32 缺 %APPDATA% 回落 ~/AppData/Roaming',
+  )
+  assert.deepEqual(
+    cherryStudioRoots('/Users/u', {}, 'darwin'),
+    rootsFor('darwin', joinForPlatform('darwin', '/Users/u', 'Library', 'Application Support')),
+    'darwin 走 Library/Application Support',
+  )
+  assert.deepEqual(
+    cherryStudioRoots('/home/u', { XDG_CONFIG_HOME: '/cfg' }, 'linux'),
+    rootsFor('linux', '/cfg'),
+    'linux 认 XDG_CONFIG_HOME',
+  )
+  assert.deepEqual(
+    cherryStudioRoots('/home/u', {}, 'linux'),
+    rootsFor('linux', joinForPlatform('linux', '/home/u', '.config')),
+    'linux 缺 XDG_CONFIG_HOME 回落 ~/.config',
+  )
+  assert.deepEqual(
+    cherryStudioRoots('/home/u', { XDG_CONFIG_HOME: 'relative/cfg' }, 'linux'),
+    rootsFor('linux', joinForPlatform('linux', '/home/u', '.config')),
+    '相对路径的 XDG_CONFIG_HOME 不认',
+  )
 })
