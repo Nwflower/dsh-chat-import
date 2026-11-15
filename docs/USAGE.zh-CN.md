@@ -201,7 +201,7 @@ restore_bundle({ path: "D:\backup\bundle-dir", preview: true })      // dry-run
 
 ### verify_session —— 只读结构审计
 
-`verify_session({ sessionId })` 对任意 DSH 会话做一次只读的结构校验：seq 是否连续、事件类型是否在白名单内、surface 事件是否带 `surfaceOp`、`sourceEventSeqs` 是否指向真实的 `tool/call`、surface 事件是否早于首个 `step/start`、turn 与 step 是否平衡、工具调用与结果是否配对。发现的问题逐条定位（kind + seq + message），并按 kind 给出 `repairHints`（`force` 重导、闭合半开轮，或者说明源转录本身从中途开始）：
+`verify_session({ sessionId })` 对任意 DSH 会话做一次只读的结构校验：seq 是否连续、事件类型是否在白名单内、surface 事件是否带 `surfaceOp`、`sourceEventSeqs` 是否指向真实的 `tool/call`、surface 事件是否早于首个 `step/start`、turn 与 step 是否平衡、工具调用与结果是否配对，以及单条 assistant 消息内部的块序。最后这条只在投影期才炸：`tool-call` 之后又跟着 `text` 或 `reasoning`，浏览历史时看不出问题，但宿主把内容块摊成 provider 消息后，`tool_use` 与它的 `tool_result` 中间就隔了一段正文，你在这种会话里发的第一条新消息会被接口以 `400 INVALID_REQUEST` 拒收。这类形状报作 `text-after-tool-call`；日志 append-only，修复路径是用 `force: true` 重导（写入侧把正文排在工具调用之前）。发现的问题逐条定位（kind + seq + message），并按 kind 给出 `repairHints`（`force` 重导、闭合半开轮，或者说明源转录本身从中途开始）：
 
 ```
 verify_session({ sessionId: "import-019f5f27-…" })

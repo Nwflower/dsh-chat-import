@@ -185,7 +185,7 @@ restore_bundle({ path: "D:\backup\bundle-dir", preview: true })      // dry-run
 
 ### verify_session — read-only structural audit
 
-`verify_session({ sessionId })` runs a read-only structural check on any DSH session: seq continuity, event-type whitelist, `surfaceOp` on surface events, `sourceEventSeqs` pointing at real `tool/call`s, turn/step balance, and tool-call↔result pairing. Problems are located one-by-one (kind + seq + message), and per-kind `repairHints` tell you what to do (re-import with `force`, close a half-open turn, or accept a mid-transcript source boundary):
+`verify_session({ sessionId })` runs a read-only structural check on any DSH session: seq continuity, event-type whitelist, `surfaceOp` on surface events, `sourceEventSeqs` pointing at real `tool/call`s, turn/step balance, tool-call↔result pairing, and the block order inside a single assistant message. That last one is the shape that only breaks at projection time: a `text` or `reasoning` block sitting after a `tool-call` looks fine when you browse the history, but the host flattens the content blocks into provider messages, so `tool_use` and its `tool_result` end up separated by that body — the first new message you send in such a session is rejected with `400 INVALID_REQUEST`. It is reported as `text-after-tool-call`, and because the log is append-only, a `force: true` re-import is the fix (the writer lays the body out ahead of the tool call). Problems are located one-by-one (kind + seq + message), and per-kind `repairHints` tell you what to do (re-import with `force`, close a half-open turn, or accept a mid-transcript source boundary):
 
 ```
 verify_session({ sessionId: "import-019f5f27-…" })
