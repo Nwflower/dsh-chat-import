@@ -2,6 +2,22 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.26.7] - 2026-11-14
+
+[中文](#cn-0.26.7) | [English](#en-0.26.7)
+
+<h3 id="cn-0.26.7">问题修复</h3>
+
+- **工具调用之后的正文不再破坏 `tool_use` / `tool_result` 的相邻关系，受影响的导入会话恢复续聊**：opencode 在 `edit` / `write` 类工具成功后必定写入 `patch` part，`subtask` part 同理，两者在源记录里都排在其 `tool` part 之后，转换后同一条 assistant 消息就成了「工具调用在前、正文在后」。宿主把内容块摊成 provider 消息时，`tool_use` 与它的 `tool_result` 因此不再紧邻，用户在这种会话里发出的第一条新消息被接口以 `400 INVALID_REQUEST` 拒收——浏览历史一切正常，只有续聊才会暴露。转换层现在在合成前把每条 assistant 消息的正文统一排在工具调用之前：多个并行调用保持原有相对顺序，`tool-call` 是消息的最后一批块，所有经共享漏斗的来源一处生效；`format: "dsh"` 的日志重导入路径同样套用，所以把早期导入过的会话再导一次就能得到合规块序。存量会话的日志 append-only，修复动作是 `force: true` 重导。
+- **`verify_session` 新增 `text-after-tool-call`**：工具调用与结果的配对、step 坐标全部成立、浏览历史也看不出问题的会话，仍可能因为同一条 assistant 消息内工具调用之后还跟着正文而在续聊时被接口拒收。这项检查逐条点名这类会话，报出条数与首个定位 seq，并在 `repairHints` 里给出 `force: true` 重导的建议——不必等到第一条新消息失败才发现。
+
+<h3 id="en-0.26.7">Bug Fixes</h3>
+
+- **Body text after a tool call no longer separates `tool_use` from `tool_result`, so affected imported sessions can be continued**: opencode always writes a `patch` part after a successful `edit` / `write` tool (and a `subtask` part likewise), and both sit after that tool's part in the source record, so the converted assistant message ended up with the tool call first and body text after it. When the host flattens the content blocks into provider messages, `tool_use` and its `tool_result` are no longer adjacent, and the first new message sent in such a session is rejected with `400 INVALID_REQUEST` — browsing the history looks perfectly fine, only continuing the session exposes it. The converter layer now lays every assistant message's body out ahead of its tool calls before synthesis: parallel calls keep their relative order and `tool-call` blocks close the message, applied once in the shared funnel for every source that goes through it. The `format: "dsh"` log re-import path follows the same rule, so re-importing a session imported by an earlier version yields the legal block order. Existing sessions live in append-only logs, so the fix is a `force: true` re-import.
+- **`verify_session` reports `text-after-tool-call`**: a session can pass every tool-call↔result pairing and step-coordinate check and still be rejected when continued, because one assistant message carries body text after a tool call. The new check names such sessions, reports how many messages are affected and the first offending seq, and its `repairHints` recommends a `force: true` re-import — no need to wait for the first failing message.
+
+**Full Changelog**: [v0.26.6...v0.26.7](https://github.com/Nwflower/dsh-chat-import/compare/v0.26.6...v0.26.7)
+
 ## [0.26.6] - 2026-11-11
 
 [中文](#cn-0.26.6) | [English](#en-0.26.6)
