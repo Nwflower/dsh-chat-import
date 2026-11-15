@@ -53,6 +53,7 @@ const IMPLEMENTATION = {
 const KNOWN_GAPS = {
   vibe: '压缩导入靠 pendingCompaction（有检查点），但转换器不读 fullHistory → 开关空转',
   trae: '源侧没有压缩概念（ItemTable/JSON 里没有 compaction 记录）→ 开关无意义',
+  cherrystudio: '源侧没有压缩记录（Claude 同构 JSONL 里无 isCompactSummary / summary 行）→ 开关无意义',
 }
 
 function registeredTools() {

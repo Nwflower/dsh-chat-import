@@ -74,6 +74,7 @@
     <td align="center" width="20%"><a href="#usage"><img src="./assets/agents/local-jsonl.svg" width="56" height="56" alt="Local JSONL" /><br /><b>Local JSONL</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/microsoft/vscode"><img src="./assets/agents/copilot.svg" width="56" height="56" alt="Copilot VS Code" /><br /><b>Copilot VS Code</b></a></td>
     <td align="center" width="20%"><a href="https://github.com/github/copilot-cli"><img src="./assets/agents/copilot.svg" width="56" height="56" alt="Copilot CLI" /><br /><b>Copilot CLI</b></a></td>
+    <td align="center" width="20%"><a href="https://github.com/CherryHQ/cherry-studio"><img src="./assets/agents/cherrystudio.svg" width="56" height="56" alt="Cherry Studio" /><br /><b>Cherry Studio</b></a></td>
   </tr>
 </table>
 
