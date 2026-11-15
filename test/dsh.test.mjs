@@ -140,6 +140,105 @@ test('convertDshJsonl 补 protected system head：首个 surface 事件、位于
   assert.ok(step, 'head 之前必须有 step/start（system/message 要求 open step）')
   assert.equal(validateSessionEvents(out.events).ok, true)
 })
+test('convertDshJsonl 重导入块序：assistant/message 里 tool-call 之后的 text 前移，块内容一个不少', () => {
+  // 源日志由修复前的版本导入过（或来自 opencode 的 patch/subtask part）：tool-call 之后还跟着
+  // text。落盘前按 tool-call 收尾不变量重排；settlement、source、turn/step、块字段都不动。
+  const source = [
+    { type: 'session', id: 'order-pass', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 0, time: 1700000000000, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'user/message', seq: 2, time: 1700000000000, surfaceOp: 'append', data: { role: 'user', content: [{ type: 'text', text: '改一下构建配置' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 3, time: 1700000000100, surfaceOp: 'append', data: { turn: 1, step: 1, message: { role: 'assistant', content: [
+      { type: 'reasoning', text: '先跑一次构建' },
+      { type: 'text', text: '构建失败，改配置' },
+      { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{"command":"npm run build"}' },
+      { type: 'text', text: '[patch: 2 files]' },
+    ], source: { kind: 'model', provider: 'opencode', model: 'deepseek-v4-pro' } } } },
+    { type: 'tool/call', seq: 4, time: 1700000000100, data: { turn: 1, step: 1, callId: 'c1', name: 'bash', arguments: '{"command":"npm run build"}' } },
+    { type: 'tool/result', seq: 5, time: 1700000000200, surfaceOp: 'append', sourceEventSeqs: [4], data: { message: { id: 'r1', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'error TS1005' }] }], source: { kind: 'tool', callId: 'c1' } } } },
+    { type: 'step/end', seq: 6, time: 1700000000300, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 7, time: 1700000000300, data: { turn: 1 } },
+  ]
+  const out = convertDshJsonl(source.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/order-pass.jsonl' })
+  const asst = out.events.find((e) => e.type === 'assistant/message')
+  assert.deepEqual(asst.data.message.content.map((c) => c.type), ['reasoning', 'text', 'text', 'tool-call'])
+  assert.equal(asst.data.message.content.at(-1).id, 'c1')
+  // 块的字段与内容一个不少：reasoning / 正文 / patch 注记都还在
+  assert.deepEqual(asst.data.message.content.slice(0, 3), [
+    { type: 'reasoning', text: '先跑一次构建' },
+    { type: 'text', text: '构建失败，改配置' },
+    { type: 'text', text: '[patch: 2 files]' },
+  ])
+  // 除块序外一字不动：settlement、surfaceOp、source、turn/step
+  assert.deepEqual(asst.data.stream, [])
+  assert.equal(asst.surfaceOp, 'append')
+  assert.deepEqual(asst.data.message.source, { kind: 'model', provider: 'opencode', model: 'deepseek-v4-pro' })
+  assert.deepEqual({ turn: asst.data.turn, step: asst.data.step }, { turn: 1, step: 1 })
+  // seq 密集重排、事件仍然合法
+  assert.deepEqual(out.events.map((e) => e.seq), out.events.map((_, i) => i))
+  assert.deepEqual(validateSessionEvents(out.events), { ok: true, problems: [] })
+})
+
+test('convertDshJsonl 重导入块序：已收尾 / 无 tool-call 的消息与 tool/result 原样透传', () => {
+  // 反例：块序已合法（末块 tool-call）与整条不含 tool-call 的消息都不得被改动，
+  // tool/result 事件同样一字不动（重排只针对 assistant 消息的 content）。
+  const kept = [
+    { type: 'text', text: '先读文件' },
+    { type: 'tool-call', id: 'c1', name: 'read', arguments: '{"filePath":"a.mjs"}' },
+  ]
+  const plain = [
+    { type: 'reasoning', text: '想一想' },
+    { type: 'text', text: '只想没做' },
+  ]
+  const resultData = { message: { id: 'r1', role: 'user', content: [{ type: 'tool-result', toolCallId: 'c1', content: [{ type: 'text', text: 'ok' }] }], source: { kind: 'tool', callId: 'c1' } } }
+  const source = [
+    { type: 'session', id: 'order-keep', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 0, time: 1700000000000, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'user/message', seq: 2, time: 1700000000000, surfaceOp: 'append', data: { role: 'user', content: [{ type: 'text', text: '读一下' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 3, time: 1700000000100, surfaceOp: 'append', data: { turn: 1, step: 1, message: { role: 'assistant', content: kept, source: { kind: 'model', provider: 'claude-code', model: 'x' } } } },
+    { type: 'tool/call', seq: 4, time: 1700000000100, data: { turn: 1, step: 1, callId: 'c1', name: 'read', arguments: '{"filePath":"a.mjs"}' } },
+    { type: 'tool/result', seq: 5, time: 1700000000200, surfaceOp: 'append', sourceEventSeqs: [4], data: resultData },
+    { type: 'step/end', seq: 6, time: 1700000000300, data: { turn: 1, step: 1 } },
+    { type: 'step/start', seq: 7, time: 1700000000300, data: { turn: 1, step: 2 } },
+    { type: 'assistant/message', seq: 8, time: 1700000000400, surfaceOp: 'append', data: { turn: 1, step: 2, message: { role: 'assistant', content: plain, source: { kind: 'model', provider: 'claude-code', model: 'x' } } } },
+    { type: 'step/end', seq: 9, time: 1700000000500, data: { turn: 1, step: 2 } },
+    { type: 'turn/end', seq: 10, time: 1700000000500, data: { turn: 1 } },
+  ]
+  const out = convertDshJsonl(source.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/order-keep.jsonl' })
+  const assistants = out.events.filter((e) => e.type === 'assistant/message')
+  assert.deepEqual(assistants[0].data.message.content, kept)
+  assert.deepEqual(assistants[1].data.message.content, plain)
+  const result = out.events.find((e) => e.type === 'tool/result')
+  assert.deepEqual(result.data, resultData)
+  assert.equal(result.surfaceOp, 'append')
+  assert.deepEqual(validateSessionEvents(out.events), { ok: true, problems: [] })
+})
+
+test('convertDshJsonl 重导入块序：content 夹畸形 null 块不抛错，null 原样保留且 tool-call 仍在末位', () => {
+  // 畸形源日志（宿主写入的 content 里混进 null）：它是纯重排的输入，不是转换期的错误——
+  // 形状判定归宿主/校验层，这里既不丢弃也不重建该块。
+  const source = [
+    { type: 'session', id: 'order-null', cwd: '/tmp/proj', createdAt: 1700000000000 },
+    { type: 'turn/start', seq: 0, time: 1700000000000, data: { turn: 1 } },
+    { type: 'step/start', seq: 1, time: 1700000000000, data: { turn: 1, step: 1 } },
+    { type: 'user/message', seq: 2, time: 1700000000000, surfaceOp: 'append', data: { role: 'user', content: [{ type: 'text', text: '跑一下' }], source: { kind: 'user' } } },
+    { type: 'assistant/message', seq: 3, time: 1700000000100, surfaceOp: 'append', data: { turn: 1, step: 1, message: { role: 'assistant', content: [
+      { type: 'text', text: '先说一句' },
+      { type: 'tool-call', id: 'c1', name: 'bash', arguments: '{}' },
+      null,
+      { type: 'text', text: '再补一句' },
+    ], source: { kind: 'model', provider: 'dsh', model: 'x' } } } },
+    { type: 'step/end', seq: 4, time: 1700000000200, data: { turn: 1, step: 1 } },
+    { type: 'turn/end', seq: 5, time: 1700000000200, data: { turn: 1 } },
+  ]
+  const out = convertDshJsonl(source.map((l) => JSON.stringify(l)).join('\n'), { sourcePath: '/tmp/proj/order-null.jsonl' })
+  const content = out.events.find((e) => e.type === 'assistant/message').data.message.content
+  assert.equal(content.length, 4, '块数不变（null 块不被丢弃）')
+  assert.equal(content[1], null)
+  assert.deepEqual(content.map((c) => (c ? c.type : null)), ['text', null, 'text', 'tool-call'])
+  assert.deepEqual(content.filter(Boolean).slice(0, 2), [{ type: 'text', text: '先说一句' }, { type: 'text', text: '再补一句' }])
+})
 
 test('convertDshJsonl 重映射 session/title.messageSeqs：重排后仍指向更早的人类 user/message', () => {
   // 真机形态（issue 报错 "title messageSeqs must name an earlier event"）：源日志的

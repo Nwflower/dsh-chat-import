@@ -376,9 +376,11 @@ test('convertGrokbuildJson: reasoning summary[] 明文前置到下一个 assista
   assert.equal(out.filtered, 0) // reasoning 不再计 filtered
   assert.equal(out.events.filter((e) => e.type === 'assistant/message').length, 1) // 不虚增步骤
   const asst = out.events.find((e) => e.type === 'assistant/message').data.message
-  assert.deepEqual(asst.content.map((c) => c.type), ['reasoning', 'text', 'tool-call', 'reasoning'])
+  // 末尾残余「断了」属于这一步（不新开步骤），但块序归一后它排在 tool-call 之前：
+  // 工具调用是 assistant 消息的最后一块（见 convert/ir.mjs 的 toolCallsLast）
+  assert.deepEqual(asst.content.map((c) => c.type), ['reasoning', 'text', 'reasoning', 'tool-call'])
   assert.equal(asst.content[0].text, '先想')
-  assert.equal(asst.content[3].text, '断了') // 末尾残余落到最后一步（codex pendingReasoning 同款）
+  assert.equal(asst.content[2].text, '断了') // 末尾残余落到最后一步（codex pendingReasoning 同款）
   assert.ok(!JSON.stringify(out.events).includes('CIPHERTEXT'), 'encrypted_content 是密文，永不落日志')
 
   // 该轮还没有任何步骤时，残余 reasoning 补一个收尾步骤承载

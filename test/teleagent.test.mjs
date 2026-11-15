@@ -143,7 +143,10 @@ test('convertTeleagentJson：provider 标签为 teleagent（复用 opencode 转�
   assertEnvelopeHygiene(out.events)
   // reasoning 进 content，tool 调用配对结果
   const step = out.turns[0].steps[0]
-  assert.deepEqual(step.content.map((c) => c.type), ['reasoning', 'tool-call', 'text'])
+  // 源里「第 3 手不该出火牌」这段文本排在 tool part 之后，但它仍属于这条 assistant 消息：
+  // 块序归一后它前移到 tool-call 之前，工具调用是消息的最后一块（见 convert/ir.mjs 的 toolCallsLast）
+  assert.deepEqual(step.content.map((c) => c.type), ['reasoning', 'text', 'tool-call'])
+  assert.equal(step.content[1].text, '第 3 手不该出火牌')
   assert.equal(step.toolCalls[0].id, 'call-1')
   assert.equal(step.toolResults[0].content[0].text, '[{"card":"fire"}]')
 })
