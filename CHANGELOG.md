@@ -2,6 +2,18 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [Unreleased]
+
+[中文](#cn-unreleased) | [English](#en-unreleased)
+
+<h3 id="cn-unreleased">新增功能</h3>
+
+- **新增 Cherry Studio 会话导入（`format: "cherrystudio"`）**：Cherry Studio 的 Agent 把会话写成 Claude Code 同构的 JSONL，位于 `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl`（升级前的旧布局 `.claude/projects` 并列扫描）。记录形状可直接复用 Claude 转换器，唯一差异是**流式快照重复**——同一条回复随流追加 3–4 次（新 uuid、同一 `requestId`/`message.id`、正文逐次变长），原样导入会把一条回复拆成多条前缀消息；新增的转换器按调用键折叠、保留最长快照后再转换（本机 15 个主会话实测 804→478 条消息，剔除 326 条前缀）。子代理转录（`<sessionId>/subagents/agent-*.jsonl`）与其它来源同口径跳过。来源侧无压缩记录，不声明 `fullHistory`。
+
+<h3 id="en-unreleased">New Features</h3>
+
+- **Cherry Studio session import (`format: "cherrystudio"`)**: Cherry Studio's agent writes sessions as Claude-Code-shaped JSONL under `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl` (the pre-upgrade `.claude/projects` layout is scanned alongside). The record shape reuses the Claude converter; the one difference is **streaming snapshot duplication** — the same reply is appended 3–4 times as the stream progresses (new uuid, same `requestId`/`message.id`, growing text), so a plain read turns one reply into several prefix messages. The new converter collapses a run by its call key and keeps the longest snapshot before converting (804→478 messages across 15 real main sessions, 326 prefixes dropped). Subagent transcripts (`<sessionId>/subagents/agent-*.jsonl`) are skipped like every other source. The store carries no compaction records, so it does not declare `fullHistory`.
+
 ## [0.26.7] - 2026-11-14
 
 [中文](#cn-0.26.7) | [English](#en-0.26.7)

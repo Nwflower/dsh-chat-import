@@ -50,11 +50,12 @@
 | `crush` | Crush session db crush.db (<project>/.crush) |
 | `dsh` | DSH V0-V3 session logs session[.vN].jsonl[.zstd] ($DSH_HOME/sessions) |
 | `dsh4` | DSH V4+ session logs session.v4.jsonl[.zstd] ($DSH_HOME/sessions) |
+| `cherrystudio` | Cherry Studio Claude-format JSONL (<app data>/CherryStudio/Data/Agents/.claude/projects) |
 | `local-jsonl` | Any local session file/dir — .jsonl/.jsonl.zstd/.json/.dshbundle.json; three-level auto-detect, parseFormat forces a parser |
 
 `local-jsonl` 本身不是来源，而是没有来源认领这个文件时的兜底入口。它会自动识别 `dsh` /
 `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes` / `qoder` / `vibe` /
-`codearts` / `codebuddy` / `copilot-vscode` / `copilot-cli` / `generic`，判据依次是内容标记、路径提示、解析器试跑；识别
+`codearts` / `codebuddy` / `cherrystudio` / `copilot-vscode` / `copilot-cli` / `generic`，判据依次是内容标记、路径提示、解析器试跑；识别
 错了就用 `parseFormat` 强制指定。
 
 `doubao` 读的是豆包桌面版的 Chromium IndexedDB。它的会话列表在服务端，本地只为「客户端最近
