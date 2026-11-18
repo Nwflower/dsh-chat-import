@@ -147,7 +147,7 @@ export interface ImportChatOptions extends ImportOptions {
  */
 export type ImportStatus = 'imported' | 'replaced' | 'already-imported' | 'appended' | 'skipped' | 'ignored' | 'failed'
 
-export type ReimportReason = 'continued-in-dsh' | 'baseline-missing' | 'forced' | 'session-id-changed'
+export type ReimportReason = 'continued-in-dsh' | 'baseline-missing' | 'forced' | 'session-id-changed' | 'legacy-shape'
 
 export interface TrimReport {
   budget: number
@@ -224,6 +224,8 @@ export interface DecisionReport {
   /** 旧版本导入的会话：补登 registry 记录（不重写会话）。 */
   backfilled?: boolean
   droppedBoundaryResults?: number
+  /** 存量旧形状自动修复（值 'legacy-shape'）：纯镜像同 id 重建（status 'replaced'）或保守另铸副本（reimported.reason 'legacy-shape'）。 */
+  repaired?: string
   /** 落成宿主附件的图片数（经 ctx.attachments 存成不可变对象，日志里只有引用）。 */
   images?: number
   /** 未能落地、以 [image] 文本占位导入的图片数（服务缺席 / 类型不收 / 超限 / 源无字节）。 */

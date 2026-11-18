@@ -124,8 +124,11 @@ Importing the same source twice is idempotent by design:
 - **Source grew, DSH session untouched** → the new turns are appended to the existing session.
 - **Source grew, DSH session already chatted in** → a new copy is minted instead; the old session is recorded in `record.copies` and never appended to. Your own conversation is never rewritten.
 - **`force: true`** → always a fresh copy.
+- **Legacy session written by an older plugin version** (missing protected system head, or title references that were not remapped — the host refuses to reopen such logs) → a plain re-import repairs it automatically. The stored log is checked once: a pure mirror (nobody chatted in it) is rebuilt under the same id (`status: "replaced"`, `repaired: "legacy-shape"`); anything else gets a clean copy while the old session is kept in `record.copies`. A log that cannot be read back is never destroyed — it always gets the copy treatment. Healthy legacy logs receive a shape stamp, so later re-imports skip as usual.
 
-Session logs are append-only: imports only `create` + `append`, never rewrite history.
+Session logs are append-only: imports only `create` + `append`, never rewrite history in place.
+The legacy repair above rebuilds from the source transcript (the same action as the panel's
+"refresh imported"); it never touches a session you have continued in DSH.
 
 ## Codex compressed rollouts
 
