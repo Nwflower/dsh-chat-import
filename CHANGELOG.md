@@ -2,41 +2,43 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
-## [Unreleased]
+## [0.26.8] - 2026-11-18
 
-[中文](#cn-unreleased) | [English](#en-unreleased)
+[中文](#cn-0.26.8) | [English](#en-0.26.8)
 
-<h3 id="cn-unreleased">新增功能</h3>
+<h3 id="cn-0.26.8">新增功能</h3>
 
 - **新增 jcode 会话导入（`format: "jcode"`）**：jcode 把每个会话写成一份完整 JSON 快照，位于 `~/.jcode/sessions/session_*.json`（同目录的 `.bak` 备份与 `coord.json` / `req.json` 运行状态文件不扫）。消息是 Anthropic 风格块：正文、推理、工具调用与结果按 `tool_use_id` 配对回声明它的步（孤儿与重复结果计数丢弃），`display_role=system` 的运行时注入跳过并计数，图片以 base64 载荷经宿主附件落地（拿不到字节降级占位并计数）。标题取 `title` > `short_name`（jcode 的会话人名）> 首条真实提问；纳秒精度时间戳截断到毫秒。目录批量、`local-jsonl` 路径特征自动识别、发现层与面板同步登记。
 - **新增 Cherry Studio 会话导入（`format: "cherrystudio"`）**：Cherry Studio 的 Agent 把会话写成 Claude Code 同构的 JSONL，位于 `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl`（升级前的旧布局 `.claude/projects` 并列扫描）。记录形状可直接复用 Claude 转换器，唯一差异是**流式快照重复**——同一条回复随流追加 3–4 次（新 uuid、同一 `requestId`/`message.id`、正文逐次变长），原样导入会把一条回复拆成多条前缀消息；新增的转换器按调用键折叠、保留最长快照后再转换（本机 15 个主会话实测 804→478 条消息，剔除 326 条前缀）。子代理转录（`<sessionId>/subagents/agent-*.jsonl`）与其它来源同口径跳过。来源侧无压缩记录，不声明 `fullHistory`。
 
-<h3 id="cn-unreleased">体验优化</h3>
+<h3 id="cn-0.26.8">体验优化</h3>
 
 - **侧栏导入按钮采用 footer 动作共享契约：几何与「设置」入口同族，容量判定跨插件收敛**：footer 行的几何由各注册插件自负责，多插件同槽时高矮圆角不一、文字各自抢位。现在本插件按共享规范落地两种形态：文字态 42px 高、9px 内边距、6px gap、12px 圆角、16px 图标；图标态 36×36、同样 12px 圆角（不再是 50%）、18px 图标；两态外边距恒 `4px 2px`，键盘焦点显 2px 品牌色焦点环。形态判定改用与自身形态无关的输入——同行占位者数 count 与行宽 rowWidth：`count≤2` 且 `rowWidth≥count*112+(count-1)*4+16` 才保留文字，否则所有占位者一律图标态（全有或全无，采用同一契约的插件独立求值即收敛，不再「一个带字两个不带」）；不再给宿主行注入 flex-wrap，整宽行形态只保留给纵排/换行容器这类容器形状。仅 1 个占位者时按钮与设置行同宽，≥2 个时固定内容宽、不吃同槽空间；注册 order 从 0 改为 20（会话/数据类档）。
 
-<h3 id="cn-unreleased">问题修复</h3>
+<h3 id="cn-0.26.8">问题修复</h3>
 
 - **重启后打不开的存量导入会话，普通重导即自动修复**：旧版转换器写出的日志缺 protected system head、或标题引用未随事件重排重映射，宿主读取这类日志即拒载（如 `title messageSeqs must name an earlier event`）；日志 append-only，升级插件不修复存量工件，而「源未变 → 跳过」的幂等闸又把「升级后重导一次」这个自然修复动作静默跳过。现在 registry 记录带形状戳，缺戳的旧记录在跳过生效前对目标日志做一次性校验：干净则补戳、照常跳过；损坏则按重导基线守卫自动修复——纯镜像（未被续聊）同 id 原地重建（`status: "replaced"`、`repaired: "legacy-shape"`），已续聊或读不回的日志保守另铸干净副本（`reimported.reason: "legacy-shape"`），旧会话收进 `copies`，绝不销毁无法检查或用户聊过的日志。增量续写同样先校验再写；输出 schema 新增 `repaired` 字段与 `legacy-shape` 重导缘由。`verify_session` 对读不回的日志大声报 `stored-log-unreadable`（`ok: false` + 修复提示），不再静默按空日志报健康。
 - **CodeArts Desktop 空字符串工具输出不再序列化成字面 `""`**：`tool_output` / `error` 是空串时此前跳过字符串分支掉进 JSON 序列化兜底，结果正文变成两个引号；现在空串继续往下一级回退（`tool_output` → `error` → `title`），全空则留空正文，非字符串值的 JSON 序列化行为不变。
 - **伴生 JSONL 判定认 `.zstd` 压缩变体**：`isSidecarJsonl` 此前只挡 `.jsonl` 裸后缀，`*.index.jsonl.zstd` / `*.events.jsonl.zstd` 在它与 file-import 的 `isImportableName` 之间口径不一；现在两处都按 `.jsonl(.zstd)?` 同口径排除。
 - **发现层跳过 CodeArts 子代理会话**：explore 等子会话是独立目录，此前被发现层当成独立会话收进面板，批量导入冒出无上下文碎片。命中 `meta.parent` 或 `metadata.subagent===true` 即跳过（本机 34 会话实测 25 个均带其一）；父会话已持有子代理的完整结论，故不丢信息，与其它来源的子代理跳过同语义。
 
-<h3 id="en-unreleased">New Features</h3>
+<h3 id="en-0.26.8">New Features</h3>
 
 - **jcode session import (`format: "jcode"`)**: jcode writes each session as one complete JSON snapshot under `~/.jcode/sessions/session_*.json` (the `.bak` backups and `coord.json` / `req.json` runtime-state files in the same directory are not scanned). Messages are Anthropic-style blocks: prose, reasoning, tool calls and results paired back to the step that declared them by `tool_use_id` (orphan and duplicate results dropped and counted), runtime injections with `display_role=system` skipped and counted, and base64 image payloads landed as host attachments (unrestorable bytes degrade to placeholders and are counted). Titles come from `title` > `short_name` (jcode's session name) > the first real prompt; nanosecond timestamps are truncated to milliseconds. Directory batches, `local-jsonl` path-hint auto-detection, discovery and the panel are registered alongside.
 - **Cherry Studio session import (`format: "cherrystudio"`)**: Cherry Studio's agent writes sessions as Claude-Code-shaped JSONL under `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl` (the pre-upgrade `.claude/projects` layout is scanned alongside). The record shape reuses the Claude converter; the one difference is **streaming snapshot duplication** — the same reply is appended 3–4 times as the stream progresses (new uuid, same `requestId`/`message.id`, growing text), so a plain read turns one reply into several prefix messages. The new converter collapses a run by its call key and keeps the longest snapshot before converting (804→478 messages across 15 real main sessions, 326 prefixes dropped). Subagent transcripts (`<sessionId>/subagents/agent-*.jsonl`) are skipped like every other source. The store carries no compaction records, so it does not declare `fullHistory`.
 
-<h3 id="en-unreleased">Improvements</h3>
+<h3 id="en-0.26.8">Improvements</h3>
 
 - **Sidebar import button adopts the shared footer-action contract: geometry matches the Settings trigger, capacity decisions converge across plugins**: each registrant owns its footer-row geometry, so co-installed plugins produced mixed heights/radii and raced for label space. The button now implements the shared spec's two forms: label form 42px tall, 9px inline padding, 6px gap, 12px radius, 16px icon; icon form 36×36 with the same 12px radius (no longer 50%), 18px icon; both forms carry `margin: 4px 2px` and a 2px brand-color keyboard focus ring. The form decision now uses form-independent inputs — occupant count and row width: labels survive only while `count≤2` and `rowWidth≥count*112+(count-1)*4+16`, otherwise every occupant collapses to the icon form (all-or-nothing; plugins adopting the same contract evaluate the same rule independently and converge, instead of "one labelled, two icons"). The plugin no longer injects flex-wrap into the host row; the full-width row form is reserved for container shapes (vertical / already-wrapping containers). With a single occupant the button matches the Settings row width; with ≥2 it keeps a fixed content width and never eats a peer's space. Registration order moved from 0 to 20 (the session/data band).
 
-<h3 id="en-unreleased">Bug Fixes</h3>
+<h3 id="en-0.26.8">Bug Fixes</h3>
 
 - **Legacy imported sessions that fail to reopen now repair on a plain re-import**: logs written by older converter versions lack the protected system head or carry title references that were never remapped after event renumbering; the host refuses to read such logs (e.g. `title messageSeqs must name an earlier event`). Logs are append-only, so upgrading the plugin does not repair existing artifacts, and the "source unchanged → skip" idempotent gate silently skipped the natural "re-import once after upgrading" action. Registry records now carry a shape stamp: before the skip takes effect, an unstamped legacy record gets a one-time check of the target log — healthy logs are stamped and skip as usual; corrupt logs are repaired under the re-import baseline guard. A pure mirror (never chatted in) is rebuilt in place under the same id (`status: "replaced"`, `repaired: "legacy-shape"`); a continued or unreadable log conservatively gets a clean copy (`reimported.reason: "legacy-shape"`) while the old session is kept in `copies` — a log that cannot be inspected, or that the user has chatted in, is never destroyed. Incremental appends run the same check before writing; the output schema gains the `repaired` field and the `legacy-shape` re-import reason. `verify_session` now reports `stored-log-unreadable` (`ok: false` plus a repair hint) for logs it cannot read back, instead of silently treating them as healthy.
 - **CodeArts Desktop: empty-string tool output no longer serializes to a literal `""`**: when `tool_output` / `error` is an empty string it used to fall through to the JSON-stringify fallback, turning the result body into two quote characters; empty strings now fall through to the next level (`tool_output` → `error` → `title`) and leave the body empty when nothing remains, while non-string values still serialize as before.
 - **Sidecar JSONL detection recognizes `.zstd` compressed variants**: `isSidecarJsonl` previously matched only the bare `.jsonl` suffix, so `*.index.jsonl.zstd` / `*.events.jsonl.zstd` were judged inconsistently between it and `isImportableName` in file-import; both now exclude `.jsonl(.zstd)?` with the same rule.
 - **Discovery skips CodeArts sub-agent sessions**: explore and other sub-agent sessions are separate directories that the discovery layer used to collect as independent sessions, flooding the panel with context-less fragments on batch import. A session is now skipped when `meta.parent` or `metadata.subagent===true` is set (25 of 34 local sessions carry one of these); the parent session already holds the sub-agent's full conclusion, so no information is lost — the same semantics as sub-agent skipping in the other sources.
+
+**Full Changelog**: [v0.26.7...v0.26.8](https://github.com/Nwflower/dsh-chat-import/compare/v0.26.7...v0.26.8)
 
 ## [0.26.7] - 2026-11-14
 
