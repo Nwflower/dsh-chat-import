@@ -142,8 +142,9 @@
       };
     }
 
-    /** 触发按钮：三种形态按可用宽度自适应（量法 measureFooterLane 与判定 resolveFooterSize /
-     * needsFooterWrap 都在 lib/footer-layout.mjs，构建时原样内联进 bundle，与测试同一份）。
+    /** 触发按钮（ImportButton，entry.js）：规范 v1 的两种形态 label/icon + 容器形状 row。
+     * 量法 measureFooterLane 与容量判定 resolveFooterForm 都在 lib/footer-layout.mjs，
+     * 构建时原样内联进 bundle，与测试同一份。
      *
      * footer 槽是宿主 ui-sidebar 的一条不换行 flex 行（`.footerActions`），同槽条目之间
      * 抢这条行。此前按①选择器白名单认「占用者是谁」②按 `[data-slot=...]` 槽元素内容被裁
@@ -153,23 +154,18 @@
      * 于是「内容被裁」恒为 false、「同槽条目」恒为 0 个，判定在生产里恒不命中
      * （#31 / #35 / #39 / #43 同一类问题的四次复发）。
      *
-     * 现在只按布局事实判定，与「占用者是谁」无关：以本按钮自己的 ref 为锚点上溯到真正的
-     * flex 行，量「还剩多少宽度给我」（available = 行内容宽 − 同槽其它条目占位 − 行间距 −
-     * 行内边距）与「完整形态需要多宽」（needed，由按钮内一个脱离文档流的隐藏镜像量出，
-     * 与按钮当前形态无关，因此判定不会自我振荡）：
-     *   share — 放得下 → `flex: 1 1 auto` 与同槽条目共享一行（issue #31 的预期行为）；
-     *   icon  — 放不下 → 36×36 圆钮（图标保留，文字进 title / aria-label），绝不截断、
-     *           不遮挡、不动宿主布局；rail（wide=false）态同款；
-     *   row   — 换行容器 / 纵排容器（issue #25）/ 找不到可共享的行 → 整宽自占一行。
-     * 唯一的宿主写操作：连 36px 图标都放不下时（同槽有不可收缩的整宽条目）才把行换成
-     * `wrap`、自己独占一行（0.10.1 起对整宽占用者的既有处理），卸载时还原；该判定用
-     * 「不换行时能分到多少」的反事实口径，因此在「已注入 wrap → 空间仍不足」之间稳定。
-     * 样式对齐设置按钮（透明底、12px 圆角、16px 图标 + 文字、悬停浅底），图标用插件 logo。
+     * 现在按容量规则判定，与「占用者是谁」无关、输入与本按钮自身形态无关：以本按钮
+     * 自己的 ref 为锚点上溯到真正的 flex 行，量占位者数量 count（含本按钮）与行宽
+     * rowWidth；required(count) = count*112 + (count-1)*4 + 16，count<=2 且
+     * rowWidth>=required → label，否则所有占位者都变 icon（全有或全无：各插件用同一
+     * 规则同一输入独立求值即收敛，不需要协商，也不写宿主 DOM——不再注入 flex-wrap）。
+     *   label — 文字形态：槽内仅 1 个占位者时 flex-grow 与设置行同宽，≥2 个时固定内容宽；
+     *   icon  — 36×36、圆角 12px、18px 图标居中（文字进 title / aria-label），绝不截断、
+     *           不遮挡、不动宿主布局；rail（wide=false）态恒同款；
+     *   row   — 只给「容器形状」：纵排容器（issue #25）/ 宿主或别人已做成换行的容器 /
+     *           找不到可共享的行 → 整宽自占一行。
+     * 样式对齐设置按钮（规范 v1 §A）：label 42px 高、padding 0 9px、gap 6px、圆角 12px、
+     * border-inline 3px transparent + background-clip: padding-box（悬停底色内退 3px）、
+     * margin 4px 2px 两态都由插件出；焦点环仅键盘焦点（:focus-visible）显示。
      */
-    /** 量「完整形态需要多宽」的隐藏镜像：脱离文档流 + visibility:hidden（仍参与布局计算）
-     * + max-content 宽，因此与按钮当前形态/宽度无关。 */
-    const FOOTER_PROBE_STYLE = {
-      position: "absolute", visibility: "hidden", pointerEvents: "none",
-      width: "max-content", display: "flex", alignItems: "center", gap: "8px",
-      fontSize: "14px", lineHeight: "22px", left: 0, top: 0,
-    };
+

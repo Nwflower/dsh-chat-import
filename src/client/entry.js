@@ -3,7 +3,6 @@
       const rail = wide === false;
       const label = t("trigger.label");
       const buttonRef = useRef(null);
-      const probeRef = useRef(null);
       const [visible, setVisible] = useState(cachedSidebarButton);
       useEffect(() => {
         const listener = (val) => setVisible(val);
@@ -18,43 +17,34 @@
           .catch(() => {});
         return () => { sidebarButtonListeners.delete(listener); };
       }, []);
-      // 形态：'share' / 'icon' / 'row'（判定见内联的 lib/footer-layout.mjs）。首帧按共享一行
-      // 渲染，mount 后立刻按实测宽度修正（两种形态同高，不留可见跳动）。
-      const [mode, setMode] = useState("share");
+      // 形态（规范 v1）：'label' / 'icon' / 'row'，判定见内联的 lib/footer-layout.mjs。
+      // count 是随形态一起量出的同行占位者数：label 形态的宽度伸缩依赖它（1 个占位者
+      // flex-grow 与设置行同宽、≥2 个固定内容宽），故与 mode 同入 state，等值比较覆盖
+      // 两个字段。首帧按 label 渲染，mount 后 layout effect 立刻按实测事实修正。
+      const [form, setForm] = useState({ mode: "label", count: 1 });
       // 观测面只有「本按钮 + 它所在的那条渲染行」：ResizeObserver 跟行/按钮尺寸变化
-      // （侧边栏拖宽、同槽条目增减导致的重新分配），MutationObserver 只看这条行的子树
-      // （条目挂载/卸载、宿主或其它插件改 style/class）。不再观察整个文档——那会在每次
-      // 消息流式渲染时触发强制布局。判定结果做等值比较，避免观察自身改动造成重渲染循环。
-      // 用 layout effect 而非 effect：首帧就按实测宽度落形态，不留一帧被挤压的样子。
+      // （侧边栏拖宽、同槽条目增减），MutationObserver 只看这条行的子树（条目挂载/卸载、
+      // 宿主或其它插件改 style/class）。不再观察整个文档——那会在每次消息流式渲染时触发
+      // 强制布局。判定结果做等值比较，避免观察自身改动造成重渲染循环。check 只读布局
+      // 事实、不写宿主 DOM（规范 v1 禁止为同槽平级按钮注入 flex-wrap）。
+      // 用 layout effect 而非 effect：首帧就按实测事实落形态，不留一帧被挤压的样子。
       useLayoutEffect(() => {
         const button = buttonRef.current;
         if (!button) return undefined;
         let observed = null; // 正在观测的宿主行
-        let injected = null; // 我们注入 wrap 的行（null = 未注入）
-        let restore = ""; // 注入前的 inline flex-wrap
         let ro = null;
         let mo = null;
         const check = () => {
-          const facts = measureFooterLane(button, probeRef.current);
-          const next = resolveFooterSize({ rail, ...facts });
-          // 连 36px 图标都放不下（同槽有不可收缩的整宽条目）→ 把行换成 wrap、自己独占
-          // 一行（0.10.1 起对整宽占用者的既有处理），让 footArea 高度随内容增长。判定用
-          // 「不换行时能分到多少」的反事实口径，因此在已注入 wrap 的状态下仍成立、不来回
-          // 抖；占用者消失后 available 回升即还原。只写我们自己注入的那一次，其它插件
-          // 注入的 wrap 不碰（写入 inline style 会触发 MutationObserver 再跑 check，但
-          // `injected !== facts.row` 守卫使其不重复赋值、不形成循环）。
-          if (facts.row && needsFooterWrap({ rail, ...facts })) {
-            if (injected !== facts.row) {
-              if (injected) injected.style.flexWrap = restore;
-              injected = facts.row;
-              restore = injected.style.flexWrap || "";
-              injected.style.flexWrap = "wrap";
-            }
-          } else if (injected) {
-            injected.style.flexWrap = restore;
-            injected = null;
-          }
-          setMode((prev) => (prev === next ? prev : next));
+          const facts = measureFooterLane(button);
+          // 形态映射（规范 v1 §A/B）：rail 恒 icon；纵排容器（lane=false）或宿主/别人
+          // 已做成换行的容器（wrapped=true）→ row 整宽自占一行；否则按「占位者数量 +
+          // 行宽」容量判定 label/icon（全有或全无：容量不足时所有占位者都变 icon，各插件
+          // 用同一规则同一输入独立求值即收敛，不需要协商）。
+          const mode = rail ? "icon"
+            : (!facts.lane || facts.wrapped) ? "row"
+            : resolveFooterForm(facts.count, facts.rowWidth);
+          const next = { mode, count: facts.count };
+          setForm((prev) => (prev.mode === next.mode && prev.count === next.count ? prev : next));
           if (facts.row === observed) return;
           if (ro) ro.disconnect();
           if (mo) mo.disconnect();
@@ -81,50 +71,56 @@
           window.removeEventListener("resize", check);
           if (ro) ro.disconnect();
           if (mo) mo.disconnect();
-          if (injected) injected.style.flexWrap = restore;
         };
       }, [rail, label]);
-      // 图标形态：rail（收起）态与宽态被挤到放不下文字时同款——36×36 圆钮、单图标
-      // 18px 居中，文字保留在 title / aria-label 里（绝不截断、不遮挡、不动宿主布局）。
+      const mode = form.mode;
+      // 图标形态：rail（收起）态与容量不足时同款——36×36、圆角 12px（规范 v1：不是
+      // 50%）、单图标 18px 居中，文字保留在 title / aria-label 里（绝不截断、不遮挡、
+      // 不动宿主布局）。
       const iconOnly = mode === "icon";
-      // 视觉逐项对齐侧边栏「设置」按钮（ui-settings-general 的
-      // SettingsRoot.module.css .trigger）：宽态 height 42px、padding
-      // 0 10px 0 8px、gap 8px、圆角 12px、14px/400 lh22、overflow hidden、
-      // 16×16 图标；图标形态 36×36、圆角 50%、单图标 18px 居中。颜色/悬停走
-      // 侧边栏同一 CSS 变量（--dsw-alias-label-primary /
-      // --dsw-alias-interactive-bg-hover），明暗主题下与设置按钮一致。
+      // 视觉逐项对齐侧边栏「设置」按钮（规范 v1 §A 的宿主 token 基准）：label 形态
+      // height 42px、padding 0 9px、gap 6px、圆角 12px、400 14px/22px、16×16 图标；
+      // border-inline 3px transparent + background-clip: padding-box 让悬停底色从盒边缘
+      // 内退 3px（宿主 --dsh-sidebar-paint-inset）；margin 4px 2px 两态都由插件出
+      // （宿主 .footerActions 无 gap/padding）。颜色/悬停走侧边栏同一 CSS 变量
+      // （--dsw-alias-label-primary / --dsw-alias-interactive-bg-hover），明暗主题下与
+      // 设置按钮一致，不硬编码颜色。
       const baseStyle = {
         boxSizing: "border-box",
         display: "flex", alignItems: "center",
-        justifyContent: iconOnly ? "center" : undefined,
-        gap: iconOnly ? "0" : "8px",
-        background: "transparent", border: "none",
-        color: "var(--dsw-alias-label-primary)",
-        fontFamily: "inherit",
-        borderRadius: iconOnly ? "50%" : "12px",
-        padding: iconOnly ? "0" : "0 10px 0 8px",
+        justifyContent: iconOnly ? "center" : "flex-start",
+        gap: iconOnly ? "0" : "6px",
         height: iconOnly ? "36px" : "42px",
-        fontSize: "14px", lineHeight: "22px",
+        padding: iconOnly ? "0" : "0 9px",
+        border: 0,
+        borderInline: iconOnly ? "0" : "3px solid transparent",
+        backgroundClip: "padding-box",
+        borderRadius: "12px",
+        margin: "4px 2px",
+        background: "transparent",
+        color: "var(--dsw-alias-label-primary)",
+        fontFamily: "inherit", fontSize: "14px", fontWeight: 400, lineHeight: "22px",
         cursor: "pointer",
         overflow: "hidden",
       };
-      // 行内尺寸按形态三分派：
-      // - share：flex: 1 1 auto + width: auto + min-width: 0，与同槽其它入口（如
-      //   dsh-web-all 的「检查更新/远程访问」）共享一行、按比例分配宽度（issue #31）。
-      //   早期用 width: 100% + flex: 0 0 auto 独占整行，把同槽条目挤出 280px 侧栏被
-      //   overflow: hidden 裁剪；仅本插件一个入口时 flex-grow 仍撑满整行，视觉一致。
-      // - icon：36×36 且 flex: 0 0 auto（不收缩），同槽条目再多也压不没图标。
-      // - row：整宽自占一行——wrap 容器（tokenledger 注入或本插件注入）里各整宽条目
-      //   各自成行、order 决定堆叠，auto 宽 + grow 的条目会挤到同一行破坏堆叠；纵排
-      //   容器（issue #25）的 flex-basis 沿主轴=高度解析，grow: 1 会把按钮整高拉伸
-      //   压住同槽按钮 → 同样保持 flex: 0 0 auto + width: 100%。
+      // 行内尺寸按形态分派（规范 v1 §3.4）：
+      // - label 且槽内仅 1 个占位者：flex: 1 1 auto + max-width: 100%，与设置行同宽；
+      // - label 且 ≥2 个占位者：flex: 0 0 auto 固定内容宽，不允许 grow 吃别人的空间；
+      // - icon：36×36 且 flex: 0 0 auto（不收缩），同槽条目再多也压不没图标；
+      // - row：整宽自占一行——wrap 容器里各整宽条目各自成行、order 决定堆叠，auto 宽 +
+      //   grow 的条目会挤到同一行破坏堆叠；纵排容器（issue #25）的 flex-basis 沿主轴=
+      //   高度解析，grow: 1 会把按钮整高拉伸压住同槽按钮 → flex: 0 0 auto + 整宽。
+      //   宽度扣掉两侧 margin（2px×2）：margin 盒恰好占满行，纵排/换行容器里不产生
+      //   4px 横向溢出（规范 v1 验收：任何形态不出横向滚动条）。
       const triggerStyle = {
         ...baseStyle,
         ...(iconOnly
           ? { flex: "0 0 auto", width: FOOTER_ICON_WIDTH + "px", minWidth: FOOTER_ICON_WIDTH + "px" }
-          : mode === "share"
-            ? { flex: "1 1 auto", width: "auto", minWidth: 0 }
-            : { flex: "0 0 auto", width: "100%" }),
+          : mode === "row"
+            ? { flex: "0 0 auto", width: "calc(100% - 4px)" }
+            : form.count > 1
+              ? { flex: "0 0 auto" }
+              : { flex: "1 1 auto", maxWidth: "100%" }),
         whiteSpace: "nowrap",
       };
       const hoverBg = "var(--dsw-alias-interactive-bg-hover)";
@@ -142,14 +138,24 @@
         },
         onMouseEnter: (e) => { e.currentTarget.style.background = hoverBg; },
         onMouseLeave: (e) => { e.currentTarget.style.background = "transparent"; },
+        // 焦点环（规范 v1：两态都要，outline 2px brand-primary / offset -2px）：内联样式
+        // 写不了 :focus-visible，改在 focus 时用 matches 判定——仅键盘焦点显环、鼠标点击
+        // 不显；blur 清除。
+        onFocus: (e) => {
+          let keyboard = false;
+          try { keyboard = e.currentTarget.matches(":focus-visible"); } catch (_) { /* 浏览器不认识 :focus-visible 伪类：不显环，等同不支持 */ }
+          if (keyboard) {
+            e.currentTarget.style.outline = "2px solid var(--dsw-alias-brand-primary)";
+            e.currentTarget.style.outlineOffset = "-2px";
+          }
+        },
+        onBlur: (e) => {
+          e.currentTarget.style.outline = "";
+          e.currentTarget.style.outlineOffset = "";
+        },
       },
         h(LogoIcon, { size: iconOnly ? 18 : 16 }),
-        !iconOnly && label,
-        // 完整形态宽度镜像：绝对定位 + hidden，但仍参与布局计算——判定用的 needed
-        // 取自它，因此与按钮当前形态无关（缩成图标后仍能算出「文字形态需要多宽」）。
-        h("span", { ref: probeRef, "aria-hidden": true, style: FOOTER_PROBE_STYLE },
-          h(LogoIcon, { size: 16 }),
-          h("span", null, label)));
+        !iconOnly && label);
     }
 
     const name = "import-claude";
@@ -214,7 +220,8 @@
       // slots.inject 挂起等声明就绪（官方 ui-cordis / dsh-community-market 同款）。
       ctx.slots.inject("sidebar.footer.action", () =>
         ctx.slots.register(
-          { name: "sidebar.footer.action", id: "chat-import", order: 0 },
+          // 规范 v1 §5：会话/数据类插件取 20–39 档，不抢第一位（原 order: 0）。
+          { name: "sidebar.footer.action", id: "chat-import", order: 20 },
           ImportButton,
         ));
       // 落点 Toast 的挂载点：官方 shell.overlay（与宿主自己的 toast 同一个槽，例如

@@ -10,6 +10,10 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 - **新增 Cherry Studio 会话导入（`format: "cherrystudio"`）**：Cherry Studio 的 Agent 把会话写成 Claude Code 同构的 JSONL，位于 `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl`（升级前的旧布局 `.claude/projects` 并列扫描）。记录形状可直接复用 Claude 转换器，唯一差异是**流式快照重复**——同一条回复随流追加 3–4 次（新 uuid、同一 `requestId`/`message.id`、正文逐次变长），原样导入会把一条回复拆成多条前缀消息；新增的转换器按调用键折叠、保留最长快照后再转换（本机 15 个主会话实测 804→478 条消息，剔除 326 条前缀）。子代理转录（`<sessionId>/subagents/agent-*.jsonl`）与其它来源同口径跳过。来源侧无压缩记录，不声明 `fullHistory`。
 
+<h3 id="cn-unreleased">体验优化</h3>
+
+- **侧栏导入按钮采用 footer 动作共享契约：几何与「设置」入口同族，容量判定跨插件收敛**：footer 行的几何由各注册插件自负责，多插件同槽时高矮圆角不一、文字各自抢位。现在本插件按共享规范落地两种形态：文字态 42px 高、9px 内边距、6px gap、12px 圆角、16px 图标；图标态 36×36、同样 12px 圆角（不再是 50%）、18px 图标；两态外边距恒 `4px 2px`，键盘焦点显 2px 品牌色焦点环。形态判定改用与自身形态无关的输入——同行占位者数 count 与行宽 rowWidth：`count≤2` 且 `rowWidth≥count*112+(count-1)*4+16` 才保留文字，否则所有占位者一律图标态（全有或全无，采用同一契约的插件独立求值即收敛，不再「一个带字两个不带」）；不再给宿主行注入 flex-wrap，整宽行形态只保留给纵排/换行容器这类容器形状。仅 1 个占位者时按钮与设置行同宽，≥2 个时固定内容宽、不吃同槽空间；注册 order 从 0 改为 20（会话/数据类档）。
+
 <h3 id="cn-unreleased">问题修复</h3>
 
 - **重启后打不开的存量导入会话，普通重导即自动修复**：旧版转换器写出的日志缺 protected system head、或标题引用未随事件重排重映射，宿主读取这类日志即拒载（如 `title messageSeqs must name an earlier event`）；日志 append-only，升级插件不修复存量工件，而「源未变 → 跳过」的幂等闸又把「升级后重导一次」这个自然修复动作静默跳过。现在 registry 记录带形状戳，缺戳的旧记录在跳过生效前对目标日志做一次性校验：干净则补戳、照常跳过；损坏则按重导基线守卫自动修复——纯镜像（未被续聊）同 id 原地重建（`status: "replaced"`、`repaired: "legacy-shape"`），已续聊或读不回的日志保守另铸干净副本（`reimported.reason: "legacy-shape"`），旧会话收进 `copies`，绝不销毁无法检查或用户聊过的日志。增量续写同样先校验再写；输出 schema 新增 `repaired` 字段与 `legacy-shape` 重导缘由。`verify_session` 对读不回的日志大声报 `stored-log-unreadable`（`ok: false` + 修复提示），不再静默按空日志报健康。
@@ -17,6 +21,10 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 <h3 id="en-unreleased">New Features</h3>
 
 - **Cherry Studio session import (`format: "cherrystudio"`)**: Cherry Studio's agent writes sessions as Claude-Code-shaped JSONL under `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl` (the pre-upgrade `.claude/projects` layout is scanned alongside). The record shape reuses the Claude converter; the one difference is **streaming snapshot duplication** — the same reply is appended 3–4 times as the stream progresses (new uuid, same `requestId`/`message.id`, growing text), so a plain read turns one reply into several prefix messages. The new converter collapses a run by its call key and keeps the longest snapshot before converting (804→478 messages across 15 real main sessions, 326 prefixes dropped). Subagent transcripts (`<sessionId>/subagents/agent-*.jsonl`) are skipped like every other source. The store carries no compaction records, so it does not declare `fullHistory`.
+
+<h3 id="en-unreleased">Improvements</h3>
+
+- **Sidebar import button adopts the shared footer-action contract: geometry matches the Settings trigger, capacity decisions converge across plugins**: each registrant owns its footer-row geometry, so co-installed plugins produced mixed heights/radii and raced for label space. The button now implements the shared spec's two forms: label form 42px tall, 9px inline padding, 6px gap, 12px radius, 16px icon; icon form 36×36 with the same 12px radius (no longer 50%), 18px icon; both forms carry `margin: 4px 2px` and a 2px brand-color keyboard focus ring. The form decision now uses form-independent inputs — occupant count and row width: labels survive only while `count≤2` and `rowWidth≥count*112+(count-1)*4+16`, otherwise every occupant collapses to the icon form (all-or-nothing; plugins adopting the same contract evaluate the same rule independently and converge, instead of "one labelled, two icons"). The plugin no longer injects flex-wrap into the host row; the full-width row form is reserved for container shapes (vertical / already-wrapping containers). With a single occupant the button matches the Settings row width; with ≥2 it keeps a fixed content width and never eats a peer's space. Registration order moved from 0 to 20 (the session/data band).
 
 <h3 id="en-unreleased">Bug Fixes</h3>
 

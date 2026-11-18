@@ -425,3 +425,20 @@
   - 读不回的坏日志修复后旧会话仍在（打不开的那条），用户可在面板历史里删除；插件不自动删，因为「读不回」不等于「证明损坏」，销毁不可逆。
   - registry 记录多一个字段；输出 schema 与类型面多 `repaired` 字段与 `legacy-shape` 重导缘由。
 - **重审条件**：宿主提供「日志健康 / 自上次写入后是否被改动」的一等信号时，一次性校验可换成该信号；宿主提供官方 delete 面时，可评估「证明损坏的旧会话自动清理」（仍须用户可见的报告）。
+
+---
+
+## D27. footer 按钮采用共享几何 + 容量契约：形态判定与自身形态无关（2026-11 定）
+
+- **背景**：宿主的 `sidebar.footer.action` 只渲染那条行，**几何由每个注册插件自己负责**（宿主 CSS 注释原文："Each occupant owns its button geometry and hover chrome."）。多个插件同槽时高矮不齐、圆角不一，且各自独立判断「我的文字放得下吗」——谁先收缩谁变图标，无法协商。本插件的配额测量（available/needed 三态 + 必要时给宿主行注入 flex-wrap）是局部最优：同槽行冲突已复发四次，缺的不是更聪明的测量，而是**共同契约**。生态已有规范 v1（几何 + 容量契约，数值全部取自宿主既有 token，以侧栏「设置」按钮为基准），三个同槽插件各自收到同一份提案。
+- **决定**：采用规范 v1，判定层收在 `lib/footer-layout.mjs`（纯函数，构建时内联进 client bundle，测试与浏览器同一份）：
+  1. **两种形态，无中间态**：label（42px 高、9px 内边距、6px gap、12px 圆角、16px 图标、border-inline 3px transparent + background-clip:padding-box）与 icon（36×36、**12px 圆角而非 50%**、18px 图标居中）；两态 margin 恒 `4px 2px`（宿主行无 gap/padding，间距由插件出）。rail 态恒 icon。焦点环两态都有（2px brand-primary、offset -2px，仅键盘焦点）。
+  2. **容量判定的输入与自身形态无关**：`count`（同行占位者数，含本按钮）+ `rowWidth`（行内容宽）。`showLabel = count<=2 && rowWidth >= count*112+(count-1)*4+16`；为假时**每个**占位者都变 icon（全有或全无）。各插件用同一规则同一输入独立求值即收敛，不需要协商，判定不会自我振荡——隐藏宽度镜像（probe）随之删除。
+  3. **不再写宿主 DOM**：删除 flex-wrap 注入。row（整宽自占一行）只保留给**容器形状**——纵排容器或宿主/别人已做成换行的容器；同槽平级按钮之间的空间竞争一律按容量规则收敛。
+  4. **宽度伸缩**：仅 1 个占位者且 label → `flex:1 1 auto` 与设置行同宽；≥2 个占位者且 label → `flex:0 0 auto` 固定内容宽，不吃别人的空间；icon 恒 `0 0 auto`。
+  5. **注册 order 取 20**（规范惯例：会话/数据类 20–39，不留 0 抢第一位）。量法沿用 `measureFooterLane`（以本按钮为锚点上溯，跳过 `display:contents` 槽外壳——那是判定曾四次失效的根因）。
+- **代价**：
+  - 收敛依赖同槽插件采用同一契约；单方采用只保证本插件几何与设置按钮同族、不抢空间、不写宿主 DOM。其余插件未跟进前，行内仍可能高矮不齐——那是契约推广问题，不是测量问题。
+  - 旧配额层（resolveFooterSize / needsFooterWrap / footerLaneAvailable / claimsFooterRow）与宽度镜像删除：对「整宽占用者」不再主动换行，改为固定内容宽 / icon 形态共存；整宽自占一行只在容器本就纵排/换行时出现。
+  - 焦点环用 focus/blur + `matches(':focus-visible')` 近似（内联样式写不了伪类）：环状态在 focus→blur 之间冻结，不随输入方式动态更新，属规范允许的近似。
+- **重审条件**：宿主落地规范对上游的建议（`.footerActions` 补 gap/padding、owner props 扩展为 `{wide, count, showLabel}`、官方 FooterAction 组件）时，删除测量与自带 margin，几何与折叠交还宿主。
