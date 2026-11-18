@@ -108,14 +108,14 @@ export interface ImportOptions {
 }
 
 export type LocalJsonlFormat =
-  | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'hermes' | 'qoder' | 'vibe' | 'codearts' | 'codebuddy' | 'cherrystudio' | 'copilot-vscode' | 'copilot-cli'
+  | 'dsh' | 'claude' | 'codex' | 'cursor' | 'reasonix' | 'pi' | 'openclaw' | 'jcode' | 'hermes' | 'qoder' | 'vibe' | 'codearts' | 'codebuddy' | 'cherrystudio' | 'copilot-vscode' | 'copilot-cli'
   /** interchange v1 会话文档（内容标记 "interchange":"dsh-chat-import"；长尾来源与 skill 路线的落点）。 */
   | 'generic'
 
 /** import_chat 的源格式枚举（值 = 来源短名；除 local-jsonl 外与 discovery 的 ScanFormat 一致）。 */
 export type ChatFormat =
   | 'claude' | 'codex' | 'chatgpt' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'opencowork'
-  | 'mimocode' | 'kilocode' | 'teleagent' | 'zcode' | 'grokbuild' | 'openclaw' | 'hermes' | 'pi' | 'omp'
+  | 'mimocode' | 'kilocode' | 'teleagent' | 'zcode' | 'grokbuild' | 'openclaw' | 'jcode' | 'hermes' | 'pi' | 'omp'
   | 'kimi' | 'qoder' | 'workbuddy' | 'codebuddy' | 'qwen' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'cherrystudio' | 'continue' | 'cline' | 'goose'
   | 'zed' | 'crush' | 'dsh' | 'dsh4' | 'local-jsonl' | 'copilot-vscode' | 'copilot-cli'
 
@@ -646,7 +646,7 @@ export interface RetractResult {
 /** 发现层可扫描的格式（= lib/discovery.mjs 的 FORMATS；比 ChatFormat 少 local-jsonl）。 */
 export type ScanFormat =
   | 'claude' | 'codex' | 'cursor' | 'gemini' | 'antigravity' | 'reasonix' | 'opencode' | 'opencowork' | 'mimocode'
-  | 'zcode' | 'grokbuild' | 'openclaw' | 'pi' | 'omp' | 'hermes' | 'kimi' | 'kilocode' | 'qoder'
+  | 'zcode' | 'grokbuild' | 'openclaw' | 'jcode' | 'pi' | 'omp' | 'hermes' | 'kimi' | 'kilocode' | 'qoder'
   | 'chatgpt' | 'workbuddy' | 'codebuddy' | 'qwen' | 'continue' | 'cline' | 'goose' | 'dsh4' | 'zed'
   | 'crush' | 'teleagent' | 'trae' | 'doubao' | 'vibe' | 'codearts' | 'dsh' | 'copilot-vscode' | 'copilot-cli' | 'cherrystudio'
 

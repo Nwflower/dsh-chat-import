@@ -63,7 +63,7 @@ test('FORMATS 顺序固定（工具 schema enum 与默认扫描 / 流式产出�
   assert.deepEqual(FORMATS, [
     'claude', 'codex', 'cursor', 'gemini', 'antigravity', 'reasonix', 'opencode', 'opencowork', 'mimocode',
     'zcode', 'grokbuild', 'openclaw', 'pi', 'omp', 'hermes', 'kimi', 'kilocode', 'qoder', 'chatgpt', 'workbuddy', 'qwen', 'codebuddy',
-    'continue', 'cline', 'goose', 'dsh4', 'zed', 'crush', 'teleagent', 'trae', 'doubao', 'vibe', 'codearts', 'dsh', 'copilot-vscode', 'copilot-cli', 'cherrystudio',
+    'continue', 'cline', 'goose', 'dsh4', 'zed', 'crush', 'teleagent', 'trae', 'doubao', 'vibe', 'codearts', 'dsh', 'copilot-vscode', 'copilot-cli', 'cherrystudio', 'jcode',
   ])
 })
 
@@ -121,7 +121,7 @@ test('fileFormatsForPath：独占 / 多候选 / 扩展名兜底', () => {
     ['/tmp/random/export.jsonl', ['claude', 'codex', 'cursor', 'reasonix', 'openclaw', 'hermes', 'copilot-cli']],
     ['/h/.copilot/session-state/abc/events.jsonl', ['copilot-cli']],
     ['C:\\cop\\session-state\\abc\\events.jsonl', ['copilot-cli']],
-    ['/tmp/random/export.json', ['gemini', 'chatgpt', 'copilot-vscode']],
+    ['/tmp/random/export.json', ['gemini', 'chatgpt', 'copilot-vscode', 'jcode']],
     ['/vscode/one/chatSessions/session.json', ['copilot-vscode']],
     ['C:\\Code\\one\\chatSessions\\session.json', ['copilot-vscode']],
     ['/tmp/random/other.db', ['opencode', 'opencowork', 'zcode', 'hermes']],

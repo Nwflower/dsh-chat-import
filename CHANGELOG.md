@@ -8,6 +8,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 <h3 id="cn-unreleased">新增功能</h3>
 
+- **新增 jcode 会话导入（`format: "jcode"`）**：jcode 把每个会话写成一份完整 JSON 快照，位于 `~/.jcode/sessions/session_*.json`（同目录的 `.bak` 备份与 `coord.json` / `req.json` 运行状态文件不扫）。消息是 Anthropic 风格块：正文、推理、工具调用与结果按 `tool_use_id` 配对回声明它的步（孤儿与重复结果计数丢弃），`display_role=system` 的运行时注入跳过并计数，图片以 base64 载荷经宿主附件落地（拿不到字节降级占位并计数）。标题取 `title` > `short_name`（jcode 的会话人名）> 首条真实提问；纳秒精度时间戳截断到毫秒。目录批量、`local-jsonl` 路径特征自动识别、发现层与面板同步登记。
 - **新增 Cherry Studio 会话导入（`format: "cherrystudio"`）**：Cherry Studio 的 Agent 把会话写成 Claude Code 同构的 JSONL，位于 `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl`（升级前的旧布局 `.claude/projects` 并列扫描）。记录形状可直接复用 Claude 转换器，唯一差异是**流式快照重复**——同一条回复随流追加 3–4 次（新 uuid、同一 `requestId`/`message.id`、正文逐次变长），原样导入会把一条回复拆成多条前缀消息；新增的转换器按调用键折叠、保留最长快照后再转换（本机 15 个主会话实测 804→478 条消息，剔除 326 条前缀）。子代理转录（`<sessionId>/subagents/agent-*.jsonl`）与其它来源同口径跳过。来源侧无压缩记录，不声明 `fullHistory`。
 
 <h3 id="cn-unreleased">体验优化</h3>
@@ -20,6 +21,7 @@ All notable changes to `dsh-chat-import` are documented here, newest first.
 
 <h3 id="en-unreleased">New Features</h3>
 
+- **jcode session import (`format: "jcode"`)**: jcode writes each session as one complete JSON snapshot under `~/.jcode/sessions/session_*.json` (the `.bak` backups and `coord.json` / `req.json` runtime-state files in the same directory are not scanned). Messages are Anthropic-style blocks: prose, reasoning, tool calls and results paired back to the step that declared them by `tool_use_id` (orphan and duplicate results dropped and counted), runtime injections with `display_role=system` skipped and counted, and base64 image payloads landed as host attachments (unrestorable bytes degrade to placeholders and are counted). Titles come from `title` > `short_name` (jcode's session name) > the first real prompt; nanosecond timestamps are truncated to milliseconds. Directory batches, `local-jsonl` path-hint auto-detection, discovery and the panel are registered alongside.
 - **Cherry Studio session import (`format: "cherrystudio"`)**: Cherry Studio's agent writes sessions as Claude-Code-shaped JSONL under `%APPDATA%/CherryStudio/Data/Agents/.claude/projects/<workspace>/<sessionId>.jsonl` (the pre-upgrade `.claude/projects` layout is scanned alongside). The record shape reuses the Claude converter; the one difference is **streaming snapshot duplication** — the same reply is appended 3–4 times as the stream progresses (new uuid, same `requestId`/`message.id`, growing text), so a plain read turns one reply into several prefix messages. The new converter collapses a run by its call key and keeps the longest snapshot before converting (804→478 messages across 15 real main sessions, 326 prefixes dropped). Subagent transcripts (`<sessionId>/subagents/agent-*.jsonl`) are skipped like every other source. The store carries no compaction records, so it does not declare `fullHistory`.
 
 <h3 id="en-unreleased">Improvements</h3>

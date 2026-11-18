@@ -31,6 +31,7 @@ database → one session; a directory → batch. Root shapes:
 | `zcode` | z.ai zcode db.sqlite (~/.zcode/cli/db) or zcode://<sessionId> |
 | `grokbuild` | Grok Build session directory (summary.json + chat_history.jsonl) |
 | `openclaw` | OpenClaw session JSONL (~/.openclaw/agents) |
+| `jcode` | jcode session JSON (~/.jcode/sessions) |
 | `hermes` | Hermes db state.db (~/.hermes) |
 | `pi` | Pi session JSONL (~/.pi/agent/sessions) |
 | `omp` | oh-my-pi session JSONL (~/.omp/agent/sessions) |
@@ -56,7 +57,7 @@ database → one session; a directory → batch. Root shapes:
 | `local-jsonl` | Any local session file/dir — .jsonl/.jsonl.zstd/.json/.dshbundle.json; three-level auto-detect, parseFormat forces a parser |
 
 `local-jsonl` is not a source of its own: it is the fallback entry for a file no source claimed.
-It auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `hermes`
+It auto-detects `dsh` / `claude` / `codex` / `cursor` / `reasonix` / `pi` / `openclaw` / `jcode` / `hermes`
 / `qoder` / `vibe` / `codearts` / `codebuddy` / `cherrystudio` / `copilot-vscode` / `copilot-cli` / `generic` (content marker > path hint >
 parser trial) and `parseFormat` forces one parser when detection is wrong.
 
