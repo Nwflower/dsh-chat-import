@@ -17,7 +17,7 @@ import { apply } from '../lib/index.mjs'
 import { convertTeleagentJson } from '../lib/convert/index.mjs'
 import { mintSessionId } from '../lib/convert/core.mjs'
 import { readTeleagentDb, teleagentDataDir, teleagentUsersDir, teleagentDbPath, TELEAGENT_DB_NAME, TELEAGENT_USERS_DIR } from '../lib/sources/teleagent.mjs'
-import { discoverSessions } from '../lib/discovery.mjs'
+import { discoverSessions, defaultRoots } from '../lib/discovery.mjs'
 import { validateJsonSchemaValue } from '@deepseek-ai/dsh-tools'
 import { hostAbs } from './_support/host-path.mjs'
 import { makeCtx, chatDef } from './_support/fake-host.mjs'
@@ -28,6 +28,7 @@ import { freshDshHome } from './_support/tmp-db.mjs'
 beforeEach(() => {
   process.env.DSH_HOME = freshDshHome('dsh-home-')
   delete process.env.TELEAGENT_HOME
+  delete process.env.XDG_DATA_HOME
 })
 
 // ── 合成 teleagent.db：按 issue #60 报告者的 .schema 建表 ──
@@ -122,6 +123,8 @@ function makeTeleagentDb(dir, sessions) {
 
 // ── 路径辅助 ─────────────────────────────────────────────────────────────
 
+// 路径优先级：$TELEAGENT_HOME > $XDG_DATA_HOME/TeleAgent > ~/.local/share/TeleAgent；
+// 只认绝对路径（相对/空串忽略，与 zed / crush 的 XDG 解析口径一致）。
 test('teleagent 路径辅助：TELEAGENT_HOME 覆盖 → users 层 → 账户库路径', () => {
   const home = process.platform === 'win32' ? 'C:\\Users\\u' : '/home/u'
   process.env.TELEAGENT_HOME = join(home, 'custom-ta')
@@ -130,6 +133,67 @@ test('teleagent 路径辅助：TELEAGENT_HOME 覆盖 → users 层 → 账户库
   assert.equal(teleagentDbPath(home, 'v1_public_1'), join(home, 'custom-ta', TELEAGENT_USERS_DIR, 'v1_public_1', TELEAGENT_DB_NAME))
   delete process.env.TELEAGENT_HOME
   assert.equal(teleagentDataDir(home), join(home, '.local', 'share', 'TeleAgent'))
+})
+
+test('teleagent 路径辅助：XDG_DATA_HOME/TeleAgent 优先于默认（绝对路径才认）', () => {
+  const home = process.platform === 'win32' ? 'C:\\Users\\u' : '/home/u'
+  process.env.XDG_DATA_HOME = join(home, 'xdg')
+  assert.equal(teleagentDataDir(home), join(home, 'xdg', 'TeleAgent'))
+  assert.equal(teleagentUsersDir(home), join(home, 'xdg', 'TeleAgent', TELEAGENT_USERS_DIR))
+  assert.equal(teleagentDbPath(home, 'v1_public_1'), join(home, 'xdg', 'TeleAgent', TELEAGENT_USERS_DIR, 'v1_public_1', TELEAGENT_DB_NAME))
+  delete process.env.XDG_DATA_HOME
+  assert.equal(teleagentDataDir(home), join(home, '.local', 'share', 'TeleAgent'))
+})
+
+test('teleagent 路径辅助：TELEAGENT_HOME 优先于 XDG_DATA_HOME', () => {
+  const home = process.platform === 'win32' ? 'C:\\Users\\u' : '/home/u'
+  process.env.XDG_DATA_HOME = join(home, 'xdg')
+  process.env.TELEAGENT_HOME = join(home, 'custom-ta')
+  assert.equal(teleagentDataDir(home), join(home, 'custom-ta'))
+})
+
+test('teleagent 路径辅助：相对 / 空 TELEAGENT_HOME 与 XDG_DATA_HOME 忽略，回落默认', () => {
+  const home = process.platform === 'win32' ? 'C:\\Users\\u' : '/home/u'
+  process.env.TELEAGENT_HOME = 'relative/ta'
+  process.env.XDG_DATA_HOME = 'relative/xdg'
+  assert.equal(teleagentDataDir(home), join(home, '.local', 'share', 'TeleAgent'))
+})
+
+test('teleagent 路径辅助：env / platform 可注入，不读 process.env（defaultRoots 同口径）', () => {
+  const home = '/home/u'
+  const env = { TELEAGENT_HOME: '/opt/ta', XDG_DATA_HOME: '/xdg' }
+  assert.equal(teleagentDataDir(home, env, 'linux'), '/opt/ta')
+  assert.equal(teleagentUsersDir(home, env, 'linux'), '/opt/ta/' + TELEAGENT_USERS_DIR)
+  assert.equal(teleagentDataDir(home, { XDG_DATA_HOME: '/xdg' }, 'linux'), '/xdg/TeleAgent')
+  assert.equal(teleagentDataDir(home, {}, 'linux'), home + '/.local/share/TeleAgent')
+  // Windows 口径：joinForPlatform 用 win32，盘符绝对路径认（显式构造 win32 期望，不靠 node:path join）
+  const win = { TELEAGENT_HOME: 'C:\\ta' }
+  assert.equal(teleagentDataDir('C:\\Users\\u', win, 'win32'), 'C:\\ta')
+  assert.equal(teleagentUsersDir('C:\\Users\\u', win, 'win32'), 'C:\\ta\\' + TELEAGENT_USERS_DIR)
+})
+
+// defaultRoots：发现层的默认自动发现必须走同一套路径解析（此前 roots 写死
+// ~/.local/share/TeleAgent/users，TELEAGENT_HOME 设置了也不生效——本测试锁住）。
+test('defaultRoots：teleagent 根跟随 TELEAGENT_HOME / XDG_DATA_HOME（默认自动发现接入环境变量）', () => {
+  const home = '/home/u'
+  assert.equal(defaultRoots({ home, env: {} }).teleagent, join(home, '.local', 'share', 'TeleAgent', TELEAGENT_USERS_DIR))
+  assert.equal(
+    defaultRoots({ home, env: { TELEAGENT_HOME: '/opt/ta' } }).teleagent,
+    join('/opt/ta', TELEAGENT_USERS_DIR),
+  )
+  assert.equal(
+    defaultRoots({ home, env: { XDG_DATA_HOME: '/xdg' } }).teleagent,
+    join('/xdg', 'TeleAgent', TELEAGENT_USERS_DIR),
+  )
+  assert.equal(
+    defaultRoots({ home, env: { TELEAGENT_HOME: '/opt/ta', XDG_DATA_HOME: '/xdg' } }).teleagent,
+    join('/opt/ta', TELEAGENT_USERS_DIR),
+  )
+  // 相对路径忽略
+  assert.equal(
+    defaultRoots({ home, env: { TELEAGENT_HOME: 'rel/ta', XDG_DATA_HOME: 'rel/xdg' } }).teleagent,
+    join(home, '.local', 'share', 'TeleAgent', TELEAGENT_USERS_DIR),
+  )
 })
 
 // ── converter 单测 ───────────────────────────────────────────────────────
@@ -226,6 +290,29 @@ test('scanTeleagent：users/ 多账户目录 → 逐账户库出条目；账户�
   const fromAccount = await discoverSessions({ path: accA, format: 'teleagent', host, imports: {} })
   assert.equal(fromAccount.total, 1)
   assert.equal(fromAccount.sessions[0].sessionId, sessions[0].id)
+})
+
+// 默认自动发现（不传 path）：根必须跟随 TELEAGENT_HOME——此前 roots 写死
+// ~/.local/share/TeleAgent/users，环境变量设置了也扫不到自定义目录下的库。
+test('scanTeleagent：默认自动发现走 TELEAGENT_HOME（不传 path 也扫自定义数据根）', async () => {
+  const sessions = teleagentTestSessions()
+  const taHome = mkdtempSync(join(tmpdir(), 'dsh-teleagent-homename-'))
+  const users = join(taHome, TELEAGENT_USERS_DIR)
+  const acc = join(users, 'v1_public_999')
+  makeTeleagentDb(acc, [sessions[0], sessions[1]])
+  const host = discoveryHost()
+
+  const prev = process.env.TELEAGENT_HOME
+  process.env.TELEAGENT_HOME = taHome
+  try {
+    const { sessions: found, total } = await discoverSessions({ format: 'teleagent', host, imports: {} })
+    assert.equal(total, 2)
+    assert.deepEqual(found.map((s) => s.sessionId).sort(), [sessions[0].id, sessions[1].id].sort())
+    for (const s of found) assert.ok(s.sourcePath.startsWith(users), '默认根应指向 TELEAGENT_HOME 的 users/ 层')
+  } finally {
+    if (prev === undefined) delete process.env.TELEAGENT_HOME
+    else process.env.TELEAGENT_HOME = prev
+  }
 })
 
 // ── import_teleagent 集成（mock ctx + 真实临时库）──────────────────────
