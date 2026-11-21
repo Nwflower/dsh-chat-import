@@ -192,3 +192,44 @@ test('externalAgentArguments：空载荷 → {}；标量 input → 走 key:value
   assert.deepEqual(externalAgentArguments('   '), { arguments: '{}', malformed: false })
   assert.deepEqual(externalAgentArguments('input: 42'), { arguments: '{"input":"42"}', malformed: false })
 })
+
+// ── 12. 大量未闭合信封：最坏形状的输出正确性（deja-vu #6099 回补） ──
+// 旧实现对每个信封都从 i+1 扫到文件尾找结尾标记，一串**无尾部**的信封会退化成 O(n²)。
+// 回补后每类标记只做一次完整扫描（noCallTail / noResultTail 置真即跳过）。本测试是**输出
+// 正确性**守卫：最坏形状下所有信封仍留正文、逐条计数、一个字节不丢。线性时间本身是算法
+// 结构性质（每类标记最多扫一次全文），不在此断言计时（CI 计时抖动会误报）。
+test('codex 外部导入信封：大量未闭合 call 全部留正文并逐条计 malformed，不丢内容', () => {
+  const N = 1000
+  const unclosed = Array.from({ length: N }, (_, i) =>
+    `[external_agent_tool_call: Bash]\ncommand: echo ${i}`).join('\n')
+  const out = convertCodexJsonl(session('codex-ext-13', unclosed), { sessionId: 'codex-ext-13' })
+
+  assert.equal(callsOf(out).length, 0)
+  assert.equal(resultsOf(out).length, 0)
+  assert.equal(out.externalAgent.malformed, N)
+  // 全部信封留正文（内容不丢），没有任何 call 尾部混进正文
+  const text = blocksOf(out).flat().filter((b) => b.type === 'text').map((b) => b.text).join('\n')
+  assert.equal(text.includes('[/external_agent_tool_call]'), false)
+  assert.equal((text.match(/\[external_agent_tool_call: Bash\]/g) || []).length, N)
+})
+
+// ── 13. 标记隔离：noCallTail 置真不得误伤后续闭合的 result ──
+// 同一块里一串未闭合 call（置真 noCallTail）之后跟一个闭合的 result：result 的尾部是另一
+// 种标记，必须仍被扫描到并切分成 result 段。若两标记共用一个布尔（一个置真传染另一个），
+// result 会被误判未闭合、吞进正文、malformed 变成 N+1 且 orphanResults=0 —— 本测试即失败。
+test('codex 外部导入信封：未闭合 call 置真 noCallTail 后，闭合 result 仍被还原', () => {
+  const N = 500
+  const unclosed = Array.from({ length: N }, (_, i) =>
+    `[external_agent_tool_call: Bash]\ncommand: echo ${i}`).join('\n')
+  const out = convertCodexJsonl(session('codex-ext-14',
+    unclosed + '\n' + resultEnv('孤立的输出'),
+  ), { sessionId: 'codex-ext-14' })
+
+  // result 被切分出来、找不到配对调用 → 按契约保留原文作正文并计 orphanResults
+  assert.equal(out.externalAgent.orphanResults, 1)
+  // malformed 只计未闭合的 call（N），不得因 result 被误判而变成 N+1
+  assert.equal(out.externalAgent.malformed, N)
+  assert.equal(resultsOf(out).length, 0)
+  const text = blocksOf(out).flat().filter((b) => b.type === 'text').map((b) => b.text).join('\n')
+  assert.equal(text.includes('孤立的输出'), true)
+})
