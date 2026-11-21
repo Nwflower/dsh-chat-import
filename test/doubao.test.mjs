@@ -333,3 +333,37 @@ test('时间：秒 / 毫秒 / 带小数的秒都归一到毫秒', () => {
   const fractional = normalizeDoubaoTask('t', task({ prompt: 'q', reply: 'a', replyTime: 1792575407.552 }), stats)
   assert.equal(fractional.replyTime, 1792575407552)
 })
+
+// ── 2.35+/2.37+ 的真实库漂移（本机 2.35.12 → 2.37.8 逐层实测，见 PR 正文）────────
+
+test('2.35+：协议主键带账户前缀（im-sdk:user:<uid>:）也能提取', () => {
+  const proto = protocolRecord([snapshot({ t1: task({ conversationId: 'conv-9', prompt: '问', reply: '答' }) })])
+  const prefixed = { ...proto, key: 'im-sdk:user:2091696589113404:' + DOUBAO_PROTOCOL_KEY }
+  const { sessions, stats } = extractDoubaoSessions({ records: [prefixed] })
+  assert.equal(sessions.length, 1, `sessions=${JSON.stringify(sessions.map((s) => s.id))}`)
+  assert.equal(sessions[0].turns.length, 1)
+  assert.equal(sessions[0].turns[0].prompt, '问')
+  assert.equal(sessions[0].turns[0].reply, '答')
+  assert.equal(stats.orphanConversations, 1)
+})
+
+test('2.37+：client_meta.conversation_id 空串时从 receivedMessages 的 extra 兜底', () => {
+  const t = task({ conversationId: 'conv-real', prompt: 'q', reply: 'a' })
+  t.requestQuery.syncTask.client_meta.conversation_id = ''
+  t.receivedMessages['msg-1'].extra.conversation_id = 'conv-real'
+  const stats = { skippedBlocks: 0, emptyBlocks: 0 }
+  const normalized = normalizeDoubaoTask('t1', t, stats)
+  assert.ok(normalized, 'normalize 不应返回 null')
+  assert.equal(normalized.conversationId, 'conv-real')
+  const { sessions } = extractDoubaoSessions({ records: [protocolRecord([snapshot({ t1: t })])] })
+  assert.equal(sessions.length, 1)
+  assert.equal(sessions[0].id, 'conv-real')
+})
+
+test('裸键与带前缀键并存时只取协议记录，无关键不误收', () => {
+  const proto = protocolRecord([snapshot({ t1: task({ conversationId: 'conv-9', prompt: 'q', reply: 'a' }) })])
+  const decoy = { ...proto, key: 'some-other:default-chat-im-protocol-store', value: { state: { mainTaskDataMap: {} }, version: 1 } }
+  const { sessions } = extractDoubaoSessions({ records: [proto, decoy] })
+  assert.equal(sessions.length, 1)
+  assert.equal(sessions[0].turns.length, 1)
+})
