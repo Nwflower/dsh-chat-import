@@ -228,6 +228,38 @@ test('scanTeleagent：users/ 多账户目录 → 逐账户库出条目；账户�
   assert.equal(fromAccount.sessions[0].sessionId, sessions[0].id)
 })
 
+// 单账户失败隔离（对齐 deja-vu #6128 的 LoadTeleagent / dbRead 行为）：一个账户的库读取抛错
+// 只跳过该账户并记入 warnings，**不拖垮其余账户**——否则 scanFormat 在外层 catch 后整个
+// teleagent 格式返回 []，正常账户的会话也全丢。
+test('scanTeleagent：单账户库损坏只跳过该账户，其余账户照常发现并上报一个警告', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-teleagent-root-'))
+  const users = join(root, TELEAGENT_USERS_DIR)
+  const accGood1 = join(users, 'v1_public_111')
+  const accBad = join(users, 'v1_public_222')
+  const accGood2 = join(users, 'v1_public_333')
+  const sessions = teleagentTestSessions()
+  makeTeleagentDb(accGood1, [sessions[0]])
+  makeTeleagentDb(accGood2, [sessions[1]])
+  // 损坏账户：目录在、库文件也在，但是非 SQLite 字节（真实损坏库）→ 读取器（diskHost 的
+  // readTeleagentDb → readOpencodeDb → node:sqlite）抛「not a database」。这正是 scanSqlite →
+  // probeSource → host.readSessions 的真实异常路径。
+  const badPath = join(accBad, TELEAGENT_DB_NAME)
+  mkdirSync(accBad, { recursive: true })
+  writeFileSync(badPath, 'definitely not a sqlite database')
+  const host = discoveryHost()
+
+  const { sessions: found, total, warnings } = await discoverSessions({ path: root, format: 'teleagent', host, imports: {} })
+  // 两个正常账户的会话都在，损坏账户被跳过（会话本身不是「发现失败」）
+  assert.equal(total, 2)
+  assert.deepEqual(found.map((s) => s.sessionId).sort(), [sessions[0].id, sessions[1].id].sort())
+  // 报告了一个警告：target 是扫描目标（数据根，与 ctx.warn 契约一致），错误正文里带损坏账户
+  // 的库路径（否则单账户失败看不出是哪个账户坏了）
+  assert.equal(warnings.length, 1)
+  assert.equal(warnings[0].format, 'teleagent')
+  assert.match(String(warnings[0].error), /v1_public_222/)
+  assert.match(String(warnings[0].error), /not a database/i)
+})
+
 // ── import_teleagent 集成（mock ctx + 真实临时库）──────────────────────
 
 test('import_teleagent 单库：恒批量、落盘、归组、schema 校验', async () => {
