@@ -207,10 +207,10 @@ test('codex 外部导入信封：大量未闭合 call 全部留正文并逐条�
   assert.equal(callsOf(out).length, 0)
   assert.equal(resultsOf(out).length, 0)
   assert.equal(out.externalAgent.malformed, N)
-  // 全部信封留正文（内容不丢），没有任何 call 尾部混进正文
+  // 全部信封留正文：正文必须与输入逐字相同——只看信封头计数会漏掉「头还在、载荷被吞」
+  // 这类回归；整段相等同时覆盖 N 条 command 的内容与行序、且不含任何 call 尾部标记
   const text = blocksOf(out).flat().filter((b) => b.type === 'text').map((b) => b.text).join('\n')
-  assert.equal(text.includes('[/external_agent_tool_call]'), false)
-  assert.equal((text.match(/\[external_agent_tool_call: Bash\]/g) || []).length, N)
+  assert.equal(text, unclosed)
 })
 
 // ── 13. 标记隔离：noCallTail 置真不得误伤后续闭合的 result ──
