@@ -360,10 +360,16 @@ test('2.37+：client_meta.conversation_id 空串时从 receivedMessages 的 extr
   assert.equal(sessions[0].id, 'conv-real')
 })
 
-test('裸键与带前缀键并存时只取协议记录，无关键不误收', () => {
+test('裸键与冒号后缀诱饵并存时只取协议记录，诱饵带正文也不误收', () => {
   const proto = protocolRecord([snapshot({ t1: task({ conversationId: 'conv-9', prompt: 'q', reply: 'a' }) })])
-  const decoy = { ...proto, key: 'some-other:default-chat-im-protocol-store', value: { state: { mainTaskDataMap: {} }, version: 1 } }
+  // 诱饵故意带非空任务数据：过滤器若只认「: + 裸键」后缀，这里会多导出一个 conv-decoy 会话。
+  // 注意 versions 优先于 value（collectDoubaoTasks），诱饵必须用自己的一整条记录，不能从 proto 展开。
+  const decoy = {
+    ...protocolRecord([snapshot({ t9: task({ conversationId: 'conv-decoy', prompt: '不该出现', reply: '不该出现' }) })]),
+    key: 'some-other:default-chat-im-protocol-store',
+  }
   const { sessions } = extractDoubaoSessions({ records: [proto, decoy] })
   assert.equal(sessions.length, 1)
+  assert.deepEqual(sessions.map((s) => s.id), ['conv-9'])
   assert.equal(sessions[0].turns.length, 1)
 })
