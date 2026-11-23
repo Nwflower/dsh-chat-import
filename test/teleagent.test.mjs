@@ -419,3 +419,74 @@ test('import_teleagent：非 SQLite 库 / 缺 DB 目录 → 大声失败', async
   // 目录里没有 teleagent.db → 打开 <dir>/teleagent.db 失败（CANTOPEN），同样大声
   await assert.rejects(() => def.execute({ path: bogus }), /unable to open database file|not a database|SQLITE/i)
 })
+
+test('import_teleagent 多账户目录：数据根与 users/ 逐账户导入并汇总，重导幂等', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-teleagent-multi-'))
+  const users = join(root, TELEAGENT_USERS_DIR)
+  const accA = join(users, 'v1_public_111')
+  const accB = join(users, 'v1_public_222')
+  const sessions = teleagentTestSessions()
+  makeTeleagentDb(accA, [sessions[0]])
+  makeTeleagentDb(accB, [sessions[1]])
+
+  const { ctx, persistence } = makeCtx({}, { real: true })
+  apply(ctx)
+  const def = chatDef(ctx, 'teleagent')
+
+  // 传 TeleAgent/ 数据根：自动下钻 users/<账户>/teleagent.db 逐库导入
+  const first = await def.execute({ path: root })
+  assert.equal(first.mode, 'batch')
+  assert.equal(first.total, 2)
+  assert.equal(first.imported, 2)
+  assert.equal(first.failed, 0)
+  assert.equal(persistence.sessions.size, 2)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, first), [])
+
+  // 传 users/ 目录重导：全部命中已导入
+  const again = await def.execute({ path: users })
+  assert.equal(again.mode, 'batch')
+  assert.equal(again.total, 2)
+  assert.equal(again.imported, 0)
+  assert.equal(again.alreadyImported, 2)
+  assert.equal(persistence.sessions.size, 2)
+})
+
+test('import_teleagent 多账户目录：单账户库损坏只隔离失败该账户，其余账户照常导入与预览', async () => {
+  const root = mkdtempSync(join(tmpdir(), 'dsh-teleagent-isolate-'))
+  const users = join(root, TELEAGENT_USERS_DIR)
+  const accGood1 = join(users, 'v1_public_111')
+  const accBad = join(users, 'v1_public_222')
+  const accGood2 = join(users, 'v1_public_333')
+  const sessions = teleagentTestSessions()
+  makeTeleagentDb(accGood1, [sessions[0]])
+  makeTeleagentDb(accGood2, [sessions[1]])
+  mkdirSync(accBad, { recursive: true })
+  writeFileSync(join(accBad, TELEAGENT_DB_NAME), 'definitely not a sqlite database')
+
+  const { ctx, persistence } = makeCtx({}, { real: true })
+  apply(ctx)
+  const def = chatDef(ctx, 'teleagent')
+
+  // dryRun 预览：不落盘，正常账户列出会话、损坏账户记为 failed
+  const preview = await def.execute({ path: root, dryRun: true })
+  assert.equal(preview.mode, 'batch')
+  assert.equal(preview.total, 2)
+  assert.equal(persistence.sessions.size, 0)
+  const badPreview = preview.results.find((r) => r.status === 'failed')
+  assert.ok(badPreview, '预览应报告损坏账户失败')
+  assert.match(badPreview.path, /v1_public_222/)
+  assert.match(badPreview.error, /not a database/i)
+
+  // 正式导入：两个正常账户全部落盘，损坏账户只计 failed=1 不拖垮其余
+  const imported = await def.execute({ path: root })
+  assert.equal(imported.mode, 'batch')
+  assert.equal(imported.total, 2)
+  assert.equal(imported.imported, 2)
+  assert.equal(imported.failed, 1)
+  assert.equal(persistence.sessions.size, 2)
+  assert.deepEqual(validateJsonSchemaValue(def.output.schema, imported), [])
+  const badItem = imported.results.find((r) => r.status === 'failed')
+  assert.ok(badItem)
+  assert.match(badItem.path, /v1_public_222/)
+  assert.match(badItem.error, /not a database/i)
+})
