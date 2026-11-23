@@ -82,6 +82,30 @@ publishing.
 - PRs are welcome for new import sources, fidelity upgrades, and the items on
   [ROADMAP.md](ROADMAP.md).
 
+## New & long-tail agent sources
+
+`dsh-chat-import` is built for users who can code independently — or build
+features directly with an AI coding agent. Maintainers do not have every
+third-party client installed locally and cannot verify unfamiliar or proprietary
+storage layouts on demand.
+
+- **Long-tail / niche agent sources must be contributed via Pull Request**, not
+  as bare "please add X" feature-request issues. Issues requesting a long-tail
+  source without an accompanying PR will be closed with a pointer to this guide.
+- **How to contribute a source:** point your coding agent at the *"新增一个来源"*
+  checklist in [AGENTS.md](../AGENTS.md) and the design decisions in
+  [architecture.md](architecture.md). A complete PR includes:
+  1. Pure converter in `lib/convert/<src>.mjs` (reusing shared helpers or a
+     same-family engine where applicable) and host/SQLite adapter in
+     `lib/sources/<src>.mjs` if needed.
+  2. Registration across toolkit, import specs, discovery, titles, client
+     panel, types, docs, and icon wall.
+  3. **Synthetic** fixtures and unit/integration tests covering converter,
+     discovery, and tool execution.
+  4. All local gates passing (`npm test`, `npm run lint`, `npm run check:linux`,
+     `npm run check:links`, `npm run build`).
+- Maintainers take care of code review, merging, and releasing.
+
 ## Security & privacy
 
 Never commit credentials, real user transcripts, or anything under `dev/` (the

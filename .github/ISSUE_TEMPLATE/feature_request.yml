@@ -1,7 +1,13 @@
 name: Feature request
-description: Propose a new import source, fidelity upgrade, or workflow improvement
+description: Propose a fidelity upgrade, workflow improvement, or core feature
 labels: [enhancement]
 body:
+  - type: markdown
+    attributes:
+      value: |
+        > **长尾 Agent 来源请直接提 PR / Long-tail agent sources require a PR**
+        >
+        > 本插件面向具备（或在 AI 辅助下具备）独立编程能力的用户，维护者本地并未安装所有第三方客户端。**新增小众/长尾 Agent 来源请直接由你或你的 Agent 按 [`AGENTS.md`](https://github.com/Nwflower/dsh-chat-import/blob/main/AGENTS.md) 和 [`docs/CONTRIBUTING.md`](https://github.com/Nwflower/dsh-chat-import/blob/main/docs/CONTRIBUTING.md) 实现并提交 PR**，维护者负责评审、合并与发布。仅许愿「希望支持 XX」的 Issue 将被直接关闭。
   - type: textarea
     id: motivation
     attributes:
