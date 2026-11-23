@@ -2,6 +2,36 @@
 
 All notable changes to `dsh-chat-import` are documented here, newest first.
 
+## [0.26.9] - 2026-11-23
+
+[中文](#cn-0.26.9) | [English](#en-0.26.9)
+
+<h3 id="cn-0.26.9">问题修复</h3>
+
+- **豆包 2.35 / 2.37+ 协议主键与会话 ID 字段漂移适配（`format: "doubao"`）**：新版豆包桌面端给协议存储主键加上了账户前缀 `im-sdk:user:<uid>:default-chat-im-protocol-store`，并在 2.37+ 将 `client_meta.conversation_id` 写为空串（真实会话 ID 位于 `receivedMessages` 各条消息的 `extra.conversation_id`），此前导致新版豆包库提取出 0 条会话。现在协议记录同时匹配旧版裸键与整键锚定的账户前缀形态（`uid` 段不含冒号，不误收共享后缀的无关键），`client_meta.conversation_id` 为空时自动回退取首条非空的 `extra.conversation_id`。
+- **豆包 IndexedDB V8 反序列化补齐对象引用表槽位**：`deserializeV8` 解析 `RegExp`、包装 `String` 与 `BigInt` 对象后此前未登记进对象引用表，会导致后续所有 `kObjectReference` 索引整体错位、取到错误对象或 `undefined`；现为三类对象补占槽位，同时为 `logRecords` 的 `stats.goodFrames` 补充空值保护。
+- **TeleAgent 多账户目录导入、单账户故障隔离与环境变量自动发现（`format: "teleagent"`）**：`import_chat` 与 `dryRun` 预览的目录模式现在同时支持单账户目录、`users/` 多账户目录与 `TeleAgent/` 数据根，逐账户枚举 `<account>/teleagent.db` 导入并汇总；多账户扫描或导入中某个账户的库损坏时只隔离跳过该账户（发现层记入带账户路径的警告、导入层记入 `failed`），不再拖垮其余正常账户（显式指向单账户或单库仍大声报错）。发现层与导入层现共用同一套路径解析（`TELEAGENT_HOME` > `XDG_DATA_HOME/TeleAgent` > `~/.local/share/TeleAgent`，仅认绝对路径），设置环境变量后不传 `path` 的默认自动发现即可生效。
+- **opencode V2 读取器兼容 `session_v2` 缺 `model` 列（TeleAgent V2 形态）**：`readOpencodeV2` 此前写死 `SELECT ... model FROM session_v2`，遇到无 `model` 列的 V2 库直接失败；现按表列探测降级查询，会话级模型回退 `undefined`，消息级继续从 `data.modelID` 读取。
+- **Codex 外部导入信封扫描收敛为线性时间**：`splitExternalAgentEnvelopes` 遇到大量未闭合的外部工具调用 / 结果信封时此前逐条向后扫描至文件尾（最坏复杂度 O(n²)）；现按标记类别记录「剩余文本已无闭合标记」，每类最多扫一次全文，保留正文内容与 `malformed` 计数口径不变。
+
+### 其他变更
+
+- **明确长尾 Agent 来源通过 PR 贡献**：更新 `docs/CONTRIBUTING.md` 与功能请求 Issue 模板，说明新增小众 / 长尾 Agent 来源请按 `AGENTS.md` 清单直接提交 PR，由维护者负责评审、合并与发布。
+
+<h3 id="en-0.26.9">Bug Fixes</h3>
+
+- **Doubao 2.35 / 2.37+ key and conversation-ID drift (`format: "doubao"`)**: newer Doubao Desktop builds prefixed the protocol-store key as `im-sdk:user:<uid>:default-chat-im-protocol-store` and began writing `client_meta.conversation_id` as an empty string in 2.37+ (moving the ID to each received message's `extra.conversation_id`), causing affected stores to extract zero sessions. Protocol records now match both the legacy bare key and the exact anchored account-prefixed shape (with a colon-free `uid` segment so unrelated suffix-sharing keys are not picked up), and `normalizeDoubaoTask` falls back to the first non-empty `extra.conversation_id` when `client_meta.conversation_id` is empty.
+- **Doubao IndexedDB V8 deserializer registers RegExp / String / BigInt wrapper object references**: `deserializeV8` previously omitted `V8_REGEXP`, `V8_STRING_OBJECT`, and `V8_BIGINT_OBJECT` from the object reference table, shifting every subsequent `kObjectReference` index off by one; all three now occupy their reference-table slots, and `logRecords` guards `stats.goodFrames` against a missing `stats` argument.
+- **TeleAgent multi-account directory import, per-account failure isolation, and env-aware discovery (`format: "teleagent"`)**: `import_chat` and `dryRun` preview in directory mode now accept a single account directory, the `users/` directory, or the `TeleAgent/` data root, importing each `<account>/teleagent.db` and aggregating results. During multi-account discovery or import, a corrupted account database is isolated and skipped (reported as a warning with the account path in discovery, or counted in `failed` during import) without failing healthy sibling accounts, while explicit single-account or single-file targets still fail loudly. Discovery and import now share the same path resolver (`TELEAGENT_HOME` > `XDG_DATA_HOME/TeleAgent` > `~/.local/share/TeleAgent`, absolute paths only), so default auto-discovery respects both environment variables.
+- **opencode V2 reader tolerates `session_v2` tables without a `model` column (TeleAgent V2 layout)**: `readOpencodeV2` previously hardcoded `SELECT ... model FROM session_v2`, failing on V2 databases without that column; it now probes table columns first, falling back to `undefined` for the session-level model while preserving message-level `data.modelID`.
+- **Codex external-agent envelope scanning bounded to linear time**: `splitExternalAgentEnvelopes` previously rescanned to the end of the text for every unclosed envelope (O(n²) worst case); it now tracks absence of each tail marker kind separately so each kind scans the remainder at most once, with identical output text and `malformed` counts.
+
+### Chores
+
+- **Clarify PR-first policy for long-tail agent sources**: updated `docs/CONTRIBUTING.md` and the feature-request issue template to state that new niche / long-tail agent sources should be contributed directly via PR following the `AGENTS.md` checklist.
+
+**Full Changelog**: [v0.26.8...v0.26.9](https://github.com/Nwflower/dsh-chat-import/compare/v0.26.8...v0.26.9)
+
 ## [0.26.8] - 2026-11-18
 
 [中文](#cn-0.26.8) | [English](#en-0.26.8)
