@@ -464,6 +464,60 @@ test('deserializeV8：Date / 包装对象 / 正则', () => {
   assert.equal(deserializeV8(strObj, 0).value, 'inner')
 })
 
+test('deserializeV8：正则占用对象引用表槽位（后续引用不整体错位）', () => {
+  // 外层对象 id=0、正则 id=1、内层对象 id=2：最后一条引用必须解析到内层对象。
+  // 正则若不占槽位，内层对象会顶到 id=1、引用 id=2 落到表外（undefined），
+  // 其后所有引用同理整体错位。
+  const reStream = Buffer.concat([
+    Buffer.from([0x52]), // kRegExp
+    v8OneByteString('foo.*'),
+    Buffer.from([0x01]), // flags：本层不解释，但要吃掉
+  ])
+  const stream = Buffer.concat([
+    Buffer.from([0x6f]), // 外层对象（id=0）
+    v8OneByteString('re'),
+    reStream,
+    v8OneByteString('target'),
+    Buffer.from([0x6f]), // 内层对象（id=2）
+    v8OneByteString('k'),
+    v8OneByteString('v'),
+    Buffer.from([0x7b, 0x02]), // kEndJSObject + numProperties
+    v8OneByteString('again'),
+    Buffer.from([0x5e, 0x02]), // kObjectReference id=2
+    Buffer.from([0x7b, 0x06]),
+  ])
+  const value = deserializeV8(stream, 0).value
+  assert.ok(value.re instanceof RegExp)
+  assert.equal(value.re.source, 'foo.*')
+  assert.equal(value.again, value.target)
+  assert.equal(value.again.k, 'v')
+})
+
+test('deserializeV8：字符串对象 / BigInt 对象也占对象引用表槽位', () => {
+  // 外层对象 id=0、字符串对象 id=1、BigInt 对象 id=2。
+  // refWrap 必须取回 "doubao"；refBig 取回 BigInt 的 null 占位——两条引用
+  // 同时成立才说明两个包装对象都占了槽位。
+  const strObj = Buffer.concat([Buffer.from([0x73]), v8OneByteString('doubao')])
+  const bigObj = Buffer.from([0x7a, 0x02, 1, 0, 0, 0, 0, 0, 0, 0])
+  const stream = Buffer.concat([
+    Buffer.from([0x6f]),
+    v8OneByteString('wrap'),
+    strObj,
+    v8OneByteString('big'),
+    bigObj,
+    v8OneByteString('refWrap'),
+    Buffer.from([0x5e, 0x01]), // kObjectReference id=1
+    v8OneByteString('refBig'),
+    Buffer.from([0x5e, 0x02]), // kObjectReference id=2
+    Buffer.from([0x7b, 0x08]),
+  ])
+  const value = deserializeV8(stream, 0).value
+  assert.equal(value.wrap, 'doubao')
+  assert.equal(value.refWrap, 'doubao')
+  assert.equal(value.big, null)
+  assert.equal(value.refBig, null)
+})
+
 test('deserializeV8：ArrayBuffer / 可变 ArrayBuffer', () => {
   const ab = Buffer.concat([Buffer.from([0x42]), varintBytes(3), Buffer.from([1, 2, 3])])
   assert.deepEqual([...deserializeV8(ab, 0).value], [1, 2, 3])
