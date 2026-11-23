@@ -126,6 +126,42 @@ test('readOpencodeDb：纯 V2 库（无 V1 三表）也能读', () => {
   assert.equal(sessions.length, 3)
 })
 
+// teleagent（opencode 派生）的 session_v2 表**没有 model 列**（deja-vu #6128 fixture 实测，
+// DCI 的 V1 路径对 mimocode/teleagent 已有同款列探测）：无 model 列时读取器必须降级为不
+// SELECT model，否则抛「no such column: model」，teleagent V2 库整库读不了。
+test('readOpencodeV2：session_v2 无 model 列（teleagent 形态）降级读取，会话级 model 回退 undefined', () => {
+  const dbPath = tmpDbPath('teleagent-v2-nomodel.db')
+  const db = new DatabaseSync(dbPath)
+  // 按 deja-vu #6128 fixtures/registry/teleagent/teleagent.sql 的列集（无 model / cost / tokens）
+  db.exec('CREATE TABLE session_v2 (id TEXT PRIMARY KEY, project_id TEXT, parent_id TEXT, directory TEXT, title TEXT, version TEXT, time_created INTEGER, time_updated INTEGER)')
+  db.exec('CREATE TABLE session_message (id TEXT PRIMARY KEY, session_id TEXT, type TEXT, seq INTEGER, time_created INTEGER, time_updated INTEGER, data TEXT)')
+  db.prepare('INSERT INTO session_v2 VALUES (?,?,?,?,?,?,?,?)')
+    .run('ses_ta_v2', 'proj_demo', null, hostAbs('/workspace/teleagent-service'), 'Fix token refresh race', '0.1.0', 1752915600000, 1752915605000)
+  db.prepare('INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?,?,?,?,?,?,?)')
+    .run('msg_ta_1', 'ses_ta_v2', 'user', 1, 1752915600000, 1752915600000, JSON.stringify({ type: 'user', text: 'Why do concurrent requests fail?' }))
+  db.prepare('INSERT INTO session_message (id, session_id, type, seq, time_created, time_updated, data) VALUES (?,?,?,?,?,?,?)')
+    .run('msg_ta_2', 'ses_ta_v2', 'assistant', 2, 1752915605000, 1752915605000, JSON.stringify({
+      type: 'assistant',
+      model: { providerID: 'teleai', id: 'tele-chat' },
+      content: [{ type: 'text', text: 'Guard with a singleflight group.' }],
+    }))
+  db.close()
+
+  // 不抛「no such column: model」；会话级 model 无列 → undefined，消息级从 data.model.id 取
+  const sessions = readOpencodeDb(dbPath)
+  assert.equal(sessions.length, 1)
+  assert.equal(sessions[0].title, 'Fix token refresh race')
+  assert.equal(sessions[0].model, undefined)
+  const assistant = sessions[0].messages.find((m) => m.role === 'assistant')
+  assert.equal(assistant.modelID, 'tele-chat')
+  assert.equal(assistant.parts[0].text, 'Guard with a singleflight group.')
+
+  // 发现层摘要（readOpencodeDbSummaries）本就不 SELECT model，同样不受影响
+  const summaries = readOpencodeDbSummaries(dbPath)
+  assert.equal(summaries.length, 1)
+  assert.equal(summaries[0].title, 'Fix token refresh race')
+})
+
 // ── 消息映射 ─────────────────────────────────────────────────────────────
 
 test('readOpencodeV2：user 文本/附件、assistant content、tool 输出、注入文本映射成 V1 同形中间 JSON', () => {
